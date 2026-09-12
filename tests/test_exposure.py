@@ -76,6 +76,34 @@ def test_no_package_is_both_exposed_and_reviewed_safe():
     assert not (exposed & safe), f"listed as both exposed and safe: {sorted(exposed & safe)}"
 
 
+def test_mature_entries_keep_their_exposure_category():
+    """`stable.mature` is deliberately the one overlap: these packages are at a
+    trust boundary and complete by design, so they keep the category and lose
+    only the age-based reasoning."""
+    raw = _raw_map()
+    exposed = {_norm(p) for block in raw["category"].values() for p in block["packages"]}
+    for name in raw["stable"].get("mature", []):
+        assert _norm(name) in exposed, f"{name} is mature but has no exposure category"
+
+
+def test_a_mature_library_is_exempt_from_age_but_not_from_facts():
+    m = load_exposure_map()
+    assert m.lookup("defusedxml").is_exposed, "defusedxml still parses untrusted XML"
+    assert m.is_known_stable("defusedxml"), "age signals should not apply to it"
+
+
+def test_command_line_parsers_are_not_trust_boundaries():
+    """`argparse` was escalated because a "parser" keyword hint matched
+    "command line parser". Parsing argv is not a trust boundary."""
+    m = load_exposure_map()
+    assert not m.lookup("argparse").is_exposed
+    result = m.lookup("some-cli-tool", {
+        "summary": "A command line parser for humans",
+        "keywords": "cli parser parsing argv",
+    })
+    assert not result.is_exposed, "generic parser wording must not imply exposure"
+
+
 def test_no_duplicate_entries_within_the_map():
     raw = _raw_map()
     for name, block in raw["category"].items():

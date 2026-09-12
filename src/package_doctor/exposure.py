@@ -56,7 +56,6 @@ _KEYWORD_HINTS: tuple[tuple[str, str], ...] = (
     ("password", "auth/session"),
     ("deserializ", "deserialization"),
     ("sanitiz", "html/xml parsing"),
-    ("parser", "parsing"),
 )
 
 
@@ -80,6 +79,12 @@ class ExposureMap:
         self._reviewed_safe = {
             normalise(str(n)) for n in ((data.get("reviewed") or {}).get("not_exposed") or [])
         }
+        # At a trust boundary AND deliberately finished. Keeps the exposure
+        # category - these packages genuinely handle untrusted input - while
+        # exempting them from age-based reasoning.
+        self._mature = {
+            normalise(str(n)) for n in ((data.get("stable") or {}).get("mature") or [])
+        }
 
     @property
     def size(self) -> int:
@@ -96,8 +101,14 @@ class ExposureMap:
         return key in self._by_package or key in self._stable or key in self._reviewed_safe
 
     def is_known_stable(self, name: str) -> bool:
-        """True for finished-not-abandoned utilities that age-based rules mis-flag."""
-        return normalise(name) in self._stable
+        """True for packages where release age carries no information.
+
+        Covers finished utilities away from any trust boundary, and libraries
+        that are at one but are complete by design. Suppresses weak signals
+        only: an archived repository or an unfixed advisory still escalates.
+        """
+        key = normalise(name)
+        return key in self._stable or key in self._mature
 
     def describe(self, label: str) -> str:
         for key, value in self._labels.items():

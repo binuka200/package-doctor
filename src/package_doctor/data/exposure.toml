@@ -243,6 +243,20 @@ packages = [
 # unfixed advisory.
 
 [stable]
+# At a trust boundary and complete by design. These keep their exposure
+# category but are exempt from age-based reasoning, because "no release in
+# three years" is the intended state rather than a warning sign.
+#
+# A package only belongs here with: no advisory history at all, an unarchived
+# repository, and a maintainer position that the library is finished. An
+# archived repo or an unfixed advisory still escalates it immediately.
+#
+# defusedxml is the case that forced this list: it is the PSF-recommended
+# defence against XML attacks, has never had an advisory, and was being
+# reported as "exposed + no one home" - advice that would push someone toward
+# a less safe parser.
+mature = ["defusedxml"]
+
 packages = [
   "annotated-types", "appdirs", "attrs", "backports-abc", "colorama", "contextlib2",
   "decorator", "distlib", "enum34", "filelock", "funcsigs", "future", "humanize",
@@ -365,4 +379,5 @@ not_exposed = [
   "virtualenv",                   # environment creation
   "wrapt",                        # decorators and monkey patching
   "xxhash",                       # non-cryptographic hash, despite the name
+  "argparse",                     # stdlib since 3.2; the PyPI package is a legacy backport
 ]
