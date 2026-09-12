@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and into a cycle of pruning fresh entries and refetching them. Reduced
   entries live under a new cache key; old ones expire on their own.
 
+- A response over the size cap is now its own outcome. It was reported as
+  "not found on PyPI", which was untrue, and never cached, so every run
+  re-downloaded the body just to abandon it. It is now reported as too large
+  to read, remembered for the cache lifetime, and the package's advisories
+  are still counted from OSV. PyPI's cap is 64 MB, above the 32 MB default,
+  because its body is reduced the moment it is parsed; the largest today is
+  12.6 MB.
+
 ### Measured
 
 - Advisory version matching agrees with OSV's own version-scoped query on 40/40

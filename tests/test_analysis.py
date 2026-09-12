@@ -86,3 +86,48 @@ async def test_one_failing_package_does_not_abort_the_scan(monkeypatch):
     assert len(findings) == 2
     assert all(f.error for f in findings)
     assert all(f.verdict is Verdict.UNKNOWN for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_a_pypi_body_over_the_cap_is_a_gap_not_a_missing_package(monkeypatch):
+    """The package exists; its metadata was too big to read. Saying "not found"
+    was untrue, and the advisories - which come from OSV - must still count."""
+    from package_doctor.sources.client import ResponseTooLarge
+
+    vuln = {
+        "id": "GHSA-big",
+        "affected": [{"package": {"name": "pillow"}, "versions": ["10.0.0"]}],
+    }
+    analyzer = build(monkeypatch, vulns=[vuln])
+
+    class TooBig:
+        async def fetch(self, name):
+            raise ResponseTooLarge("https://pypi.org/pypi/pillow/json", 64 * 1024 * 1024)
+
+    analyzer.pypi = TooBig()
+    finding = await analyzer.analyze(Package(name="pillow", version="10.0.0"), NOW)
+    assert finding.error == "PyPI response too large to read (64 MB cap)"
+    assert finding.error in finding.remediation.gaps
+    assert "not found on PyPI" not in finding.remediation.gaps
+    assert finding.remediation.advisories.affecting_current == 1
+    assert finding.verdict is Verdict.ACT, "a known-vulnerable pin does not look clean"
+
+
+@pytest.mark.asyncio
+async def test_an_osv_body_over_the_cap_lands_in_unknown_not_clean(monkeypatch):
+    """"No advisories" is a claim. If the answer could not be read, the
+    package must not be reported as if it had none."""
+    from package_doctor.sources.client import ResponseTooLarge
+    from package_doctor.sources.osv import OSVSource
+
+    class Cli:
+        async def post_json(self, *a, **kw):
+            raise ResponseTooLarge("https://api.osv.dev/v1/query", 1)
+
+    analyzer = build(monkeypatch, pypi={"info": {}, "releases": {}})
+    analyzer.osv = OSVSource(Cli())
+    [finding] = await analyzer.analyze_all([Package(name="pillow", version="10.0.0")], NOW)
+    assert finding.error and "OSV response too large" in finding.error
+    assert finding.verdict is Verdict.UNKNOWN
+    assert finding.remediation.advisories.total == 0
+    assert not finding.remediation.advisories.has_signal

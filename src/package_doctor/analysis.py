@@ -8,7 +8,7 @@ import datetime as dt
 from .exposure import ExposureMap
 from .models import Finding, Package, Remediation
 from .risk import Thresholds, assess
-from .sources.client import Client
+from .sources.client import Client, ResponseTooLarge
 from .sources.ecosystems import EcosystemsSource
 from .sources.exploitability import ExploitabilitySource
 from .sources.osv import OSVSource, build_history
@@ -31,23 +31,45 @@ class Analyzer:
         self.thresholds = thresholds or Thresholds()
         self.skip_repo = skip_repo
 
+    async def _fetch_pypi(self, name: str) -> tuple[dict | None, str | None]:
+        """PyPI metadata, or the reason there is none.
+
+        "Not found" and "too large to read" are different facts, and the
+        second is not the package's fault. Both are gaps, never bad scores.
+        """
+        try:
+            data = await self.pypi.fetch(name)
+        except ResponseTooLarge as exc:
+            return None, f"PyPI response too large to read ({exc.limit // (1024 * 1024)} MB cap)"
+        if data is None:
+            return None, "not found on PyPI"
+        return data, None
+
     async def analyze(self, package: Package, now: dt.datetime) -> Finding:
-        pypi_data, vulns = await asyncio.gather(
-            self.pypi.fetch(package.name),
+        (pypi_data, pypi_gap), vulns = await asyncio.gather(
+            self._fetch_pypi(package.name),
             self.osv.fetch(package.name),
         )
 
         remediation = Remediation()
 
         if pypi_data is None:
-            remediation.gaps.append("not found on PyPI")
+            remediation.gaps.append(pypi_gap or "not found on PyPI")
+            # Advisories come from OSV and do not depend on PyPI answering, so
+            # they are still counted: metadata being unavailable must not make
+            # a known-vulnerable pin look clean.
+            remediation.advisories = build_history(package.name, vulns, {}, package.version)
+            if remediation.advisories.cves_affecting_current:
+                remediation.exploitability = await self.exploit.assess(
+                    remediation.advisories.cves_affecting_current
+                )
             exposure = self.exposure_map.lookup(package.name)
             finding = assess(
                 package, exposure, remediation,
                 now=now, thresholds=self.thresholds,
                 known_stable=self.exposure_map.is_known_stable(package.name),
             )
-            finding.error = "not found on PyPI"
+            finding.error = pypi_gap
             return finding
 
         info = pypi_data.get("info") or {}

@@ -24,7 +24,7 @@ from typing import Any
 from packaging.version import InvalidVersion, Version
 
 from ..models import AdvisoryHistory
-from .client import Client
+from .client import Client, ResponseTooLarge
 from .exploitability import CVE_ID
 from .pypi import normalise, parse_ts
 
@@ -109,11 +109,21 @@ class OSVSource:
         self.client = client
 
     async def fetch(self, name: str) -> list[dict[str, Any]]:
-        data = await self.client.post_json(
-            OSV_QUERY,
-            {"package": {"name": name, "ecosystem": "PyPI"}},
-            cache_key=f"osv:{normalise(name)}",
-        )
+        """Advisories for a package.
+
+        An over-cap response propagates rather than becoming an empty list:
+        "no advisories" is a claim, and one this tool must not make because
+        it could not read the answer. The analyzer turns it into an error on
+        the finding and a gap, which lands the package in *unknown*.
+        """
+        try:
+            data = await self.client.post_json(
+                OSV_QUERY,
+                {"package": {"name": name, "ecosystem": "PyPI"}},
+                cache_key=f"osv:{normalise(name)}",
+            )
+        except ResponseTooLarge as exc:
+            raise RuntimeError(f"OSV response too large to read: {exc}") from exc
         if not isinstance(data, dict):
             return []
         vulns = data.get("vulns")

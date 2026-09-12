@@ -11,6 +11,17 @@ from .client import Client
 
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
 
+#: PyPI's own response cap, above the client default.
+#:
+#: The JSON body lists every file of every release and is the one response in
+#: this tool that grows without bound: pydantic-core was 12.6 MB at the time
+#: of writing and gaining about 3 MB a year. The body is reduced to a few
+#: kilobytes the moment it is parsed, so the cost of a larger cap is transient
+#: memory and nothing else - but the parsed form of JSON is several times the
+#: size of the bytes, which is why this stops at 64 MB rather than going
+#: higher.
+PYPI_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
 #: Fields of ``info`` the tool reads. Everything else - the long description,
 #: the author list, the URL table for every file - is dropped before caching.
 _INFO_FIELDS = (
@@ -136,6 +147,7 @@ class PyPISource:
             # as if they were reduced or kept alive by being looked up.
             cache_key=f"pypi:v2:{normalise(name)}",
             reduce=reduce_pypi,
+            max_bytes=PYPI_MAX_RESPONSE_BYTES,
         )
         if data is None or Client.is_missing(data):
             return None

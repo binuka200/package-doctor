@@ -27,9 +27,13 @@ limits the blast radius, but the following are real and worth reporting:
   misleading results into `~/.cache/package-doctor/`. The cache is created
   `0600`, since which packages you scan says something about projects you may
   not have published.
-- **Unbounded responses.** Bodies above 32 MB are abandoned mid-stream. Every
+- **Unbounded responses.** Bodies above 32 MB are abandoned mid-stream, or
+  64 MB for PyPI, whose release list is the one response that grows without
+  bound and is reduced to a few kilobytes the moment it is parsed. Every
   source is a free, unauthenticated third party, and a compromised or
-  misbehaving one should not be able to exhaust memory.
+  misbehaving one should not be able to exhaust memory. An abandoned body is
+  reported as too large to read, never as the package being absent, and is
+  not re-downloaded for the life of the cache entry.
 - **Code execution from scanned input.** The scanner parses lockfiles and
   AST-parses your source. Neither should ever be able to execute anything.
 - **Resource exhaustion from a scanned repository.** Source files above 2 MB

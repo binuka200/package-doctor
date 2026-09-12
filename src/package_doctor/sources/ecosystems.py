@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 from urllib.parse import quote
 
-from .client import Client
+from .client import Client, ResponseTooLarge
 from .pypi import parse_ts
 
 REPO_API = "https://repos.ecosyste.ms/api/v1/hosts/GitHub/repositories/{slug}"
@@ -40,9 +40,13 @@ class EcosystemsSource:
         self.client = client
 
     async def fetch_repo(self, slug: str) -> RepoInfo:
-        data = await self.client.get_json(
-            REPO_API.format(slug=quote(slug, safe="")), cache_key=f"ecosystems:repo:{slug.lower()}"
-        )
+        try:
+            data = await self.client.get_json(
+                REPO_API.format(slug=quote(slug, safe="")),
+                cache_key=f"ecosystems:repo:{slug.lower()}",
+            )
+        except ResponseTooLarge:
+            data = None
         if not isinstance(data, dict) or Client.is_missing(data):
             return RepoInfo(found=False, url=f"https://github.com/{slug}")
         return RepoInfo(

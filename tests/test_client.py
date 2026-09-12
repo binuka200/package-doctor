@@ -9,7 +9,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from package_doctor.sources.client import Client
+from package_doctor.sources.client import Client, ResponseTooLarge
 
 
 def client_with(cache, handler, **kw) -> Client:
@@ -161,4 +161,81 @@ async def test_reduce_is_applied_before_caching_and_on_the_way_out(cache):
     assert cache.get("k")["body"] == {"keep": 1}
     assert await c.get_json("https://x.invalid/a", cache_key="k", reduce=slim) == {"keep": 1}
     assert len(calls) == 1
+    await c.aclose()
+
+
+# --- a body over the cap is "too large", never "absent" ---------------------
+
+async def test_an_undeclared_oversized_body_raises_and_is_remembered(cache):
+    """Chunked responses carry no Content-Length, so the cap has to hold while
+    streaming. And the outcome is cached: without that, every run downloaded
+    the whole body again just to abandon it."""
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, content=b"[" + b"1," * 600 + b"1]")
+
+    c = client_with(cache, handler)
+    with pytest.raises(ResponseTooLarge):
+        await c.get_json("https://x.invalid/big", cache_key="k", max_bytes=1000)
+    with pytest.raises(ResponseTooLarge):
+        await c.get_json("https://x.invalid/big", cache_key="k", max_bytes=1000)
+    assert len(calls) == 1, "the second call is answered from the cache"
+    await c.aclose()
+
+
+async def test_a_declared_oversized_body_is_rejected_before_it_is_read(cache):
+    read = []
+
+    def handler(request):
+        async def gen():
+            read.append(1)
+            yield b"x" * 10
+
+        return httpx.Response(
+            200, headers={"content-length": "999999"},
+            stream=httpx.AsyncByteStream.__new__(type("S", (httpx.AsyncByteStream,), {
+                "__aiter__": lambda self: gen(),
+            })),
+        )
+
+    c = client_with(cache, handler)
+    with pytest.raises(ResponseTooLarge):
+        await c.get_json("https://x.invalid/big", cache_key="k", max_bytes=1000)
+    assert not read
+    await c.aclose()
+
+
+async def test_the_cap_is_per_call(cache):
+    body = {"n": list(range(300))}
+    c = client_with(cache, lambda r: httpx.Response(200, json=body))
+    with pytest.raises(ResponseTooLarge):
+        await c.get_json("https://x.invalid/a", cache_key="small", max_bytes=100)
+    assert await c.get_json("https://x.invalid/a", cache_key="large", max_bytes=10_000) == body
+    await c.aclose()
+
+
+async def test_post_json_honours_the_cap_too(cache):
+    c = client_with(cache, lambda r: httpx.Response(200, content=b"x" * 2000))
+    with pytest.raises(ResponseTooLarge):
+        await c.post_json("https://x.invalid/q", {}, cache_key="k", max_bytes=1000)
+    with pytest.raises(ResponseTooLarge):
+        await c.post_json("https://x.invalid/q", {}, cache_key="k", max_bytes=1000)
+    await c.aclose()
+
+
+def test_a_response_body_cannot_impersonate_a_remembered_oversize():
+    """Same principle as the 404 envelope: real API data lives under "body",
+    so a body shaped like the marker is just data."""
+    entry = Client._wrap({"too_large": True, "url": "x", "limit": 1})
+    assert Client._unwrap(entry) == (True, {"too_large": True, "url": "x", "limit": 1})
+
+
+async def test_a_non_200_is_not_mistaken_for_too_large_by_its_length(cache):
+    """A server error with a large declared length is a server error."""
+    c = client_with(cache, lambda r: httpx.Response(
+        503, headers={"content-length": "999999999"}, content=b""
+    ))
+    assert await c.get_json("https://x.invalid/a", cache_key="k", max_bytes=10) is None
     await c.aclose()
