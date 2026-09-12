@@ -92,12 +92,44 @@ class AdvisoryHistory:
     affecting_current: int = 0
     ids_unfixed: list[str] = field(default_factory=list)
     ids_affecting_current: list[str] = field(default_factory=list)
+    #: CVE aliases of the advisories affecting the pinned version. Only these
+    #: are worth scoring: a CVE fixed five releases ago is not your problem.
+    cves_affecting_current: list[str] = field(default_factory=list)
     #: Advisories we could not place on a timeline (fix version missing from PyPI).
     unmatched: int = 0
 
     @property
     def has_signal(self) -> bool:
         return self.total > 0
+
+
+@dataclass
+class Exploitability:
+    """How likely the advisories against your pinned version are to be used.
+
+    Answers the question an advisory count cannot: of these 34, which one first?
+    Sourced from CISA KEV (known exploited in the wild) and FIRST EPSS
+    (probability of exploitation in the next 30 days).
+    """
+
+    #: CVEs on CISA's Known Exploited Vulnerabilities catalogue. Being here is
+    #: not a prediction - it means the flaw has been used against real targets.
+    kev: list[str] = field(default_factory=list)
+    #: (cve, epss probability), highest first.
+    scored: list[tuple[str, float]] = field(default_factory=list)
+    #: CVEs we tried to score, and how many came back. A CVE with no EPSS entry
+    #: is unscored, which is unknown - never "low risk".
+    queried: int = 0
+    unscored: int = 0
+    #: True once a lookup actually ran, so "not checked" stays distinguishable.
+    checked: bool = False
+
+    @property
+    def top(self) -> tuple[str, float] | None:
+        return self.scored[0] if self.scored else None
+
+    def above(self, threshold: float) -> list[tuple[str, float]]:
+        return [(c, s) for c, s in self.scored if s >= threshold]
 
 
 @dataclass
@@ -112,6 +144,7 @@ class Remediation:
     latest_version: str | None = None
     open_issues: int | None = None
     advisories: AdvisoryHistory = field(default_factory=AdvisoryHistory)
+    exploitability: Exploitability = field(default_factory=Exploitability)
     #: Why a signal is missing, so "unknown" can be explained rather than scored.
     gaps: list[str] = field(default_factory=list)
 

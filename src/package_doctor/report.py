@@ -45,9 +45,16 @@ def _sort_key(finding: Finding) -> tuple:
         reach_rank = 1 if pkg.imported_in_tests_only else 0
     else:
         reach_rank = 2
+    exploit = finding.remediation.exploitability
+    top = exploit.top
     return (
+        # Known-exploited beats everything: these are in use against real
+        # targets, not predicted to be.
+        0 if exploit.kev else 1,
         reach_rank,
         -adv.unfixed,
+        # Exploit probability orders the rest; an advisory count does not.
+        -(top[1] if top else 0.0),
         -adv.affecting_current,
         -len(finding.abandonment_signals),
         0 if pkg.direct else 1,
@@ -267,6 +274,27 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         if adv.unmatched:
             row("Not datable", str(adv.unmatched), "dim")
 
+    exploit = rem.exploitability
+    if exploit.checked:
+        section("Exploitability of your version")
+        if exploit.kev:
+            row("Known exploited (CISA)", ", ".join(exploit.kev), "bold red")
+        kev_set = set(exploit.kev)
+        for cve, score in exploit.scored[:5]:
+            style = "bold red" if cve in kev_set else ("yellow" if score >= 0.10 else "")
+            # Never round up to a flat 100%: EPSS tops out just short of 1.0 and
+            # printing certainty the model does not claim is its own small lie.
+            pct = ">99%" if score >= 0.995 else f"{score:.1%}"
+            label = f"{pct} chance of exploitation in 30 days"
+            row(cve, label, style)
+        if len(exploit.scored) > 5:
+            console.print(Text(f"    (+{len(exploit.scored) - 5} more scored)", style="dim"))
+        if exploit.unscored:
+            row("No EPSS score", f"{exploit.unscored} of {exploit.queried}", "dim")
+            console.print(
+                Text("    Unscored means unknown, not low risk.", style="dim")
+            )
+
     if rem.gaps:
         section("Missing signals")
         for gap in rem.gaps:
@@ -321,6 +349,15 @@ def to_dict(findings: list[Finding], sources: Iterable[str], now: dt.datetime) -
                 "inactive_classifier": rem.inactive_classifier,
                 "open_issues": rem.open_issues,
                 "advisories": asdict(rem.advisories),
+                "exploitability": {
+                    "checked": rem.exploitability.checked,
+                    "known_exploited": rem.exploitability.kev,
+                    "epss": [
+                        {"cve": c, "score": s} for c, s in rem.exploitability.scored
+                    ],
+                    "queried": rem.exploitability.queried,
+                    "unscored": rem.exploitability.unscored,
+                },
                 "missing_signals": rem.gaps,
             },
             "reasons": [{"claim": r.claim, "url": r.url} for r in finding.reasons],

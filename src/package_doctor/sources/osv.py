@@ -123,6 +123,11 @@ def build_history(
         if current_version and _affects_version(vuln, package, current_version):
             history.affecting_current += 1
             history.ids_affecting_current.append(vuln_id)
+            # Keep CVE aliases so exploitability can be scored later. GHSA and
+            # PYSEC ids mean nothing to EPSS or KEV, which are CVE-keyed.
+            for alias in vuln.get("aliases") or []:
+                if str(alias).startswith("CVE-"):
+                    history.cves_affecting_current.append(str(alias))
 
         if not fixes:
             history.unfixed += 1
@@ -144,4 +149,5 @@ def build_history(
 
     if late_windows:
         history.median_late_days = float(statistics.median(late_windows))
+    history.cves_affecting_current = sorted(set(history.cves_affecting_current))
     return history

@@ -39,6 +39,51 @@ so you can distrust it.
 Both must fire. `six` going quiet is not a finding, because `six` is not at a
 trust boundary. `legacy-auth` going quiet is the whole point.
 
+## Which advisory first
+
+"Affected by 35 advisories" is not a decision. A list that long gets skimmed and
+then ignored, which is how real exposure survives a green-looking pipeline. So
+findings are ranked by how likely the flaw is to actually be used:
+
+- **CISA KEV** — the Known Exploited Vulnerabilities catalogue. Membership is
+  not a prediction: it means the flaw has been used against real targets.
+  Nothing else in the tool outranks it.
+- **FIRST EPSS** — a daily-refreshed probability of exploitation in the next
+  30 days, giving an ordering where an advisory count gives none.
+
+```
+EXPOSED + NO ONE HOME   act on these
+pillow  10.0.0  file/media parsing  CVE-2023-4863 on CISA's known-exploited list,
+                                    and your pinned version is affected
+```
+
+```
+Exploitability of your version
+  Known exploited (CISA)    CVE-2023-4863
+  CVE-2023-4863             >99% chance of exploitation in 30 days
+  CVE-2023-50447            1.7% chance of exploitation in 30 days
+  CVE-2024-28219            1.0% chance of exploitation in 30 days
+    (+12 more scored)
+  No EPSS score             1 of 18
+    Unscored means unknown, not low risk.
+```
+
+Across the test stacks that turns **361 advisories into 11 worth reading first**.
+
+Only advisories affecting your *pinned* version are scored — a CVE fixed five
+releases ago is not your problem, and including it would drown the signal.
+`pillow 10.4.0` is silent on CVE-2023-4863 for exactly that reason; `10.0.0` is
+not.
+
+### What it doesn't claim
+
+EPSS scores the CVE, not your usage: a bug in a code path you never touch scores
+the same as one you hit on every request. It ranks, it doesn't decide — which is
+why a high score alone never creates a verdict, and why the raw number is always
+shown next to the wording. A CVE with no EPSS entry is *unscored*, which is
+unknown rather than low risk. And KEV fires rarely on Python libraries — high
+precision, low recall — so its silence means nothing on its own.
+
 ## Reachability
 
 package-doctor also AST-parses your own source and reports **where** you import
@@ -196,6 +241,9 @@ All free, all unauthenticated, no token setup:
 - [OSV](https://osv.dev/) — advisories, affected ranges, fixed versions
 - [ecosyste.ms](https://ecosyste.ms/) — repository metadata, at 5,000 req/hour
   rather than GitHub's unauthenticated 60
+- [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) —
+  vulnerabilities known to be exploited in the wild
+- [FIRST EPSS](https://www.first.org/epss/) — exploit probability scores
 
 Responses are cached in `~/.cache/package-doctor/` for 24 hours.
 
@@ -249,6 +297,17 @@ of volunteers who gave what they could, and "no releases since 2021, repository
 archived" is a fact that helps a user without indicting anyone. Findings are
 worded that way on purpose. If you find output that reads as a judgement on a
 maintainer rather than a description of risk, that is a bug — please report it.
+
+## Use it alongside pip-audit, not instead of it
+
+`pip-audit` is the PyPA tool and is better at what it does: telling you, on every
+commit, which pinned versions have known CVEs. Most of what lands in *act on
+these* here, it would also find.
+
+What it does not do is tell you which of those to fix first, which of them your
+code actually imports, or which of your dependencies has nobody left to ship a
+patch at all. That is this tool's job, and it is a different cadence — a
+quarterly maintenance review rather than a per-commit gate.
 
 ## Background
 

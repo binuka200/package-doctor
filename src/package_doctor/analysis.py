@@ -10,6 +10,7 @@ from .models import Finding, Package, Remediation
 from .risk import Thresholds, assess
 from .sources.client import Client
 from .sources.ecosystems import EcosystemsSource
+from .sources.exploitability import ExploitabilitySource
 from .sources.osv import OSVSource, build_history
 from .sources.pypi import PyPISource, extract_github_repo
 
@@ -25,6 +26,7 @@ class Analyzer:
         self.pypi = PyPISource(client)
         self.osv = OSVSource(client)
         self.repos = EcosystemsSource(client)
+        self.exploit = ExploitabilitySource(client)
         self.exposure_map = exposure_map
         self.thresholds = thresholds or Thresholds()
         self.skip_repo = skip_repo
@@ -60,6 +62,13 @@ class Analyzer:
         remediation.advisories = build_history(
             package.name, vulns, releases, package.version
         )
+
+        # Score only what affects the pinned version. Historical CVEs are not
+        # the user's problem and would drown the signal if included.
+        if remediation.advisories.cves_affecting_current:
+            remediation.exploitability = await self.exploit.assess(
+                remediation.advisories.cves_affecting_current
+            )
 
         slug = extract_github_repo(info)
         if slug and not self.skip_repo:
@@ -105,4 +114,6 @@ class Analyzer:
                 progress()
             return result
 
+        # Warm the KEV catalogue once rather than racing every package for it.
+        await self.exploit.kev_catalogue()
         return list(await asyncio.gather(*(one(p) for p in packages)))

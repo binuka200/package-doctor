@@ -21,6 +21,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 from .models import Confidence, Evidence, Exposure, Finding, Package, Remediation, Verdict
+from .sources.exploitability import describe as describe_exploit
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,18 @@ def assess(
             Evidence("marked Development Status :: 7 - Inactive by its maintainer", pypi_url)
         )
     adv = remediation.advisories
+    exploit = remediation.exploitability
+    if exploit.kev:
+        # Not a prediction. These have been used against real targets, so this
+        # outranks every other signal the tool has.
+        ids = ", ".join(exploit.kev[:3])
+        authoritative.insert(
+            0,
+            Evidence(
+                f"{ids} on CISA's known-exploited list, and your pinned version is affected",
+                "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+            ),
+        )
     if adv.unfixed:
         ids = ", ".join(adv.ids_unfixed[:3])
         more = f" (+{adv.unfixed - 3} more)" if adv.unfixed > 3 else ""
@@ -140,6 +153,11 @@ def assess(
                 f"https://osv.dev/list?q={package.name}&ecosystem=PyPI",
             )
         )
+        note = describe_exploit(exploit)
+        if note and not exploit.kev:
+            reasons.append(
+                Evidence(note, "https://www.first.org/epss/")
+            )
         reasons.extend(signals)
         reasons.extend(reach)
     elif exposure.is_exposed:
