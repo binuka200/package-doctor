@@ -28,7 +28,7 @@ schema_version = 3
 label = "auth/session"
 description = "Authentication, authorisation, sessions and token handling"
 packages = [
-  "aiobotocore", "alibabacloud-credentials", "alibabacloud-credentials-api",
+  "adal", "aiobotocore", "alibabacloud-credentials", "alibabacloud-credentials-api",
   "auth0-python", "authcaptureproxy", "authlib", "aws-requests-auth", "azure-identity",
   "boto3", "botocore", "casbin", "django-allauth", "django-axes", "django-guardian",
   "django-hijack", "django-oauth-toolkit", "django-otp", "django-two-factor-auth",
@@ -64,20 +64,21 @@ packages = [
 label = "deserialization"
 description = "Turning untrusted bytes into live objects"
 packages = [
-  "avro", "avro-gen3", "avro-python3", "betterproto", "bson", "cattrs", "cbor2",
-  "chardet", "charset-normalizer", "cloudpickle", "dataclass-wizard",
-  "dataclasses-json", "dill", "djangorestframework-dataclasses", "fastavro",
-  "fastjsonschema", "flatbuffers", "googleapis-common-protos", "grpcio-tools",
-  "hydra-core", "ijson", "isodate", "jiter", "jmespath", "joblib", "json-logic",
-  "json-merge-patch", "jsonpatch", "jsonpickle", "jsonpointer", "jsonref",
-  "jsonschema", "jsonschema-rs", "jsonschema-specifications", "marshmallow",
-  "marshmallow-dataclass", "marshmallow-sqlalchemy", "mashumaro", "msgpack", "msgspec", "nltk",
-  "numpy", "omegaconf", "openapi-schema-validator", "orjson", "ormsgpack", "oyaml",
+  "apscheduler", "avro", "avro-gen3", "avro-python3", "betterproto", "bson", "cattrs",
+  "cbor2", "chardet", "charset-normalizer", "cloudpickle", "dataclass-wizard",
+  "dataclasses-json", "dill", "diskcache", "djangorestframework-dataclasses",
+  "fastavro", "fastjsonschema", "flask-caching", "flatbuffers",
+  "googleapis-common-protos", "grpcio-tools", "hydra-core", "ijson", "isodate",
+  "jiter", "jmespath", "joblib", "json-logic", "json-merge-patch", "jsonpatch",
+  "jsonpickle", "jsonpointer", "jsonref", "jsonschema", "jsonschema-rs",
+  "jsonschema-specifications", "marshmallow", "marshmallow-dataclass",
+  "marshmallow-sqlalchemy", "mashumaro", "msgpack", "msgspec", "nltk", "numpy",
+  "omegaconf", "openapi-schema-validator", "orjson", "ormsgpack", "oyaml",
   "pickleshare", "protobuf", "protobuf3-to-dict", "py-serializable", "pyaml",
   "pyarrow", "pydantic", "pydantic-core", "pyjson5", "pykwalify", "python-dateutil",
   "python-frontmatter", "python-rapidjson", "pyyaml", "pyyaml-env-tag", "pyyaml-ft",
   "pyyaml-include", "rapidjson", "referencing", "ruamel-yaml", "ruamel-yaml-clib",
-  "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
+  "scapy", "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
   "typedload", "ujson", "yamale",
 ]
 
@@ -87,11 +88,11 @@ description = "Loading model weights or datasets, where pickle formats are arbit
 packages = [
   "accelerate", "compressed-tensors", "ctranslate2", "datasets", "diffusers",
   "docling-ibm-models", "gguf", "huggingface-hub", "keras", "langgraph-checkpoint",
-  "langgraph-checkpoint-postgres", "langgraph-checkpoint-sqlite", "onnx", "onnx-ir",
-  "onnxruntime", "onnxruntime-gpu", "onnxscript", "orbax-checkpoint", "safetensors",
-  "pytorch-lightning", "lightning",
-  "scikit-learn", "sentence-transformers", "tensorflow", "timm", "tokenizers", "torch",
-  "torchvision", "transformers", "tritonclient",
+  "langgraph-checkpoint-postgres", "langgraph-checkpoint-sqlite", "lightning", "onnx",
+  "onnx-ir", "onnxruntime", "onnxruntime-gpu", "onnxscript", "orbax-checkpoint",
+  "pytorch-lightning", "safetensors", "scikit-learn", "sentence-transformers", "skops",
+  "tensorflow", "timm", "tokenizers", "torch", "torchvision", "transformers",
+  "tritonclient",
 ]
 
 [category.llm_agent]
@@ -115,7 +116,7 @@ packages = [
 label = "html/xml parsing"
 description = "Parsing or sanitising attacker-supplied markup"
 packages = [
-  "beautifulsoup4", "bleach", "branca", "bs4", "commonmark", "css-inline",
+  "beautifulsoup4", "biopython", "bleach", "branca", "bs4", "commonmark", "css-inline",
   "cssselect2", "cssutils", "dateparser", "defusedxml", "djlint", "docutils",
   "elementpath", "feedparser", "html-to-markdown", "html2text", "html5lib", "htmldate",
   "junitparser", "justext", "lark", "latex2mathml", "libsass", "lxml",
@@ -152,7 +153,7 @@ description = "Moving attacker-influenced bytes across a trust boundary"
 packages = [
   "a2wsgi", "aio-pika", "aiohttp", "aiohttp-cors", "aiohttp-jinja2", "aiohttp-socks",
   "aioquic", "aiormq", "aiosmtplib", "amqp", "asgiref", "autobahn", "cachecontrol",
-  "channels", "channels-redis", "cheroot", "cloudscraper", "daphne",
+  "channels", "channels-redis", "cheroot", "cloudscraper", "daphne", "deep-translator",
   "django-compressor", "django-crispy-forms", "django-formtools", "docker",
   "flask-compress", "flask-session", "flask-talisman", "flask-wtf", "geoip2",
   "geventhttpclient", "google-api-core", "google-api-python-client",
@@ -160,26 +161,26 @@ packages = [
   "grpcio-health-checking", "grpcio-reflection", "grpcio-status", "grpclib",
   "gunicorn", "h11", "h2", "harfile", "hishel", "hpack", "httpcore", "httplib2",
   "httptools", "httpx", "httpx-sse", "httpx-ws", "hypercorn", "hyperframe", "kombu",
-  "kubernetes", "litellm", "maxminddb", "minio", "mitmproxy", "multipart", "paho-mqtt",
-  "pamqp", "pastedeploy", "patchright", "pika", "playwright", "pooch", "prance",
-  "primp", "priority", "pycurl", "pylsqpack", "pysmb", "pysocks", "python-socks",
-  "pyzmq", "requests", "requests-cache", "requests-file", "requests-toolbelt",
-  "requests-unixsocket", "s3transfer", "scrapy", "selenium", "seleniumbase", "sgqlc",
-  "simple-websocket", "socksio", "sse-starlette", "starlette", "tornado",
-  "trio-websocket", "twisted", "ua-parser", "ua-parser-builtins", "uamqp", "urllib3",
-  "user-agents", "uvicorn", "waitress", "webargs", "webob", "websocket-client",
-  "websockets", "werkzeug", "whitenoise", "wsproto", "wtforms",
+  "kubernetes", "litellm", "maxminddb", "minio", "mitmproxy", "msrest", "multipart",
+  "paho-mqtt", "pamqp", "pastedeploy", "patchright", "pika", "playwright", "pooch",
+  "prance", "primp", "priority", "pycurl", "pylsqpack", "pysmb", "pysocks",
+  "python-socks", "pyzmq", "requests", "requests-cache", "requests-file",
+  "requests-toolbelt", "requests-unixsocket", "s3transfer", "scrapy", "selenium",
+  "seleniumbase", "sgqlc", "simple-websocket", "socksio", "sse-starlette", "starlette",
+  "tornado", "trio-websocket", "twisted", "ua-parser", "ua-parser-builtins", "uamqp",
+  "urllib3", "user-agents", "uvicorn", "waitress", "webargs", "webob",
+  "websocket-client", "websockets", "werkzeug", "whitenoise", "wsproto", "wtforms",
 ]
 
 [category.framework]
 label = "web framework"
 description = "Request handling, routing and session management"
 packages = [
-  "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash", "django",
-  "django-cors-headers", "djangorestframework", "apache-airflow", "prefect", "drf-extensions", "drf-spectacular", "falcon", "fastapi",
-  "flask", "flask-cors", "flask-restful", "graphene", "graphql-core", "mangum",
-  "pyramid", "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit",
-  "web-py",
+  "apache-airflow", "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash",
+  "django", "django-cors-headers", "djangorestframework", "drf-extensions",
+  "drf-spectacular", "falcon", "fastapi", "flask", "flask-cors", "flask-restful",
+  "graphene", "graphql-core", "jupyter-server", "mangum", "prefect", "pyramid",
+  "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit", "web-py",
 ]
 
 [category.query]
@@ -208,9 +209,9 @@ label = "archive extraction"
 description = "Unpacking archives, where path traversal and zip bombs live"
 packages = [
   "backports-zstd", "brotli", "compressed-rtf", "cramjam", "extract-msg", "fastar",
-  "inflate64", "libarchive-c", "patool", "py7zr", "pybcj", "pyppmd", "python-lzo",
-  "python-oxmsg", "pyzipper", "pyzstd", "rarfile", "tarsafe", "zipfile38", "zipp",
-  "zlib-ng", "zstandard", "zstd",
+  "inflate64", "libarchive-c", "patool", "pdm", "py7zr", "pybcj", "pyppmd",
+  "python-lzo", "python-oxmsg", "pyzipper", "pyzstd", "rarfile", "tarsafe",
+  "zipfile38", "zipp", "zlib-ng", "zstandard", "zstd",
 ]
 
 [category.filetype]
@@ -220,23 +221,23 @@ packages = [
   "audioread", "borb", "cairosvg", "docling", "docling-parse", "docling-slim",
   "docx2txt", "docxtpl", "easyocr", "exifread", "fastexcel", "filetype", "fonttools",
   "formulas", "fpdf2", "freetype-py", "html-for-docx", "imageio", "imagesize",
-  "img2pdf", "latexcodec", "mammoth", "mutagen", "odfpy", "olefile", "opencv-python",
-  "opencv-contrib-python", "opencv-python-headless", "openpyxl", "pandas", "pdf2image", "pdfkit",
-  "pdfminer-six", "pdfplumber", "pdfrw", "piexif", "pikepdf", "pil", "pillow",
-  "pydicom", "pydub", "pydyf", "pymupdf", "pypdf", "pypdf2", "pypdfium2",
-  "pytesseract", "python-calamine", "python-docx", "python-magic", "python-pptx",
-  "pyxlsb", "rapidocr", "rapidocr-onnxruntime", "reportlab", "scikit-image", "svglib",
-  "tinytag", "torchcodec", "unstructured", "vtk", "wand", "weasyprint", "xhtml2pdf",
-  "xlrd", "xlsxwriter", "xlwt",
+  "img2pdf", "latexcodec", "mammoth", "mutagen", "odfpy", "olefile",
+  "opencv-contrib-python", "opencv-python", "opencv-python-headless", "openpyxl",
+  "pandas", "pdf2image", "pdfkit", "pdfminer-six", "pdfplumber", "pdfrw", "piexif",
+  "pikepdf", "pil", "pillow", "pydicom", "pydub", "pydyf", "pymupdf", "pypdf",
+  "pypdf2", "pypdfium2", "pytesseract", "python-calamine", "python-docx",
+  "python-magic", "python-pptx", "pyxlsb", "rapidocr", "rapidocr-onnxruntime", "rembg",
+  "reportlab", "scikit-image", "svglib", "tinytag", "torchcodec", "unstructured",
+  "vtk", "wand", "weasyprint", "xhtml2pdf", "xlrd", "xlsxwriter", "xlwt",
 ]
 
 [category.remote_exec]
 label = "remote access"
-description = "Executing commands or moving files on remote hosts"
+description = "Executing commands or scripts, locally or on remote hosts"
 packages = [
-  "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", "netmiko", "paramiko",
-  "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp", "sh", "sshtunnel",
-  "subprocess-tee",
+  "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", "lupa",
+  "netmiko", "paramiko", "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp",
+  "sh", "sshtunnel", "subprocess-tee",
 ]
 
 # -------------------------------------------------------------------------
@@ -345,7 +346,14 @@ not_exposed = [
   "mmh3",                         # MurmurHash: non-cryptographic
   "mongomock",                    # in-process test double, not a client
   "multidict",                    # dict subclass used by aiohttp
+  "google-crc32c",                # checksum routine
+  "google-pasta",                 # AST refactoring of your own source
   "nanoid",                       # random ID generator; URL-friendly, but parses no URLs
+  "nest-asyncio",                 # patches asyncio to allow nested event loops
+  "pytest-runner",                # invokes pytest as a distutils command
+  "smmap",                        # sliding-window memory map used by gitpython
+  "typed-ast",                    # parses your own Python source, not input
+  "uc-micro-py",                  # static unicode data tables
   "num2words",                    # converts numbers to words; its advisories are a
                                   # maintainer account compromise, not input handling
   "networkx",                     # graph data structures, not networking

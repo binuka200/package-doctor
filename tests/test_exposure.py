@@ -232,3 +232,31 @@ def test_candidates_surfaced_by_suggest_map_are_decided():
         assert m.lookup(name).is_exposed, name
     assert not m.lookup("num2words").is_exposed
     assert m.is_reviewed("num2words")
+
+
+def test_the_first_twenty_suggested_candidates_are_decided():
+    """Worked through suggest_map.py's top twenty. Recorded here so the
+    reasoning survives, and so a future edit cannot quietly undo it.
+
+    The calls were made from the advisories, not the package descriptions:
+    apscheduler, diskcache, flask-caching and scapy all have advisories that
+    say "unsafe deserialization" or "pickle" outright; biopython's is XXE;
+    jupyter-server's are CORS bypass and path traversal; pdm's are path
+    traversal while unpacking a wheel; lupa's are Lua sandbox escapes."""
+    m = load_exposure_map()
+    exposed = {
+        "skops": "ml_model", "rembg": "filetype", "apscheduler": "deserialization",
+        "diskcache": "deserialization", "flask-caching": "deserialization",
+        "scapy": "deserialization", "biopython": "markup",
+        "jupyter-server": "framework", "pdm": "archive", "msrest": "http",
+        "deep-translator": "http", "adal": "auth", "lupa": "remote_exec",
+    }
+    for name in exposed:
+        assert m.lookup(name).is_exposed, name
+        assert m.lookup(name).confidence is Confidence.CURATED, name
+
+    # Archived, and none of them anywhere near untrusted input.
+    for name in ("typed-ast", "smmap", "google-crc32c", "nest-asyncio",
+                 "uc-micro-py", "pytest-runner", "google-pasta"):
+        assert not m.lookup(name).is_exposed, name
+        assert m.is_reviewed(name), name
