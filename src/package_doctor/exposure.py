@@ -74,10 +74,26 @@ class ExposureMap:
         self._stable = {
             normalise(str(n)) for n in ((data.get("stable") or {}).get("packages") or [])
         }
+        # Reviewed and deliberately not exposed. Distinct from "never looked at":
+        # an entry here suppresses metadata inference, so a package cannot be
+        # flagged just because its name or classifiers sound security-adjacent.
+        self._reviewed_safe = {
+            normalise(str(n)) for n in ((data.get("reviewed") or {}).get("not_exposed") or [])
+        }
 
     @property
     def size(self) -> int:
+        """Packages with a curated exposure category."""
         return len(self._by_package)
+
+    @property
+    def reviewed_size(self) -> int:
+        """Every package a human has made a call on, either way."""
+        return len(self._by_package) + len(self._stable) + len(self._reviewed_safe)
+
+    def is_reviewed(self, name: str) -> bool:
+        key = normalise(name)
+        return key in self._by_package or key in self._stable or key in self._reviewed_safe
 
     def is_known_stable(self, name: str) -> bool:
         """True for finished-not-abandoned utilities that age-based rules mis-flag."""
@@ -100,6 +116,13 @@ class ExposureMap:
                 categories=[],
                 confidence=Confidence.CURATED,
                 note="reviewed: stable utility, not at a trust boundary",
+            )
+
+        if key in self._reviewed_safe:
+            return Exposure(
+                categories=[],
+                confidence=Confidence.CURATED,
+                note="reviewed: not at a trust boundary",
             )
 
         if pypi_info:

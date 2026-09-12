@@ -24,8 +24,12 @@ and only escalates when both fire.
 **Axis 1 — Exposure.** Does this package routinely handle data an attacker can
 influence? Authentication, session and token handling, file uploads, archive
 extraction, deserialization, HTML parsing, query building, cryptography, URL
-parsing. This comes from a curated map in
+parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](src/package_doctor/data/exposure.toml), not from a heuristic.
+
+It covers **84% of the 100 most-downloaded PyPI packages** and 53% of the top 500,
+across 13 categories. Anything outside it falls back to classifier inference,
+which is marked `inferred` and flagged with `?` in output so you can distrust it.
 
 **Axis 2 — Remediation capacity.** If a fix were needed, would one ship?
 
@@ -151,7 +155,7 @@ All free, all unauthenticated, no token setup:
 
 Responses are cached in `~/.cache/package-doctor/` for 24 hours.
 
-## Contributing to the exposure map
+## The exposure map
 
 [`exposure.toml`](src/package_doctor/data/exposure.toml) is the part of this tool
 that cannot be scraped, and it is deliberately a plain data file so it can be
@@ -162,8 +166,28 @@ argued with. A package belongs in it when it:
 2. makes an authentication or authorisation decision, **or**
 3. constructs queries or commands from caller-supplied values.
 
-"Popular" is not a criterion. Neither is "sounds security-adjacent". PRs welcome —
-include the reasoning, not just the name.
+"Popular" is not a criterion. Neither is "sounds security-adjacent" — `xxhash`
+and `mmh3` are deliberately **not** in the crypto category, because they are not
+cryptographic, and `tiktoken` tokenises text rather than issuing auth tokens.
+
+### Reviewed-and-safe is not the same as unreviewed
+
+The map carries a third list, `[reviewed] not_exposed`, recording packages a
+human checked and decided are *not* at a trust boundary — each with a note
+saying why the obvious guess is wrong. Without it, classifier inference fires on
+exactly those names. It also means "we looked and it's fine" is distinguishable
+in the data from "nobody has looked yet", which is the distinction the rest of
+this tool is built on.
+
+### One boundary most scanners miss
+
+`[category.ml_model]` covers `torch`, `transformers`, `huggingface-hub`,
+`joblib` and friends. Loading pickle-based weights is arbitrary code execution,
+and tools aimed at web stacks tend not to model it at all. On a typical ML
+service this is where the findings are: as of writing, `torch` carries 14
+advisories with no published fix and `transformers` carries 9.
+
+PRs welcome — include the reasoning, not just the name.
 
 ## A note on tone
 

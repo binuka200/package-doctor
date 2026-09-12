@@ -30,10 +30,17 @@ def _version(finding: Finding) -> str:
 
 
 def _sort_key(finding: Finding) -> tuple:
+    """Most consequential first, within a section.
+
+    Weak signals count here even though they were not enough to escalate: a
+    package carrying "no release in 5.9y" belongs above one with nothing to
+    report, even when both are only worth watching.
+    """
     adv = finding.remediation.advisories
     return (
         -adv.unfixed,
         -adv.affecting_current,
+        -len(finding.abandonment_signals),
         0 if finding.package.direct else 1,
         finding.package.name,
     )
