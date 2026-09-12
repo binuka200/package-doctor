@@ -8,15 +8,18 @@ conflating the two is the single most common flaw in package-health tooling.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
+import random
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from ..cache import Cache
 
-USER_AGENT = "package-doctor/0.1 (+https://github.com/binuka200/package-doctor)"
+USER_AGENT = "package-doctor/0.2 (+https://github.com/binuka200/package-doctor)"
 
 #: Largest response body we will read by default, in bytes.
 #:
@@ -26,6 +29,29 @@ USER_AGENT = "package-doctor/0.1 (+https://github.com/binuka200/package-doctor)"
 #: return comes close; CISA's KEV catalogue is the largest at a few MB. PyPI is
 #: the exception and passes its own, higher cap - see ``sources/pypi.py``.
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+
+
+#: Retry policy for the free upstream APIs.
+#:
+#: A 429 or a 5xx on the first try used to become a silent gap for that
+#: package, so a scan run into PyPI's rate limit degraded without saying so.
+#: Three attempts with exponential backoff and jitter; a Retry-After header is
+#: honoured up to a cap, so a polite "slow down" is obeyed but a hostile one
+#: cannot park the scan for an hour.
+MAX_ATTEMPTS = 3
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+BACKOFF_BASE_SECONDS = 0.5
+RETRY_AFTER_CAP_SECONDS = 30.0
+
+_sleep = asyncio.sleep  # patched in tests
+
+
+def _retry_delay(resp: httpx.Response | None, attempt: int) -> float:
+    if resp is not None:
+        header = resp.headers.get("retry-after", "")
+        if header.strip().isdigit():
+            return min(float(header.strip()), RETRY_AFTER_CAP_SECONDS)
+    return BACKOFF_BASE_SECONDS * (2 ** attempt) + random.uniform(0, 0.25)
 
 
 class ResponseTooLarge(Exception):
@@ -79,6 +105,11 @@ class Client:
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             follow_redirects=True,
         )
+        #: host -> requests that failed after every retry. Non-empty means the
+        #: report has gaps that are the upstream's doing, and the report says so.
+        self.degraded: collections.Counter[str] = collections.Counter()
+        #: retries that were needed, for the curious.
+        self.retries = 0
 
     async def __aenter__(self) -> Client:
         return self
@@ -141,12 +172,10 @@ class Client:
             return body
         async with self._sem:
             try:
-                resp, body = await self._read_capped("GET", url, max_bytes=max_bytes)
+                resp, body = await self._fetch("GET", url, max_bytes=max_bytes)
             except ResponseTooLarge as exc:
                 self._remember_too_large(key, exc)
                 raise
-            except httpx.HTTPError:
-                return None
         if resp is None:
             return None
         if resp.status_code == 404:
@@ -161,6 +190,40 @@ class Client:
             data = reduce(data)
         self.cache.set(key, self._wrap(data))
         return data
+
+    async def _fetch(
+        self,
+        method: str,
+        url: str,
+        payload: Any | None = None,
+        max_bytes: int = MAX_RESPONSE_BYTES,
+    ) -> tuple[httpx.Response | None, bytes | None]:
+        """One logical request: `_read_capped` with retries.
+
+        Retries on a transport error, a 429 or a 5xx, up to MAX_ATTEMPTS in
+        all. Anything else - a 404, a 400, a body over the cap - is an answer
+        and is returned or raised at once. Exhausting the attempts returns
+        (None, None) and counts against the host in `degraded`.
+        """
+        host = urlparse(url).hostname or url
+        last: httpx.Response | None = None
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                resp, body = await self._read_capped(method, url, payload, max_bytes=max_bytes)
+            except httpx.TransportError:
+                resp, body = None, None
+            except httpx.HTTPError:
+                # Malformed URL and the like: retrying cannot help.
+                self.degraded[host] += 1
+                return None, None
+            if resp is not None and resp.status_code not in RETRY_STATUSES:
+                return resp, body
+            last = resp
+            if attempt + 1 < MAX_ATTEMPTS:
+                self.retries += 1
+                await _sleep(_retry_delay(last, attempt))
+        self.degraded[host] += 1
+        return None, None
 
     async def _read_capped(
         self,
@@ -206,12 +269,10 @@ class Client:
             return body
         async with self._sem:
             try:
-                resp, body = await self._read_capped("POST", url, payload, max_bytes=max_bytes)
+                resp, body = await self._fetch("POST", url, payload, max_bytes=max_bytes)
             except ResponseTooLarge as exc:
                 self._remember_too_large(cache_key, exc)
                 raise
-            except httpx.HTTPError:
-                return None
         if resp is None or resp.status_code != 200 or body is None:
             return None
         data = _decode(body)

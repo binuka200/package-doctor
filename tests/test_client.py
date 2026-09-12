@@ -48,7 +48,10 @@ async def test_a_404_is_remembered_so_we_stop_asking(cache):
 
 @pytest.mark.parametrize("status", [429, 500, 502, 503])
 async def test_server_errors_return_none_and_are_not_cached(cache, status):
-    """A rate limit is temporary. Caching it would poison later runs."""
+    """A rate limit is temporary. Caching it would poison later runs. Each
+    logical request is retried up to MAX_ATTEMPTS before giving up."""
+    from package_doctor.sources.client import MAX_ATTEMPTS
+
     calls = []
 
     def handler(request):
@@ -58,7 +61,8 @@ async def test_server_errors_return_none_and_are_not_cached(cache, status):
     c = client_with(cache, handler)
     assert await c.get_json("https://x.invalid/a") is None
     assert await c.get_json("https://x.invalid/a") is None
-    assert len(calls) == 2
+    assert len(calls) == 2 * MAX_ATTEMPTS
+    assert c.degraded == {"x.invalid": 2}
     await c.aclose()
 
 
@@ -238,4 +242,100 @@ async def test_a_non_200_is_not_mistaken_for_too_large_by_its_length(cache):
         503, headers={"content-length": "999999999"}, content=b""
     ))
     assert await c.get_json("https://x.invalid/a", cache_key="k", max_bytes=10) is None
+    await c.aclose()
+
+
+# --- retries: a rate limit is not a gap ------------------------------------
+
+async def test_a_429_that_clears_is_retried_and_succeeds(cache, no_real_backoff):
+    """The whole point: a single 429 from PyPI used to become a silent gap."""
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) < 3:
+            return httpx.Response(429, headers={"retry-after": "2"})
+        return httpx.Response(200, json={"ok": True})
+
+    c = client_with(cache, handler)
+    assert await c.get_json("https://x.invalid/a") == {"ok": True}
+    assert len(calls) == 3
+    assert no_real_backoff == [2.0, 2.0], "Retry-After is honoured"
+    assert c.retries == 2 and not c.degraded
+    await c.aclose()
+
+
+async def test_backoff_grows_and_retry_after_is_capped(cache, no_real_backoff):
+    from package_doctor.sources.client import BACKOFF_BASE_SECONDS, RETRY_AFTER_CAP_SECONDS
+
+    c = client_with(cache, lambda r: httpx.Response(503))
+    await c.get_json("https://x.invalid/a")
+    assert len(no_real_backoff) == 2
+    assert BACKOFF_BASE_SECONDS <= no_real_backoff[0] < BACKOFF_BASE_SECONDS + 0.3
+    assert 2 * BACKOFF_BASE_SECONDS <= no_real_backoff[1] < 2 * BACKOFF_BASE_SECONDS + 0.3
+    await c.aclose()
+
+    no_real_backoff.clear()
+    c = client_with(cache, lambda r: httpx.Response(429, headers={"retry-after": "3600"}))
+    await c.get_json("https://x.invalid/b")
+    # A hostile Retry-After cannot park the scan.
+    assert no_real_backoff == [RETRY_AFTER_CAP_SECONDS] * 2
+    await c.aclose()
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 410])
+async def test_client_errors_are_answers_not_retried(cache, status, no_real_backoff):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(status)
+
+    c = client_with(cache, handler)
+    assert await c.get_json("https://x.invalid/a") is None
+    assert len(calls) == 1 and no_real_backoff == []
+    assert not c.degraded, "an answer from the server is not degradation"
+    await c.aclose()
+
+
+async def test_a_transport_error_is_retried_then_counted(cache, no_real_backoff):
+    from package_doctor.sources.client import MAX_ATTEMPTS
+
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        raise httpx.ConnectError("no route to host")
+
+    c = client_with(cache, handler)
+    assert await c.get_json("https://x.invalid/a") is None
+    assert len(calls) == MAX_ATTEMPTS
+    assert c.degraded == {"x.invalid": 1}
+    await c.aclose()
+
+
+async def test_post_json_retries_too(cache, no_real_backoff):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(503) if len(calls) == 1 else httpx.Response(200, json={"vulns": []})
+
+    c = client_with(cache, handler)
+    assert await c.post_json("https://x.invalid/q", {}, cache_key="k") == {"vulns": []}
+    assert len(calls) == 2
+    await c.aclose()
+
+
+async def test_a_body_over_the_cap_is_not_retried(cache, no_real_backoff):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, content=b"x" * 2000)
+
+    c = client_with(cache, handler)
+    with pytest.raises(ResponseTooLarge):
+        await c.get_json("https://x.invalid/a", cache_key="k", max_bytes=100)
+    assert len(calls) == 1 and no_real_backoff == []
     await c.aclose()

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-13
+
+### Added
+
+- Requests to the upstream APIs are retried on a 429, a 5xx or a transport
+  error: three attempts with exponential backoff and jitter, honouring
+  `Retry-After` up to a cap. A single rate-limit response used to become a
+  silent gap for that package.
+- A scan that still lost requests after retrying says so: a yellow line
+  under the report names the host and the count, and the JSON carries a
+  `degraded` map, so a degraded run is visibly degraded rather than clean.
+- CI runs on macOS and Windows as well as Linux, on the oldest and newest
+  supported Pythons.
+
 ### Changed
 
 - GitHub Actions are pinned to commit SHAs, with Dependabot keeping the pins
@@ -121,5 +135,6 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/binuka200/package-doctor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/binuka200/package-doctor/releases/tag/v0.1.0

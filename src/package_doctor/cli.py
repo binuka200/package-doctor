@@ -19,7 +19,7 @@ from .exposure import load_exposure_map
 from .models import Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
 from .parsers.discovery import MAX_MANIFEST_BYTES
-from .report import render, render_explain, to_dict
+from .report import describe_degraded, render, render_explain, to_dict
 from .risk import Thresholds
 from .sources.client import Client
 from .sources.pypi import normalise
@@ -270,11 +270,12 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
                         status.update(f"[dim]Checking {len(packages)} packages… {done}[/dim]")
 
                     findings = await analyzer.analyze_all(packages, now, progress=tick)
+            degraded = dict(client.degraded)
     finally:
         cache.close()
 
     source_names = [_display(p, root) for p in deps.sources]
-    payload = to_dict(findings, source_names, now)
+    payload = to_dict(findings, source_names, now, degraded=degraded)
 
     if args.output:
         args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -282,7 +283,10 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     elif args.as_json:
         print(json.dumps(payload, indent=2))
     else:
-        render(console, findings, sources=source_names, show_ok=args.show_ok, now=now)
+        render(
+            console, findings, sources=source_names, show_ok=args.show_ok, now=now,
+            degraded=degraded,
+        )
 
     failing = _FAIL_LEVELS[args.fail_on]
     if any(f.verdict in failing for f in findings):
@@ -328,12 +332,16 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
                 client, exposure_map, _thresholds(args), skip_repo=args.offline_repo
             )
             finding = await analyzer.analyze(package, now)
+            degraded = dict(client.degraded)
     finally:
         cache.close()
 
     if args.as_json:
-        print(json.dumps(to_dict([finding], [], now), indent=2))
+        print(json.dumps(to_dict([finding], [], now, degraded=degraded), indent=2))
         return EXIT_OK
+    note = describe_degraded(degraded)
+    if note:
+        console.print(f"[yellow]{escape(note)}[/yellow]")
 
     note = ""
     if finding.exposure.categories:

@@ -44,6 +44,22 @@ def isolated_cache_home(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache-home"))
 
 
+@pytest.fixture(autouse=True)
+def no_real_backoff(monkeypatch):
+    """Retries back off with real sleeps. In tests they record the delay and
+    return at once, so a 5xx test costs milliseconds and the backoff schedule
+    can still be asserted."""
+    from package_doctor.sources import client as client_module
+
+    delays: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        delays.append(seconds)
+
+    monkeypatch.setattr(client_module, "_sleep", fake_sleep)
+    return delays
+
+
 @pytest.fixture
 def cache(tmp_path):
     """A throwaway cache whose SQLite connection is always closed."""

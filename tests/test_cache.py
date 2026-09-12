@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 import time
 
+import pytest
+
 from package_doctor.cache import Cache, default_cache_path
+
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
 
 
 def test_roundtrip(tmp_path):
@@ -84,6 +89,7 @@ def test_default_path_is_under_a_cache_directory(monkeypatch, tmp_path):
     assert default_cache_path().parent == tmp_path / "package-doctor"
 
 
+@posix_only
 def test_a_new_cache_is_not_world_readable(tmp_path):
     """The cache records which packages have been scanned, which says something
     about projects the user may not have published."""
@@ -187,6 +193,7 @@ def test_clear_actually_returns_the_disk_space(tmp_path):
     assert path.stat().st_size < before / 2, (before, path.stat().st_size)
 
 
+@posix_only
 def test_an_existing_world_readable_cache_is_tightened(tmp_path):
     """Caches created before this existed are the ones most likely to be large
     and revealing, so opening one should fix it rather than only new files."""
@@ -200,6 +207,7 @@ def test_an_existing_world_readable_cache_is_tightened(tmp_path):
     assert not s.S_IMODE(path.stat().st_mode) & s.S_IROTH
 
 
+@posix_only
 def test_the_cache_file_is_created_private_not_tightened_afterwards(tmp_path, monkeypatch):
     """SQLite creates the file with the umask, and chmod-ing afterwards leaves
     a window. The file is pre-created 0600 so there is no such window; this

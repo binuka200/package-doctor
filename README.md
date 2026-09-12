@@ -289,7 +289,10 @@ All free, all unauthenticated, no token setup:
   vulnerabilities known to be exploited in the wild
 - [FIRST EPSS](https://www.first.org/epss/) — exploit probability scores
 
-Responses are cached in `~/.cache/package-doctor/` for 24 hours.
+Responses are cached in `~/.cache/package-doctor/` for 24 hours. A 429 or a
+5xx is retried with backoff, honouring `Retry-After`; if requests still fail,
+the report says which host and how many, so a rate-limited run is visibly
+degraded rather than quietly incomplete.
 
 ## The exposure map
 

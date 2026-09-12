@@ -90,6 +90,19 @@ def _sort_key(finding: Finding) -> tuple:
     )
 
 
+def describe_degraded(degraded: dict[str, int] | None) -> str | None:
+    """One line saying which upstream failed, or None when none did."""
+    if not degraded:
+        return None
+    parts = [
+        f"{n} request{'s' if n != 1 else ''} to {host}" for host, n in sorted(degraded.items())
+    ]
+    return (
+        "Upstream trouble: " + ", ".join(parts) + " failed after retries. "
+        "The affected packages show gaps, not results; rerun later to fill them."
+    )
+
+
 def render(
     console: Console,
     findings: list[Finding],
@@ -97,6 +110,7 @@ def render(
     sources: Iterable[str],
     show_ok: bool = False,
     now: dt.datetime | None = None,
+    degraded: dict[str, int] | None = None,
 ) -> None:
     total = len(findings)
     direct = sum(1 for f in findings if f.package.direct)
@@ -206,6 +220,9 @@ def render(
         console.print(
             Text("package-doctor explain <name> for the evidence behind a row", style="dim")
         )
+    note = describe_degraded(degraded)
+    if note:
+        console.print(Text(note, style="yellow"))
     console.print()
 
 
@@ -400,7 +417,12 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     console.print()
 
 
-def to_dict(findings: list[Finding], sources: Iterable[str], now: dt.datetime) -> dict[str, Any]:
+def to_dict(
+    findings: list[Finding],
+    sources: Iterable[str],
+    now: dt.datetime,
+    degraded: dict[str, int] | None = None,
+) -> dict[str, Any]:
     def serialise(finding: Finding) -> dict[str, Any]:
         rem = finding.remediation
         return {
@@ -455,5 +477,8 @@ def to_dict(findings: list[Finding], sources: Iterable[str], now: dt.datetime) -
         "sources": list(sources),
         "counts": counts,
         "unpinned": sum(1 for f in findings if not f.package.version),
+        # host -> requests that failed after retries. Non-empty means some
+        # gaps below are the upstream's doing rather than the package's.
+        "degraded": dict(degraded or {}),
         "findings": [serialise(f) for f in findings],
     }

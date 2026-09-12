@@ -216,3 +216,37 @@ def test_scan_header_says_how_many_packages_had_no_version():
     buf = io.StringIO()
     render(Console(file=buf, width=100, force_terminal=False), [one("a", "1.0")], sources=["x"])
     assert "without a pinned version" not in buf.getvalue()
+
+
+def test_a_degraded_scan_says_so_in_the_report_and_the_json():
+    """A rate-limited run must not look like a clean one."""
+    import io
+    import json
+
+    from rich.console import Console
+
+    from package_doctor.models import Confidence, Exposure, Finding, Package, Remediation, Verdict
+    from package_doctor.report import describe_degraded, render, to_dict
+
+    finding = Finding(
+        package=Package(name="a", version="1.0"),
+        exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
+        remediation=Remediation(gaps=["not found on PyPI"]),
+        verdict=Verdict.UNKNOWN,
+    )
+    degraded = {"pypi.org": 3, "api.osv.dev": 1}
+    buf = io.StringIO()
+    render(Console(file=buf, width=120, force_terminal=False), [finding], sources=["x"],
+           degraded=degraded)
+    out = buf.getvalue()
+    assert "Upstream trouble" in out and "3 requests to pypi.org" in out
+    assert "1 request to api.osv.dev" in out
+    payload = to_dict([finding], ["x"], dt.datetime(2026, 9, 13, tzinfo=dt.timezone.utc),
+                      degraded=degraded)
+    assert payload["degraded"] == degraded
+    assert json.dumps(payload)
+    assert describe_degraded({}) is None and describe_degraded(None) is None
+
+    buf = io.StringIO()
+    render(Console(file=buf, width=120, force_terminal=False), [finding], sources=["x"])
+    assert "Upstream trouble" not in buf.getvalue()
