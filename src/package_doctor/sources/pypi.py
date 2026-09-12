@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from typing import Any
+from urllib.parse import quote
 
 from .client import Client
 
@@ -74,7 +75,10 @@ class PyPISource:
 
     async def fetch(self, name: str) -> dict[str, Any] | None:
         data = await self.client.get_json(
-            PYPI_JSON.format(name=name), cache_key=f"pypi:{normalise(name)}"
+            # Quoted as defence in depth: names are validated on the way in,
+            # and this keeps a future caller from reintroducing the problem.
+            PYPI_JSON.format(name=quote(name, safe="")),
+            cache_key=f"pypi:{normalise(name)}",
         )
         if data is None or Client.is_missing(data):
             return None

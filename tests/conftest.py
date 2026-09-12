@@ -7,11 +7,31 @@ turn into a failing build.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 
 from package_doctor.cache import Cache
 from package_doctor.sources.client import Client
+
+
+def test_suite_runs_against_this_checkout() -> None:
+    """Fail loudly if the installed package resolves somewhere else.
+
+    An editable install can be silently repointed - running `pip install -e .`
+    from a temporary clone, for instance, rewrites the path in the venv - and a
+    green suite testing a stale snapshot is worse than a red one.
+    """
+    import package_doctor
+    here = Path(__file__).resolve().parents[1] / "src" / "package_doctor"
+    imported = Path(package_doctor.__file__).resolve().parent
+    if imported != here:
+        pytest.exit(
+            f"package_doctor resolves to {imported}, not {here}. "
+            f"Run: pip install -e '.[dev]'",
+            returncode=1,
+        )
 
 
 @pytest.fixture

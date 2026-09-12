@@ -27,6 +27,9 @@ MANIFESTS = ("pyproject.toml", "Pipfile")
 LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock")
 REQUIREMENTS_GLOB = "requirements*.txt"
 
+#: PEP 503 normalised-name grammar. Anything outside it is not a package name.
+_VALID_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+
 #: Packages that ship with CPython or the packaging toolchain; scanning them
 #: tells the user nothing they can act on.
 _IGNORED = {"python", "pip", "setuptools", "wheel", "setuptools-scm"}
@@ -45,7 +48,12 @@ class DependencySet:
 
     def add(self, name: str, version: str | None, origin: str, direct: bool) -> None:
         key = normalise(name)
-        if not key or key in _IGNORED:
+        if not key or key in _IGNORED or not _VALID_NAME.match(key):
+            # Lockfiles are just TOML and JSON: nothing in them is validated the
+            # way a requirements.txt line is by packaging.Requirement. A crafted
+            # uv.lock naming a package "../../simple/evil" would otherwise reach
+            # URL construction, so names are checked against PEP 503 here, where
+            # every parser passes through.
             return
         if version and not self.versions.get(key):
             self.versions[key] = version

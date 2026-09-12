@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 from .analysis import Analyzer
 from .cache import Cache, default_cache_path
@@ -122,12 +123,12 @@ def _thresholds(args: argparse.Namespace) -> Thresholds:
 async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     root = Path(args.path).expanduser().resolve()
     if not root.is_dir():
-        console.print(f"[red]Not a directory:[/red] {root}")
+        console.print(f"[red]Not a directory:[/red] {escape(str(root))}")
         return EXIT_USAGE
 
     paths = discover_manifests(root)
     if not paths:
-        console.print(f"[yellow]No dependency files found in[/yellow] {root}")
+        console.print(f"[yellow]No dependency files found in[/yellow] {escape(str(root))}")
         console.print(
             "[dim]Looked for: uv.lock, poetry.lock, Pipfile.lock, pyproject.toml, "
             "Pipfile, requirements*.txt[/dim]"
@@ -150,7 +151,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         for src_root in roots:
             src_root = Path(src_root).expanduser().resolve()
             if not src_root.is_dir():
-                console.print(f"[yellow]Not a directory, skipping:[/yellow] {src_root}")
+                console.print(f"[yellow]Not a directory, skipping:[/yellow] {escape(str(src_root))}")
                 continue
             part = build_index(src_root, known_packages=known)
             scanned += part.files_scanned
@@ -207,7 +208,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
 
     if args.output:
         args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        console.print(f"[dim]Wrote {args.output}[/dim]")
+        console.print(f"[dim]Wrote {escape(str(args.output))}[/dim]")
     elif args.as_json:
         print(json.dumps(payload, indent=2))
     else:
