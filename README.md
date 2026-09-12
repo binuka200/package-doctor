@@ -27,9 +27,12 @@ extraction, deserialization, HTML parsing, query building, cryptography, URL
 parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](src/package_doctor/data/exposure.toml), not from a heuristic.
 
-It covers **84% of the 100 most-downloaded PyPI packages** and 53% of the top 500,
-across 13 categories. Anything outside it falls back to classifier inference,
-which is marked `inferred` and flagged with `?` in output so you can distrust it.
+It holds **625 packages across 13 categories**, curated against the 3,000
+most-downloaded packages on PyPI — 85% of the top 100 has been reviewed one way
+or the other, and Django, FastAPI/ML, document-processing and web-scraping stacks
+all scan with zero unclassified packages. Anything outside it falls back to
+classifier inference, which is marked `inferred` and flagged with `?` in output
+so you can distrust it.
 
 **Axis 2 — Remediation capacity.** If a fix were needed, would one ship?
 
@@ -178,6 +181,15 @@ saying why the obvious guess is wrong. Without it, classifier inference fires on
 exactly those names. It also means "we looked and it's fine" is distinguishable
 in the data from "nobody has looked yet", which is the distinction the rest of
 this tool is built on.
+
+### Depth is not the same as breadth
+
+Beyond the top few hundred, most packages genuinely belong in neither list: a
+plotting library or a CLI helper needs no entry, and adding one would be noise.
+So raw "percent of PyPI covered" is the wrong measure. The one that matters is
+whether a real lockfile scans without gaps — which is why the map is curated
+against download-ranked data and checked against whole stacks rather than grown
+for its own sake.
 
 ### One boundary most scanners miss
 

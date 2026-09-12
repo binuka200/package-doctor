@@ -17,227 +17,336 @@
 # because they are not cryptographic. `tiktoken` tokenises text and is not auth.
 # Both are recorded under [reviewed] instead.
 #
-# Curated against the top 1,500 PyPI packages by download count. PRs welcome -
+# Curated against the top 3,000 PyPI packages by download count. PRs welcome -
 # include the reasoning, not just the name.
 
-schema_version = 2
+schema_version = 3
 
-# ---------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
 [category.auth]
 label = "auth/session"
 description = "Authentication, authorisation, sessions and token handling"
 packages = [
-  "pyjwt", "python-jose", "joserfc", "authlib", "oauthlib", "requests-oauthlib",
-  "itsdangerous", "flask-login", "flask-jwt-extended", "flask-security-too",
-  "django-allauth", "django-oauth-toolkit", "djangorestframework-simplejwt",
-  "social-auth-core", "social-auth-app-django", "python-keycloak",
-  "msal", "msal-extensions", "azure-identity", "google-auth",
-  "google-auth-oauthlib", "google-auth-httplib2", "authcaptureproxy",
-  "fastapi-users", "casbin", "pycasbin", "django-guardian", "pysaml2",
-  "python3-saml", "ldap3", "python-ldap", "webauthn", "fido2", "pyotp",
-  "scramp", "boto3", "botocore", "aiobotocore", "google-cloud-os-login",
-  "grpc-google-iam-v1", "python-jwt", "jwcrypto",
+  "aiobotocore", "alibabacloud-credentials", "alibabacloud-credentials-api",
+  "auth0-python", "authcaptureproxy", "authlib", "aws-requests-auth", "azure-identity",
+  "boto3", "botocore", "casbin", "django-allauth", "django-axes", "django-guardian",
+  "django-hijack", "django-oauth-toolkit", "django-otp", "django-two-factor-auth",
+  "djangorestframework-api-key", "djangorestframework-simplejwt", "docker-pycreds",
+  "fastapi-sso", "fastapi-users", "fido2", "flask-jwt-extended", "flask-login",
+  "flask-security-too", "google-auth", "google-auth-httplib2", "google-auth-oauthlib",
+  "google-cloud-os-login", "grpc-google-iam-v1", "id", "itsdangerous", "joserfc",
+  "jwcrypto", "jwt", "krb5", "ldap3", "msal", "msal-extensions", "oauth2client",
+  "oauthlib", "pwdlib", "pycasbin", "pydata-google-auth", "pyjwt", "pymongo-auth-aws",
+  "pyotp", "pysaml2", "pyspnego", "python-jose", "python-jwt", "python-keycloak",
+  "python-ldap", "python-pam", "python3-openid", "python3-saml", "requests-aws-sign",
+  "requests-aws4auth", "requests-kerberos", "requests-ntlm", "requests-oauthlib",
+  "scramp", "social-auth-app-django", "social-auth-core", "webauthn", "winkerberos",
 ]
 
 [category.crypto]
 label = "crypto"
 description = "Cryptographic primitives, certificates, secrets and TLS"
 packages = [
-  "cryptography", "pycryptodome", "pycryptodomex", "pycrypto", "pynacl",
-  "bcrypt", "passlib", "argon2-cffi", "argon2-cffi-bindings", "scrypt",
-  "rsa", "ecdsa", "pyopenssl", "certifi", "truststore", "nacl",
-  "secretstorage", "keyring", "sslyze", "asn1crypto", "pyasn1",
-  "pyasn1-modules", "azure-keyvault-secrets", "google-cloud-secret-manager",
-  "google-cloud-kms", "hvac", "cryptg",
+  "acme", "argon2-cffi", "argon2-cffi-bindings", "asn1crypto", "aws-encryption-sdk",
+  "azure-keyvault-certificates", "azure-keyvault-secrets", "bcrypt", "blake3",
+  "certifi", "coincurve", "cryptg", "cryptography", "ecdsa", "eth-keyfile",
+  "google-cloud-kms", "google-cloud-secret-manager", "http-ece", "hvac", "keyring",
+  "msoffcrypto-tool", "nacl", "ndg-httpsclient", "oscrypto", "passlib", "pgpy",
+  "pip-system-certs", "py-vapid", "pyaes", "pyasn1", "pyasn1-modules", "pycrypto",
+  "pycryptodome", "pycryptodomex", "pyhanko", "pyhanko-certvalidator", "pynacl",
+  "pyopenssl", "python-gnupg", "pywebpush", "rfc8785", "rsa", "scrypt",
+  "secretstorage", "service-identity", "signxml", "sslyze", "starkbank-ecdsa",
+  "truststore",
 ]
 
 [category.deserialization]
 label = "deserialization"
 description = "Turning untrusted bytes into live objects"
 packages = [
-  "pyyaml", "ruamel-yaml", "ruamel-yaml-clib", "dill", "cloudpickle",
-  "jsonpickle", "msgpack", "msgspec", "ujson", "orjson", "simplejson",
-  "rapidjson", "python-rapidjson", "jiter", "marshmallow", "pydantic",
-  "pydantic-core", "cattrs", "dataclasses-json", "typedload", "pyarrow",
-  "protobuf", "thrift", "avro", "fastavro", "bson", "cbor2", "flatbuffers",
-  "joblib", "numpy", "jsonschema", "fastjsonschema", "jsonschema-specifications",
-  "referencing", "jsonpointer", "jsonpatch", "jsonref", "jmespath",
-  "charset-normalizer", "chardet", "python-dateutil", "isodate",
-  "googleapis-common-protos", "grpcio-tools",
+  "avro", "avro-gen3", "avro-python3", "betterproto", "bson", "cattrs", "cbor2",
+  "chardet", "charset-normalizer", "cloudpickle", "dataclass-wizard",
+  "dataclasses-json", "dill", "djangorestframework-dataclasses", "fastavro",
+  "fastjsonschema", "flatbuffers", "googleapis-common-protos", "grpcio-tools",
+  "hydra-core", "ijson", "isodate", "jiter", "jmespath", "joblib", "json-logic",
+  "json-merge-patch", "jsonpatch", "jsonpickle", "jsonpointer", "jsonref",
+  "jsonschema", "jsonschema-rs", "jsonschema-specifications", "marshmallow",
+  "marshmallow-dataclass", "marshmallow-sqlalchemy", "mashumaro", "msgpack", "msgspec",
+  "numpy", "omegaconf", "openapi-schema-validator", "orjson", "ormsgpack", "oyaml",
+  "pickleshare", "protobuf", "protobuf3-to-dict", "py-serializable", "pyaml",
+  "pyarrow", "pydantic", "pydantic-core", "pyjson5", "pykwalify", "python-dateutil",
+  "python-frontmatter", "python-rapidjson", "pyyaml", "pyyaml-env-tag", "pyyaml-ft",
+  "pyyaml-include", "rapidjson", "referencing", "ruamel-yaml", "ruamel-yaml-clib",
+  "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
+  "typedload", "ujson", "yamale",
 ]
 
 [category.ml_model]
 label = "model loading"
 description = "Loading model weights or datasets, where pickle formats are arbitrary code execution"
 packages = [
-  "torch", "transformers", "huggingface-hub", "safetensors", "tokenizers",
-  "tensorflow", "keras", "scikit-learn", "onnx", "onnxruntime", "gguf",
-  "timm", "sentence-transformers", "diffusers", "datasets", "accelerate",
+  "accelerate", "compressed-tensors", "ctranslate2", "datasets", "diffusers",
+  "docling-ibm-models", "gguf", "huggingface-hub", "keras", "langgraph-checkpoint",
+  "langgraph-checkpoint-postgres", "langgraph-checkpoint-sqlite", "onnx", "onnx-ir",
+  "onnxruntime", "onnxruntime-gpu", "onnxscript", "orbax-checkpoint", "safetensors",
+  "scikit-learn", "sentence-transformers", "tensorflow", "timm", "tokenizers", "torch",
+  "torchvision", "transformers", "tritonclient",
 ]
 
 [category.markup]
 label = "html/xml parsing"
 description = "Parsing or sanitising attacker-supplied markup"
 packages = [
-  "beautifulsoup4", "lxml", "html5lib", "bleach", "nh3", "markupsafe",
-  "defusedxml", "xmltodict", "xmlsec", "untangle", "markdown", "markdown2",
-  "mistune", "bs4", "pyquery", "feedparser", "readability-lxml",
-  "markdown-it-py", "mdit-py-plugins", "mdurl", "markdownify",
-  "cssutils", "tinycss2", "soupsieve", "docutils", "pygments", "webencodings",
-  "nbformat", "nbconvert", "pyparsing", "lark", "unidiff",
+  "beautifulsoup4", "bleach", "branca", "bs4", "commonmark", "css-inline",
+  "cssselect2", "cssutils", "dateparser", "defusedxml", "djlint", "docutils",
+  "elementpath", "feedparser", "html-to-markdown", "html2text", "html5lib", "htmldate",
+  "junitparser", "justext", "lark", "latex2mathml", "libsass", "lxml",
+  "lxml-html-clean", "markdown", "markdown-it-py", "markdown2", "markdownify",
+  "markitdown", "marko", "markupsafe", "mdformat", "mdit-py-plugins", "mdurl",
+  "mistune", "myst-parser", "nbconvert", "nbformat", "nh3", "parsel", "pathvalidate",
+  "premailer", "protego", "pybtex", "pydantic-xml", "pygments", "pymdown-extensions",
+  "pyparsing", "pyquery", "rcssmin", "readability-lxml", "restructuredtext-lint",
+  "rjsmin", "rtfde", "selectolax", "soupsieve", "svgwrite", "tinycss2", "tinyhtml5",
+  "trafilatura", "unidiff", "untangle", "webcolors", "webencodings", "xmlschema",
+  "xmlsec", "xmltodict", "xsdata",
 ]
 
 [category.templating]
 label = "templating"
 description = "Rendering templates, where injection becomes code execution"
-packages = ["jinja2", "mako", "chameleon", "genshi", "cheetah3", "pystache"]
+packages = [
+  "chameleon", "cheetah3", "genshi", "jinja2", "mako", "pystache",
+]
 
 [category.url]
 label = "url parsing"
 description = "Parsing or normalising URLs and hostnames, where SSRF starts"
 packages = [
-  "urllib3", "yarl", "furl", "purl", "idna", "publicsuffix2", "tldextract",
-  "w3lib", "uritemplate", "fsspec", "s3fs", "smart-open",
+  "courlan", "fqdn", "fsspec", "furl", "giturlparse", "groovy", "hyperlink", "idna",
+  "packageurl-python", "publicsuffix2", "purl", "rfc3986", "rfc3987", "s3fs",
+  "safehttpx", "smart-open", "tld", "tldextract", "uri-template", "uritemplate",
+  "uritools", "url-normalize", "urllib3", "w3lib", "yarl",
 ]
 
 [category.http]
 label = "http/network"
 description = "Moving attacker-influenced bytes across a trust boundary"
 packages = [
-  "requests", "httpx", "aiohttp", "httplib2", "urllib3", "httpcore",
-  "httptools", "h11", "h2", "hpack", "hyperframe", "wsproto", "websockets",
-  "websocket-client", "tornado", "werkzeug", "uvicorn", "gunicorn", "waitress",
-  "hypercorn", "starlette", "asgiref", "twisted", "scrapy", "pycurl",
-  "grpcio", "grpclib", "paho-mqtt", "pika", "kombu", "pysocks", "pyzmq",
-  "requests-toolbelt", "cachecontrol", "requests-file", "httpx-sse",
-  "sse-starlette", "playwright", "selenium", "google-api-core",
-  "google-api-python-client", "google-cloud-storage", "s3transfer",
-  "google-resumable-media", "docker", "kubernetes", "litellm", "minio",
+  "a2wsgi", "aio-pika", "aiohttp", "aiohttp-cors", "aiohttp-jinja2", "aiohttp-socks",
+  "aioquic", "aiormq", "aiosmtplib", "amqp", "asgiref", "autobahn", "cachecontrol",
+  "channels", "channels-redis", "cheroot", "cloudscraper", "daphne",
+  "django-compressor", "django-crispy-forms", "django-formtools", "docker",
+  "flask-compress", "flask-session", "flask-talisman", "flask-wtf", "geoip2",
+  "geventhttpclient", "google-api-core", "google-api-python-client",
+  "google-cloud-storage", "google-resumable-media", "granian", "grpcio",
+  "grpcio-health-checking", "grpcio-reflection", "grpcio-status", "grpclib",
+  "gunicorn", "h11", "h2", "harfile", "hishel", "hpack", "httpcore", "httplib2",
+  "httptools", "httpx", "httpx-sse", "httpx-ws", "hypercorn", "hyperframe", "kombu",
+  "kubernetes", "litellm", "maxminddb", "minio", "mitmproxy", "multipart", "paho-mqtt",
+  "pamqp", "pastedeploy", "patchright", "pika", "playwright", "pooch", "prance",
+  "primp", "priority", "pycurl", "pylsqpack", "pysmb", "pysocks", "python-socks",
+  "pyzmq", "requests", "requests-cache", "requests-file", "requests-toolbelt",
+  "requests-unixsocket", "s3transfer", "scrapy", "selenium", "seleniumbase", "sgqlc",
+  "simple-websocket", "socksio", "sse-starlette", "starlette", "tornado",
+  "trio-websocket", "twisted", "ua-parser", "ua-parser-builtins", "uamqp", "urllib3",
+  "user-agents", "uvicorn", "waitress", "webargs", "webob", "websocket-client",
+  "websockets", "werkzeug", "whitenoise", "wsproto", "wtforms",
 ]
 
 [category.framework]
 label = "web framework"
 description = "Request handling, routing and session management"
 packages = [
-  "django", "flask", "fastapi", "bottle", "pyramid", "sanic", "falcon",
-  "cherrypy", "web-py", "quart", "connexion", "djangorestframework",
-  "flask-restful", "flask-cors", "django-cors-headers", "strawberry-graphql",
-  "graphene", "ariadne", "graphql-core", "python-multipart",
+  "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash", "django",
+  "django-cors-headers", "djangorestframework", "drf-extensions", "falcon", "fastapi",
+  "flask", "flask-cors", "flask-restful", "graphene", "graphql-core", "mangum",
+  "pyramid", "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit",
+  "web-py",
 ]
 
 [category.query]
 label = "query building"
 description = "Building queries or commands from caller-supplied values"
 packages = [
-  "sqlalchemy", "alembic", "psycopg2", "psycopg2-binary", "psycopg",
-  "psycopg-binary", "pymysql", "mysqlclient", "mysql-connector-python",
-  "asyncpg", "aiomysql", "aiosqlite", "peewee", "pony", "tortoise-orm",
-  "sqlmodel", "sqlparse", "sqlglot", "pypika", "records", "dataset",
-  "pymongo", "motor", "redis", "elasticsearch", "opensearch-py",
-  "cassandra-driver", "clickhouse-driver", "duckdb", "snowflake-connector-python",
-  "snowflake-sqlalchemy", "snowflake-snowpark-python", "databricks-sql-connector",
-  "redshift-connector", "sqlalchemy-bigquery", "google-cloud-bigquery",
+  "aiomysql", "aiosqlite", "alembic", "asyncpg", "cassandra-driver", "chdb",
+  "clickhouse-connect", "clickhouse-driver", "cloud-sql-python-connector",
+  "databricks-sql-connector", "dataset", "dbutils", "django-redis", "duckdb",
+  "elasticsearch", "flask-sqlalchemy", "geoalchemy2", "google-cloud-bigquery",
+  "hdbcli", "hiredis", "impyla", "jaydebeapi", "motor", "mssql-python",
+  "mssql-python-odbc", "mysql-connector-python", "mysqlclient", "neo4j",
+  "opensearch-py", "ormar", "peewee", "pg8000", "pglast", "pony", "postgrest",
+  "presto-python-client", "psycopg", "psycopg-binary", "psycopg2", "psycopg2-binary",
+  "pyexasol", "pymongo", "pymssql", "pymysql", "pypika", "records", "redis",
+  "redis-py-cluster", "redisvl", "redshift-connector", "snowflake-connector-python",
+  "snowflake-snowpark-python", "snowflake-sqlalchemy", "sql-metadata", "sqlalchemy",
+  "sqlalchemy-bigquery", "sqlalchemy-jsonfield", "sqlalchemy-utils", "sqlfluff",
+  "sqlglot", "sqlmodel", "sqlparse", "teradatasql", "teradatasqlalchemy",
+  "tortoise-orm", "trino", "valkey",
 ]
 
 [category.archive]
 label = "archive extraction"
 description = "Unpacking archives, where path traversal and zip bombs live"
 packages = [
-  "zipp", "py7zr", "rarfile", "patool", "libarchive-c", "zipfile38",
-  "tarsafe", "brotli", "zstandard", "backports-zstd", "python-lzo", "pyzipper",
+  "backports-zstd", "brotli", "compressed-rtf", "cramjam", "extract-msg", "fastar",
+  "inflate64", "libarchive-c", "patool", "py7zr", "pybcj", "pyppmd", "python-lzo",
+  "python-oxmsg", "pyzipper", "pyzstd", "rarfile", "tarsafe", "zipfile38", "zipp",
+  "zlib-ng", "zstandard", "zstd",
 ]
 
 [category.filetype]
 label = "file/media parsing"
 description = "Parsing uploaded documents, images, fonts and media"
 packages = [
-  "pillow", "pil", "python-magic", "filetype", "imageio", "opencv-python",
-  "opencv-python-headless", "pypdf", "pypdf2", "pypdfium2", "pdfminer-six",
-  "pdfplumber", "pymupdf", "reportlab", "python-docx", "python-pptx",
-  "openpyxl", "xlrd", "xlsxwriter", "odfpy", "olefile", "exifread", "piexif",
-  "mutagen", "pydub", "svglib", "cairosvg", "wand", "pytesseract",
-  "fonttools", "pandas",
+  "audioread", "borb", "cairosvg", "docling", "docling-parse", "docling-slim",
+  "docx2txt", "docxtpl", "easyocr", "exifread", "fastexcel", "filetype", "fonttools",
+  "formulas", "fpdf2", "freetype-py", "html-for-docx", "imageio", "imagesize",
+  "img2pdf", "latexcodec", "mammoth", "mutagen", "odfpy", "olefile", "opencv-python",
+  "opencv-python-headless", "openpyxl", "pandas", "pdf2image", "pdfkit",
+  "pdfminer-six", "pdfplumber", "pdfrw", "piexif", "pikepdf", "pil", "pillow",
+  "pydicom", "pydub", "pydyf", "pymupdf", "pypdf", "pypdf2", "pypdfium2",
+  "pytesseract", "python-calamine", "python-docx", "python-magic", "python-pptx",
+  "pyxlsb", "rapidocr", "rapidocr-onnxruntime", "reportlab", "scikit-image", "svglib",
+  "tinytag", "torchcodec", "unstructured", "vtk", "wand", "weasyprint", "xhtml2pdf",
+  "xlrd", "xlsxwriter", "xlwt",
 ]
 
 [category.remote_exec]
 label = "remote access"
 description = "Executing commands or moving files on remote hosts"
 packages = [
-  "paramiko", "fabric", "asyncssh", "pexpect", "ptyprocess", "scp",
-  "ansible-core", "netmiko", "execnet",
+  "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", "netmiko", "paramiko",
+  "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp", "sh", "sshtunnel",
+  "subprocess-tee",
 ]
 
-# ---------------------------------------------------------------------------
-# Packages that are frequently flagged as "stale" by release-age heuristics and
-# should never be, because they are finished rather than abandoned, and sit
-# nowhere near a trust boundary. Presence here suppresses age-based reasoning
-# but is still overridden by an unfixed advisory.
+# -------------------------------------------------------------------------
+# Packages that release-age heuristics frequently mis-flag, because they are
+# finished rather than abandoned and sit nowhere near a trust boundary.
+# Presence here suppresses age-based reasoning but is still overridden by an
+# unfixed advisory.
 
 [stable]
 packages = [
-  "six", "pytz", "toml", "tomli", "tomli-w", "tomlkit", "packaging",
-  "typing-extensions", "typing-inspection", "wcwidth", "attrs", "colorama",
-  "decorator", "future", "pluggy", "py", "iniconfig", "distlib", "filelock",
-  "platformdirs", "appdirs", "backports-abc", "monotonic", "pathlib2",
-  "scandir", "funcsigs", "enum34", "ipaddress", "contextlib2", "mock",
-  "termcolor", "tabulate", "humanize", "inflection", "shortuuid",
-  "annotated-types", "mdurl-stub", "sniffio", "text-unidecode", "tzdata",
+  "annotated-types", "appdirs", "attrs", "backports-abc", "colorama", "contextlib2",
+  "decorator", "distlib", "enum34", "filelock", "funcsigs", "future", "humanize",
+  "inflection", "iniconfig", "ipaddress", "mdurl-stub", "mock", "monotonic",
+  "packaging", "pathlib2", "platformdirs", "pluggy", "py", "pytz", "scandir",
+  "shortuuid", "six", "sniffio", "tabulate", "termcolor", "text-unidecode", "toml",
+  "tomli", "tomli-w", "tomlkit", "typing-extensions", "typing-inspection", "tzdata",
+  "wcwidth",
 ]
 
-# ---------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # Reviewed and deliberately NOT treated as exposed. This list exists so that
 # "we checked" is distinguishable from "we never looked" - without it, metadata
 # inference fires on names that merely sound security-adjacent.
 #
-# Each line records why the obvious guess is wrong.
+# Each entry records why the obvious guess is wrong.
+#
+# Reviewed as families rather than one by one, being thin generated API wrappers
+# or typing stubs whose real trust boundary is the transport underneath them
+# (requests / httpx / grpcio, all covered above):
+#   google-cloud-*
+#   apache-airflow-providers-*
+#   llama-index-*
+#   dbt-*
+#   types-*
+#   mypy-boto3-*
+#   boto3-stubs
+#   opentelemetry-*
+#   azure-mgmt-*
+#   nvidia-*
+#   sphinxcontrib-*
+#   pytest-*
 
 [reviewed]
 not_exposed = [
-  "xxhash",          # non-cryptographic hash, despite the name
-  "mmh3",            # MurmurHash: non-cryptographic
-  "tiktoken",        # BPE tokeniser, not authentication tokens
-  "pytokens",        # Python source tokeniser, not auth tokens
-  "kiwisolver",      # constraint solver; "Cassowary" is an algorithm
-  "wrapt",           # decorators and monkey patching
-  "psutil",          # process and system metrics
-  "networkx",        # graph data structures, not networking
-  "anyio",           # async concurrency plumbing
-  "uvloop",          # event loop implementation
-  "propcache",       # property caching
-  "multidict",       # dict subclass used by aiohttp
-  "frozenlist",      # immutable list
-  "aiosignal",       # callback container
-  "aiohappyeyeballs", # connection racing helper
-  "greenlet",        # coroutine primitives
-  "semver",          # version string comparison
-  "backoff",         # retry decorator
-  "tenacity",        # retry decorator
-  "absl-py",         # flags and logging
-  "traitlets",       # configuration system
-  "argcomplete",     # shell tab completion
-  "shellingham",     # detects the surrounding shell, runs nothing
-  "stack-data",      # traceback formatting
-  "asttokens",       # AST source positions
-  "pycparser",       # parses C headers at build time, not runtime input
-  "pyproject-hooks", # build backend invocation
-  "python-dotenv",   # reads local .env files
-  "python-json-logger", # formats log output, does not parse input
-  "sentry-sdk",      # telemetry egress
-  "click",           # CLI argument parsing
-  "rich",            # terminal rendering
-  "tqdm",            # progress bars
-  "pytest",          # test runner
-  "virtualenv",      # environment creation
-  "hatchling",       # build backend
-  "trove-classifiers", # static classifier list
-  "importlib-metadata", # distribution metadata access
-  "jupyter-client",  # kernel transport on a local socket
-  "ipython",         # interactive shell
-  "ipykernel",       # interactive kernel
-  "portalocker",     # file locking
-  "pkginfo",         # reads local distribution metadata
-  "gitdb",           # git object storage
-  "gitpython",       # git plumbing wrapper
-  "dbt-adapters",    # adapter protocol definitions
+
+  "absl-py",                      # flags and logging
+  "aiohappyeyeballs",             # connection racing helper
+  "aioresponses",                 # test double for aiohttp
+  "aiosignal",                    # callback container
+  "anyio",                        # async concurrency plumbing
+  "argcomplete",                  # shell tab completion
+  "asgi-correlation-id",          # adds a request id to logs
+  "asgi-lifespan",                # drives ASGI startup and shutdown
+  "asttokens",                    # AST source positions
+  "backoff",                      # retry decorator
+  "celery-types",                 # typing stubs
+  "click",                        # CLI argument parsing
+  "concurrent-log-handler",       # rotates local log files
+  "curlify",                      # formats a request object as a curl command
+  "db-dtypes",                    # pandas dtype definitions
+  "dbt-adapters",                 # adapter protocol definitions
+  "dj-database-url",              # expands a connection string into Django settings
+  "django-health-check",          # liveness endpoints
+  "django-js-asset",              # renders a script tag
+  "django-silk",                  # request profiler
+  "emoji",                        # emoji name lookup table
+  "fake-useragent",               # returns user agent strings; parses nothing
+  "fakeredis",                    # in-process test double, not a client
+  "frozenlist",                   # immutable list
+  "gitdb",                        # git object storage
+  "gitpython",                    # git plumbing wrapper
+  "greenlet",                     # coroutine primitives
+  "griffe",                       # extracts Python API signatures; not cryptographic signatures
+  "griffecli",                    # same as griffe
+  "griffelib",                    # same as griffe
+  "grpc-stubs",                   # typing stubs
+  "hashids",                      # obfuscates integers; its own docs say it is not secure
+  "hatchling",                    # build backend
+  "importlib-metadata",           # distribution metadata access
+  "ipykernel",                    # interactive kernel
+  "ipython",                      # interactive shell
+  "junit-xml",                    # writes JUnit XML, does not parse it
+  "jupyter-client",               # kernel transport on a local socket
+  "jupytext",                     # converts notebooks to text formats
+  "kiwisolver",                   # constraint solver; "Cassowary" is an algorithm
+  "lazy-object-proxy",            # object proxy, not a network proxy
+  "libtmux",                      # wraps the tmux CLI; the ORM wording is a metaphor
+  "makefun",                      # creates functions dynamically from signatures
+  "mkdocs",                       # static site generator for trusted local sources
+  "mkdocs-material",              # theme for mkdocs
+  "mkdocs-material-extensions",   # theme extensions for mkdocs
+  "mmh3",                         # MurmurHash: non-cryptographic
+  "mongomock",                    # in-process test double, not a client
+  "multidict",                    # dict subclass used by aiohttp
+  "nanoid",                       # random ID generator; URL-friendly, but parses no URLs
+  "networkx",                     # graph data structures, not networking
+  "numpy-financial",              # financial arithmetic
+  "pkginfo",                      # reads local distribution metadata
+  "port-for",                     # picks a free local TCP port
+  "portalocker",                  # file locking
+  "propcache",                    # property caching
+  "psutil",                       # process and system metrics
+  "pycparser",                    # parses C headers at build time, not runtime input
+  "pyproject-hooks",              # build backend invocation
+  "pytest",                       # test runner
+  "python-dotenv",                # reads local .env files
+  "python-json-logger",           # formats log output, does not parse input
+  "pytokens",                     # Python source tokeniser, not auth tokens
+  "repoze-lru",                   # in-memory LRU cache
+  "respx",                        # test double for httpx
+  "rich",                         # terminal rendering
+  "semver",                       # version string comparison
+  "sentry-sdk",                   # telemetry egress
+  "shellingham",                  # detects the surrounding shell, runs nothing
+  "snowballstemmer",              # word stemming algorithms
+  "sphinx-design",                # documentation components
+  "stack-data",                   # traceback formatting
+  "swagger-ui-bundle",            # ships static UI assets
+  "tenacity",                     # retry decorator
+  "testing-postgresql",           # spins up a throwaway database for tests
+  "tiktoken",                     # BPE tokeniser, not authentication tokens
+  "tqdm",                         # progress bars
+  "traitlets",                    # configuration system
+  "trove-classifiers",            # static classifier list
+  "unittest-xml-reporting",       # writes test result XML
+  "uvloop",                       # event loop implementation
+  "vcrpy",                        # records and replays HTTP in tests
+  "venusian",                     # defers decorator actions
+  "virtualenv",                   # environment creation
+  "wrapt",                        # decorators and monkey patching
+  "xxhash",                       # non-cryptographic hash, despite the name
 ]
