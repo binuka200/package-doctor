@@ -217,3 +217,18 @@ def test_build_and_plotting_tools_are_not_inferred_as_exposed():
     ]
     for info in cases:
         assert not m.lookup("some-package", info).is_exposed, info
+
+
+def test_candidates_surfaced_by_suggest_map_are_decided():
+    """research/suggest_map.py ranks unmapped packages by what the map's
+    silence costs. These were its first eight, decided one way or the other.
+
+    num2words is the instructive one: three unfixed advisories, but reading
+    them shows a maintainer account compromise rather than anything the library
+    does with input. Advisory count is a reason to look, never the answer."""
+    m = load_exposure_map()
+    for name in ("pytorch-lightning", "lightning", "apache-airflow", "prefect",
+                 "opencv-contrib-python", "ansible", "lmdb"):
+        assert m.lookup(name).is_exposed, name
+    assert not m.lookup("num2words").is_exposed
+    assert m.is_reviewed("num2words")

@@ -290,6 +290,35 @@ advisories with no published fix and `transformers` carries 9.
 
 PRs welcome — include the reasoning, not just the name.
 
+### Growing it
+
+Curating by working down a download list is brute force; most of what you read
+does not belong. `research/suggest_map.py` inverts that — it ranks the packages
+the map has *no opinion about* by how much that silence costs, and prints what
+each one is for so the decision takes seconds:
+
+```bash
+package-doctor scan . --json -o scan.json
+python research/suggest_map.py --scan scan.json
+
+python research/suggest_map.py --dataset data/pypi-top3000.jsonl --limit 30
+```
+
+```
+  1. pytorch-lightning
+     5 advisories never fixed
+     "PyTorch Lightning is the lightweight PyTorch wrapper for ML researchers..."
+     https://pypi.org/project/pytorch-lightning/
+```
+
+Unfixed advisories rank highest, because if such a package does turn out to sit
+at a trust boundary then the map is actively hiding something dangerous.
+
+An advisory count is a reason to look, never the answer. `num2words` reached the
+top of that list with three unfixed advisories, and reading them showed a
+maintainer account compromise rather than anything the library does with input —
+so it belongs in `[reviewed] not_exposed`, with that noted.
+
 ## A note on tone
 
 Being listed here is not an accusation. Most unmaintained packages are the work

@@ -89,6 +89,7 @@ packages = [
   "docling-ibm-models", "gguf", "huggingface-hub", "keras", "langgraph-checkpoint",
   "langgraph-checkpoint-postgres", "langgraph-checkpoint-sqlite", "onnx", "onnx-ir",
   "onnxruntime", "onnxruntime-gpu", "onnxscript", "orbax-checkpoint", "safetensors",
+  "pytorch-lightning", "lightning",
   "scikit-learn", "sentence-transformers", "tensorflow", "timm", "tokenizers", "torch",
   "torchvision", "transformers", "tritonclient",
 ]
@@ -175,7 +176,7 @@ label = "web framework"
 description = "Request handling, routing and session management"
 packages = [
   "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash", "django",
-  "django-cors-headers", "djangorestframework", "drf-extensions", "drf-spectacular", "falcon", "fastapi",
+  "django-cors-headers", "djangorestframework", "apache-airflow", "prefect", "drf-extensions", "drf-spectacular", "falcon", "fastapi",
   "flask", "flask-cors", "flask-restful", "graphene", "graphql-core", "mangum",
   "pyramid", "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit",
   "web-py",
@@ -186,7 +187,7 @@ label = "query building"
 description = "Building queries or commands from caller-supplied values"
 packages = [
   "aiomysql", "aiosqlite", "alembic", "asyncpg", "cassandra-driver", "chdb", "chromadb", "qdrant-client", "pinecone-client",
-  "weaviate-client", "pgvector", "lancedb", "pymilvus", "faiss-cpu",
+  "weaviate-client", "pgvector", "lancedb", "lmdb", "pymilvus", "faiss-cpu",
   "clickhouse-connect", "clickhouse-driver", "cloud-sql-python-connector",
   "databricks-sql-connector", "dataset", "dbutils", "django-filter", "django-redis", "duckdb",
   "elasticsearch", "flask-sqlalchemy", "geoalchemy2", "google-cloud-bigquery",
@@ -220,7 +221,7 @@ packages = [
   "docx2txt", "docxtpl", "easyocr", "exifread", "fastexcel", "filetype", "fonttools",
   "formulas", "fpdf2", "freetype-py", "html-for-docx", "imageio", "imagesize",
   "img2pdf", "latexcodec", "mammoth", "mutagen", "odfpy", "olefile", "opencv-python",
-  "opencv-python-headless", "openpyxl", "pandas", "pdf2image", "pdfkit",
+  "opencv-contrib-python", "opencv-python-headless", "openpyxl", "pandas", "pdf2image", "pdfkit",
   "pdfminer-six", "pdfplumber", "pdfrw", "piexif", "pikepdf", "pil", "pillow",
   "pydicom", "pydub", "pydyf", "pymupdf", "pypdf", "pypdf2", "pypdfium2",
   "pytesseract", "python-calamine", "python-docx", "python-magic", "python-pptx",
@@ -233,7 +234,7 @@ packages = [
 label = "remote access"
 description = "Executing commands or moving files on remote hosts"
 packages = [
-  "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", "netmiko", "paramiko",
+  "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", "netmiko", "paramiko",
   "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp", "sh", "sshtunnel",
   "subprocess-tee",
 ]
@@ -345,6 +346,8 @@ not_exposed = [
   "mongomock",                    # in-process test double, not a client
   "multidict",                    # dict subclass used by aiohttp
   "nanoid",                       # random ID generator; URL-friendly, but parses no URLs
+  "num2words",                    # converts numbers to words; its advisories are a
+                                  # maintainer account compromise, not input handling
   "networkx",                     # graph data structures, not networking
   "numpy-financial",              # financial arithmetic
   "pkginfo",                      # reads local distribution metadata
