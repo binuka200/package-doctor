@@ -96,10 +96,14 @@ def render(
         console.print(line)
 
         table = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
-        table.add_column("name", style="bold", no_wrap=True)
+        # Wrap a long name rather than clipping it: "djangorestframework-sim…"
+        # is not a package anyone can look up or install.
+        table.add_column("name", style="bold", overflow="fold", max_width=22)
         table.add_column("version", style="dim", no_wrap=True)
         table.add_column("exposure", no_wrap=True)
-        table.add_column("why")
+        # Wrap rather than truncate: a clipped file path or advisory id is
+        # worse than useless, because the user cannot look it up.
+        table.add_column("why", overflow="fold")
 
         for finding in group:
             reasons = finding.reasons[:2]
@@ -112,7 +116,14 @@ def render(
                 why.append("-", style="dim")
             extra = len(finding.reasons) - len(reasons)
             if extra > 0:
-                why.append(f"  (+{extra} more)", style="dim")
+                # Worded, not another "(+N more)": reason claims can end in
+                # their own "(+79 more)" and two bare counts side by side read
+                # as one confusing number.
+                why.append(
+                    f"\nand {extra} more reason{'s' if extra > 1 else ''} "
+                    f"- package-doctor explain {finding.package.name}",
+                    style="dim",
+                )
 
             exposure_text = Text(finding.exposure.label)
             if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
@@ -126,7 +137,9 @@ def render(
         console.print()
         console.print(Text("OK", style="green"))
         table = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
-        table.add_column("name", style="bold", no_wrap=True)
+        # Wrap a long name rather than clipping it: "djangorestframework-sim…"
+        # is not a package anyone can look up or install.
+        table.add_column("name", style="bold", overflow="fold", max_width=22)
         table.add_column("version", style="dim")
         for finding in sorted(ok, key=_sort_key):
             table.add_row(finding.package.name, _version(finding))

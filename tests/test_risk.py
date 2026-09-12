@@ -134,3 +134,48 @@ def test_every_reason_is_a_sentence_not_a_score():
 def test_slow_fix_history_alone_does_not_escalate(days, expected):
     rem = healthy(advisories=AdvisoryHistory(total=4, late=2, timely=2, median_late_days=days))
     assert assess(pkg(), exposed(), rem, now=NOW).verdict is expected
+
+
+# --- regressions found by scanning a real repository ------------------------
+
+def test_an_unmaintained_package_still_reports_its_affected_version():
+    """Found on a real Django project: django 4.2.7 tripped the abandonment
+    rule via one unfixed advisory, and the report showed only that - silently
+    dropping the 83 advisories that applied to the installed version. The user
+    would have badly under-estimated their exposure."""
+    rem = healthy(
+        repo_archived=True,
+        advisories=AdvisoryHistory(
+            total=321, unfixed=1, ids_unfixed=["GHSA-unfixed"],
+            affecting_current=83,
+            ids_affecting_current=[f"GHSA-{i}" for i in range(83)],
+        ),
+    )
+    finding = assess(pkg("django", "4.2.7"), exposed("web framework"), rem, now=NOW)
+    assert finding.verdict is Verdict.ACT
+    claims = " ".join(r.claim for r in finding.reasons)
+    assert "no published fix" in claims, "lost the abandonment reason"
+    assert "83 advisories" in claims, "lost the affected-version reason"
+
+
+def test_a_package_outside_the_exposure_map_still_reports_live_advisories():
+    """The same omission in the low-priority bucket: not being at a known trust
+    boundary is no reason to hide that the installed version is affected."""
+    rem = Remediation(
+        last_release=years_ago(3),
+        repo_last_push=years_ago(3),
+        advisories=AdvisoryHistory(
+            total=10, affecting_current=4, ids_affecting_current=["GHSA-a", "GHSA-b"]
+        ),
+    )
+    finding = assess(pkg("obscure"), not_exposed(), rem, now=NOW)
+    assert "4 advisories" in " ".join(r.claim for r in finding.reasons)
+
+
+def test_advisory_ids_are_listed_before_the_overflow_count():
+    """Two ids is enough to look something up; the count carries the rest."""
+    rem = healthy(advisories=AdvisoryHistory(
+        total=9, affecting_current=9,
+        ids_affecting_current=[f"GHSA-{i}" for i in range(9)]))
+    claims = " ".join(r.claim for r in assess(pkg(), exposed(), rem, now=NOW).reasons)
+    assert "GHSA-0, GHSA-1 and 7 more" in claims

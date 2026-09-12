@@ -116,3 +116,18 @@ def test_map_covers_a_meaningful_share_of_common_packages():
     m = load_exposure_map()
     assert m.size > 300
     assert m.reviewed_size > 400
+
+
+def test_packages_misclassified_on_a_real_repository_are_mapped():
+    """Scanning a real Django project surfaced three gaps. nltk was the serious
+    one: 82 advisories against the pinned version, six with no fix, including
+    path traversal and arbitrary file overwrite in its model downloader - and
+    it was reported as 'stale, not exposed / low priority'."""
+    m = load_exposure_map()
+    assert m.lookup("nltk").is_exposed, "nltk downloads and deserialises model artifacts"
+    assert "query building" in m.lookup("django-filter").categories, (
+        "django-filter builds ORM queries from user-supplied query strings"
+    )
+    assert m.lookup("drf-spectacular").is_exposed
+    for name in ("nltk", "django-filter", "drf-spectacular"):
+        assert m.lookup(name).confidence is Confidence.CURATED

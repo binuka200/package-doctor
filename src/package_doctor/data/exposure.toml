@@ -71,7 +71,7 @@ packages = [
   "hydra-core", "ijson", "isodate", "jiter", "jmespath", "joblib", "json-logic",
   "json-merge-patch", "jsonpatch", "jsonpickle", "jsonpointer", "jsonref",
   "jsonschema", "jsonschema-rs", "jsonschema-specifications", "marshmallow",
-  "marshmallow-dataclass", "marshmallow-sqlalchemy", "mashumaro", "msgpack", "msgspec",
+  "marshmallow-dataclass", "marshmallow-sqlalchemy", "mashumaro", "msgpack", "msgspec", "nltk",
   "numpy", "omegaconf", "openapi-schema-validator", "orjson", "ormsgpack", "oyaml",
   "pickleshare", "protobuf", "protobuf3-to-dict", "py-serializable", "pyaml",
   "pyarrow", "pydantic", "pydantic-core", "pyjson5", "pykwalify", "python-dateutil",
@@ -158,7 +158,7 @@ label = "web framework"
 description = "Request handling, routing and session management"
 packages = [
   "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash", "django",
-  "django-cors-headers", "djangorestframework", "drf-extensions", "falcon", "fastapi",
+  "django-cors-headers", "djangorestframework", "drf-extensions", "drf-spectacular", "falcon", "fastapi",
   "flask", "flask-cors", "flask-restful", "graphene", "graphql-core", "mangum",
   "pyramid", "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit",
   "web-py",
@@ -170,7 +170,7 @@ description = "Building queries or commands from caller-supplied values"
 packages = [
   "aiomysql", "aiosqlite", "alembic", "asyncpg", "cassandra-driver", "chdb",
   "clickhouse-connect", "clickhouse-driver", "cloud-sql-python-connector",
-  "databricks-sql-connector", "dataset", "dbutils", "django-redis", "duckdb",
+  "databricks-sql-connector", "dataset", "dbutils", "django-filter", "django-redis", "duckdb",
   "elasticsearch", "flask-sqlalchemy", "geoalchemy2", "google-cloud-bigquery",
   "hdbcli", "hiredis", "impyla", "jaydebeapi", "motor", "mssql-python",
   "mssql-python-odbc", "mysql-connector-python", "mysqlclient", "neo4j",

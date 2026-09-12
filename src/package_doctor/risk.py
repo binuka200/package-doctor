@@ -76,8 +76,8 @@ def assess(
             ),
         )
     if adv.unfixed:
-        ids = ", ".join(adv.ids_unfixed[:3])
-        more = f" (+{adv.unfixed - 3} more)" if adv.unfixed > 3 else ""
+        ids = ", ".join(adv.ids_unfixed[:2])
+        more = f" and {adv.unfixed - 2} more" if adv.unfixed > 2 else ""
         authoritative.append(
             Evidence(
                 f"{adv.unfixed} advisor{'y' if adv.unfixed == 1 else 'ies'} with no published fix: {ids}{more}",
@@ -126,6 +126,29 @@ def assess(
         scope = " in test code" if package.imported_in_tests_only else ""
         reach.append(Evidence(f"imported by your code{scope} at {where}{more}"))
 
+    # "Your pinned version is affected" is a fact about the user's situation,
+    # not a property of any one verdict path. Building it here rather than
+    # inside a branch fixes a real under-report: a package that also trips the
+    # abandonment rule used to show only its abandonment reason, hiding that
+    # dozens of advisories applied to the version actually installed.
+    current: list[Evidence] = []
+    if adv.affecting_current:
+        ids = ", ".join(adv.ids_affecting_current[:2])
+        more = (
+            f" and {adv.affecting_current - 2} more" if adv.affecting_current > 2 else ""
+        )
+        current.append(
+            Evidence(
+                f"pinned version {package.version} is affected by "
+                f"{adv.affecting_current} advisor"
+                f"{'y' if adv.affecting_current == 1 else 'ies'}: {ids}{more}",
+                f"https://osv.dev/list?q={package.name}&ecosystem=PyPI",
+            )
+        )
+        note = describe_exploit(exploit)
+        if note and not exploit.kev:
+            current.append(Evidence(note, "https://www.first.org/epss/"))
+
     # ---- verdict ---------------------------------------------------------
     reasons: list[Evidence] = []
     no_signal = (
@@ -138,27 +161,12 @@ def assess(
     if no_signal:
         verdict = Verdict.UNKNOWN
         reasons.append(Evidence("not enough data to judge: " + "; ".join(remediation.gaps)))
-    elif exposure.is_exposed and unmaintained:
+    elif exposure.is_exposed and (unmaintained or adv.affecting_current):
+        # Either nobody is left to fix it, or the version installed right now
+        # is known-vulnerable. Both are actionable and both get stated.
         verdict = Verdict.ACT
         reasons.extend(signals)
-        reasons.extend(reach)
-    elif exposure.is_exposed and adv.affecting_current:
-        # Maintained, but the pinned version is known-vulnerable right now.
-        verdict = Verdict.ACT
-        ids = ", ".join(adv.ids_affecting_current[:3])
-        reasons.append(
-            Evidence(
-                f"pinned version {package.version} is affected by "
-                f"{adv.affecting_current} advisor{'y' if adv.affecting_current == 1 else 'ies'}: {ids}",
-                f"https://osv.dev/list?q={package.name}&ecosystem=PyPI",
-            )
-        )
-        note = describe_exploit(exploit)
-        if note and not exploit.kev:
-            reasons.append(
-                Evidence(note, "https://www.first.org/epss/")
-            )
-        reasons.extend(signals)
+        reasons.extend(current)
         reasons.extend(reach)
     elif exposure.is_exposed:
         verdict = Verdict.WATCH
@@ -186,6 +194,7 @@ def assess(
         # nothing in this bucket asks the user to do anything.
         verdict = Verdict.LOW
         reasons.extend(signals)
+        reasons.extend(current)
         if known_stable:
             reasons.append(Evidence("reviewed as a finished utility, not at a trust boundary"))
     elif exposure.confidence is Confidence.NONE:
