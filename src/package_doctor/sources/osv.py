@@ -25,6 +25,7 @@ from packaging.version import InvalidVersion, Version
 
 from ..models import AdvisoryHistory
 from .client import Client
+from .exploitability import CVE_ID
 from .pypi import normalise, parse_ts
 
 OSV_QUERY = "https://api.osv.dev/v1/query"
@@ -139,7 +140,7 @@ def build_history(
             # Keep CVE aliases so exploitability can be scored later. GHSA and
             # PYSEC ids mean nothing to EPSS or KEV, which are CVE-keyed.
             for alias in vuln.get("aliases") or []:
-                if str(alias).startswith("CVE-"):
+                if CVE_ID.match(str(alias)):
                     history.cves_affecting_current.append(str(alias))
 
         if not fixes:

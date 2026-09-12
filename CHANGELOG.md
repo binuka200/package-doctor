@@ -26,6 +26,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Research harness (`research/`) for bulk-scanning PyPI and for deciding what
   the exposure map should cover next.
 
+### Security
+
+- Terminal output strips control and formatting characters, including whole
+  CSI and OSC sequences, from every string that originates outside the
+  process: lockfile versions, scanned file names, API-supplied URLs and
+  advisory ids. `rich` neutralises markup but passes a raw ESC through, so a
+  hostile lockfile could previously wrap a row in a hyperlink to somewhere
+  else or clear the screen.
+- The source scanner and the dependency-file parsers read only regular files,
+  with a bounded read rather than a size check. A FIFO named `evil.py` or a
+  symlink to `/dev/zero` in a scanned checkout previously hung the scan.
+- Dependency files are capped at 32 MB, and a refused file is reported rather
+  than silently treated as empty.
+- Pathologically nested TOML and JSON is treated as malformed. `tomllib`
+  raises `RecursionError`, not `TOMLDecodeError`, on a lockfile a few thousand
+  brackets deep, which previously ended the scan with a traceback.
+- CVE identifiers from OSV aliases are validated against their exact form
+  before being spliced into the EPSS query string.
+- The response cache file is created `0600` before SQLite opens it, rather
+  than tightened afterwards.
+
 ### Measured
 
 - Advisory version matching agrees with OSV's own version-scoped query on 40/40

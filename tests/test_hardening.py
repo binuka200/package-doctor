@@ -127,6 +127,10 @@ def test_findings_render_untrusted_text_literally():
     render(console, [finding], sources=["requirements.txt"])
     out = buf.getvalue()
     assert "[blink]LOOK AT ME[/blink]" in out
+    # Markup being inert is not enough: rich passes a raw ESC straight through
+    # to the terminal, so the sequence has to be stripped, not just not parsed.
+    assert "\x1b" not in out
+    assert "red" in out, "the words around a stripped sequence must survive"
 
 
 # --- a scanned file must not be able to exhaust the scanner -----------------
@@ -177,3 +181,206 @@ def test_pathological_nesting_does_not_crash_the_scan(tmp_path):
     index = build_index(tmp_path, known_packages={"requests"})
     assert index.files_failed == 1
     assert index.for_package("requests")
+
+
+# --- terminal escape sequences from any untrusted field are stripped ---------
+
+def _render_one(finding):
+    """Render to a plain console, so any escape in the output is one that
+    came from the data and not from rich's own styling."""
+    from package_doctor.report import render
+    buf = io.StringIO()
+    console = Console(file=buf, width=120, force_terminal=False, color_system=None)
+    render(console, [finding], sources=["uv.lock"])
+    return buf.getvalue()
+
+
+def test_a_lockfile_version_cannot_carry_an_escape_sequence():
+    """The version column is copied verbatim from the lockfile, which the user
+    did not write. An OSC 8 sequence there would turn the row into a hyperlink
+    to wherever the lockfile's author chose."""
+    from package_doctor.models import (
+        Confidence,
+        Exposure,
+        Finding,
+        Package,
+        Remediation,
+        Verdict,
+    )
+    finding = Finding(
+        package=Package(name="demo", version="1.0\x1b]8;;https://evil.invalid\x1b\\"),
+        exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
+        remediation=Remediation(),
+        verdict=Verdict.WATCH,
+    )
+    out = _render_one(finding)
+    assert "demo  1.0" in out, "the version is kept"
+    assert "\x1b" not in out, "the sequence is not"
+    # The OSC payload is the hidden link target, not display text, so it goes
+    # with the sequence rather than being left behind as a bare URL.
+    assert "evil.invalid" not in out
+
+
+def test_explain_strips_escapes_from_paths_urls_and_ids():
+    """Import sites are file names from the scanned tree; repo URLs and
+    advisory ids come from third-party APIs. None of them gets to talk to the
+    terminal directly."""
+    from package_doctor.models import (
+        AdvisoryHistory,
+        Confidence,
+        Evidence,
+        Exposure,
+        Finding,
+        Package,
+        Remediation,
+        Verdict,
+    )
+    from package_doctor.report import render_explain
+
+    rem = Remediation(
+        repo_url="https://github.com/x/y\x1b[2J",
+        advisories=AdvisoryHistory(total=1, unfixed=1, ids_unfixed=["GHSA-\x1b[31mxx"]),
+        gaps=["lookup failed: \x07\x1b[0m"],
+    )
+    finding = Finding(
+        package=Package(
+            name="demo", version="1.0", import_sites=["app/\x1b[1;31mevil.py:3"],
+            reachability_checked=True,
+        ),
+        exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
+        remediation=rem,
+        verdict=Verdict.ACT,
+        reasons=[Evidence("claim \u202eevil", "https://osv.dev/\x1b]8;;x\x1b\\")],
+    )
+    buf = io.StringIO()
+    console = Console(file=buf, width=120, force_terminal=False, color_system=None)
+    render_explain(console, finding)
+    out = buf.getvalue()
+    assert "\x1b[2J" not in out and "\x1b]8" not in out and "\x1b[1;31m" not in out
+    assert "\x07" not in out
+    assert "\u202e" not in out, "bidi overrides are formatting characters and go too"
+    assert "evil.py:3" in out and "GHSA-xx" in out and "github.com/x/y" in out
+
+
+def test_clean_keeps_ordinary_unicode():
+    from package_doctor.report import clean
+    assert clean("café — naïve ✓ 日本") == "café — naïve ✓ 日本"
+    assert clean("a\x1b[0mb\x00c\u200bd") == "abcd"
+    assert clean("x\x1b]8;;https://evil.invalid\x1b\\link\x1b]8;;\x1b\\y") == "xlinky"
+    assert clean("bare\x1bescape") == "bareescape", "an unrecognised ESC still goes"
+
+
+# --- a scanned tree must not contain anything that blocks or floods a read --
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "mkfifo"), reason="POSIX only")
+def test_a_fifo_named_like_a_source_file_is_not_opened(tmp_path):
+    """open() on a FIFO blocks until a writer appears. A checkout can contain
+    one, and it reports a size of zero, so a size check does not see it."""
+    import os
+
+    from package_doctor.sourcescan import build_index
+
+    os.mkfifo(tmp_path / "evil.py")
+    (tmp_path / "ok.py").write_text("import requests\n", encoding="utf-8")
+    # If the FIFO is opened this test hangs rather than fails; a hang is the
+    # bug, and the suite's absence of a timeout is deliberate elsewhere.
+    index = build_index(tmp_path, known_packages={"requests"})
+    assert index.for_package("requests")
+    assert index.files_failed == 1
+
+
+def test_a_symlink_to_a_special_file_is_not_read(tmp_path):
+    """/dev/zero has a size of zero and reads forever."""
+    import os
+
+    from package_doctor.sourcescan import build_index
+
+    target = "/dev/zero" if os.path.exists("/dev/zero") else "NUL"
+    try:
+        (tmp_path / "zero.py").symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("cannot create symlinks here")
+    if not (tmp_path / "zero.py").exists():
+        pytest.skip("no special file to point at")
+    (tmp_path / "ok.py").write_text("import requests\n", encoding="utf-8")
+    index = build_index(tmp_path, known_packages={"requests"})
+    assert index.for_package("requests")
+    assert index.files_failed == 1
+
+
+def test_the_source_read_is_bounded_not_just_size_checked(tmp_path, monkeypatch):
+    """The cap must hold even if the size seen by stat() is a lie - a file
+    replaced between the check and the read, for instance."""
+    from pathlib import Path
+
+    from package_doctor.sourcescan import build_index
+
+    big = tmp_path / "big.py"
+    big.write_text("import yaml\n" + "#" * 100, encoding="utf-8")
+    real_stat = Path.stat
+
+    def lying_stat(self, *a, **kw):
+        result = real_stat(self, *a, **kw)
+        if self.name == "big.py":
+            import os
+            return os.stat_result((result.st_mode, 0, 0, 0, 0, 0, 1, 0, 0, 0))
+        return result
+
+    monkeypatch.setattr(Path, "stat", lying_stat)
+    index = build_index(tmp_path, known_packages={"pyyaml"}, max_bytes=50)
+    assert index.files_too_large == 1
+    assert not index.for_package("pyyaml")
+
+
+# --- a dependency file must not be able to exhaust or crash the parser -----
+
+def test_an_oversized_lockfile_is_refused_and_reported(tmp_path):
+    """Lockfiles are read whole into a parser. Without a cap, a checkout can
+    hand the scanner a multi-gigabyte one, or a symlink to one."""
+    write(tmp_path, "uv.lock", '[[package]]\nname = "requests"\nversion = "2.32.3"\n' * 40)
+    write(tmp_path, "requirements.txt", "urllib3==2.0.7\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), max_bytes=200)
+    assert set(deps.versions) == {"urllib3"}, "the small file is still read"
+    assert [p.name for p in deps.refused] == ["uv.lock"]
+    assert [p.name for p in deps.sources] == ["requirements.txt"]
+
+
+def test_a_refused_lockfile_is_reported_to_the_user(tmp_path, monkeypatch, capsys):
+    """A skipped lockfile must not look like an empty one."""
+    from package_doctor import cli
+    from package_doctor.parsers import discovery
+
+    write(tmp_path, "requirements.txt", "urllib3==2.0.7\n")
+    (tmp_path / "uv.lock").write_text("x" * 10, encoding="utf-8")
+    monkeypatch.setattr(
+        cli, "collect_dependencies",
+        lambda paths: discovery.collect_dependencies(paths, max_bytes=5),
+    )
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def analyze_all(self, packages, now, progress=None):
+            return []
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
+    out = capsys.readouterr().out
+    assert "Not read:" in out and "uv.lock" in out
+
+
+@pytest.mark.parametrize("name, body", [
+    ("uv.lock", "a = " + "[" * 20000),
+    ("poetry.lock", "a = " + "{b=" * 20000),
+    ("pyproject.toml", "[project]\ndependencies = " + "[" * 20000),
+    ("Pipfile", "[packages]\nx = " + "{a=" * 20000),
+    ("Pipfile.lock", "[" * 200000),
+])
+def test_pathologically_nested_dependency_files_are_malformed_not_fatal(tmp_path, name, body):
+    """tomllib recurses on nested values and raises RecursionError, which is
+    not a TOMLDecodeError. It has to end as "malformed", not as a traceback."""
+    write(tmp_path, name, body)
+    write(tmp_path, "requirements.txt", "urllib3==2.0.7\n")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert set(deps.versions) == {"urllib3"}

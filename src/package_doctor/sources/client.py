@@ -36,6 +36,23 @@ MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 _ENVELOPE = "pd_cache_v1"
 
 
+def _decode(body: bytes) -> Any | None:
+    """Parse a JSON body, or None if it is not one we can use.
+
+    RecursionError is caught alongside ValueError: on interpreters before the
+    JSON module grew a nesting limit, a body of a hundred thousand opening
+    brackets recurses until it dies, and a response from a free third-party
+    endpoint must never end the scan with a traceback.
+    """
+    try:
+        data = json.loads(body)
+    except (ValueError, RecursionError):
+        return None
+    # A bare JSON null is indistinguishable from "no response" downstream, and
+    # nothing these APIs return is one.
+    return data
+
+
 class Client:
     def __init__(self, cache: Cache, concurrency: int = 8, timeout: float = 20.0):
         self.cache = cache
@@ -88,9 +105,8 @@ class Client:
             return None
         if resp.status_code != 200 or body is None:
             return None
-        try:
-            data = json.loads(body)
-        except ValueError:
+        data = _decode(body)
+        if data is None:
             return None
         self.cache.set(key, self._wrap(data))
         return data
@@ -134,9 +150,8 @@ class Client:
                 return None
         if resp is None or resp.status_code != 200 or body is None:
             return None
-        try:
-            data = json.loads(body)
-        except ValueError:
+        data = _decode(body)
+        if data is None:
             return None
         self.cache.set(cache_key, self._wrap(data))
         return data

@@ -137,3 +137,12 @@ def test_an_unrecognised_cache_entry_is_treated_as_a_miss():
     assert Client._unwrap(None) == (False, None)
     assert Client._unwrap(Client._wrap({"ok": 1})) == (True, {"ok": 1})
     assert Client._unwrap(Client._wrap(None, missing=True)) == (True, None)
+
+
+async def test_a_pathologically_nested_body_is_treated_as_no_response(make_client):
+    """json.loads recurses on interpreters without a nesting limit. A free
+    endpoint must not be able to end the scan with a RecursionError."""
+    client = make_client(lambda r: httpx.Response(200, content=b"[" * 200_000))
+    assert await client.get_json("https://example.invalid/x") is None
+    assert await client.post_json("https://example.invalid/y", {}, cache_key="k") is None
+    await client.aclose()

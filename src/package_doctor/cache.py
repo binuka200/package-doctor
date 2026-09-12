@@ -6,6 +6,7 @@ is unusable in a pre-commit hook and rude to the free services it depends on.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sqlite3
@@ -38,6 +39,13 @@ class Cache:
         self._conn: sqlite3.Connection | None = None
         if self.enabled:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            # Create the file 0600 before SQLite opens it. SQLite creates with
+            # the process umask, which on most machines is 0644, and tightening
+            # afterwards leaves a window in which the file is readable by
+            # everyone. Its journal inherits the mode of the main file, so
+            # getting this one right covers both.
+            with contextlib.suppress(OSError):  # pragma: no cover - platform dependent
+                os.close(os.open(str(self.path), os.O_CREAT | os.O_RDONLY, 0o600))
             self._conn = sqlite3.connect(str(self.path))
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS entries "
@@ -118,7 +126,7 @@ class Cache:
             return None
         try:
             return json.loads(body)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             return None
 
     def set(self, key: str, value: Any) -> None:

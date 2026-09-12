@@ -9,7 +9,9 @@ reacts to a finding.
 
 from __future__ import annotations
 
+import json
 import re
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +28,14 @@ else:  # pragma: no cover - exercised only on 3.10
 MANIFESTS = ("pyproject.toml", "Pipfile")
 LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock")
 REQUIREMENTS_GLOB = "requirements*.txt"
+
+#: Largest dependency file we will read, in bytes.
+#:
+#: Lockfiles are read whole and handed to a TOML or JSON parser, so their size
+#: is the memory the scan costs. The largest real one seen is a few megabytes;
+#: this is generous enough for any monorepo and small enough that a checkout
+#: cannot hand the scanner a multi-gigabyte file, or a symlink to one.
+MAX_MANIFEST_BYTES = 32 * 1024 * 1024
 
 #: PEP 503 normalised-name grammar. Anything outside it is not a package name.
 _VALID_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
@@ -45,6 +55,10 @@ class DependencySet:
     origins: dict[str, set[str]] = field(default_factory=dict)
     #: files we read, for reporting
     sources: list[Path] = field(default_factory=list)
+    #: files we refused to read - too large, or not a regular file - so the
+    #: user can be told, because a skipped lockfile must not look like an
+    #: empty one
+    refused: list[Path] = field(default_factory=list)
 
     def add(self, name: str, version: str | None, origin: str, direct: bool) -> None:
         key = normalise(name)
@@ -82,6 +96,25 @@ def discover_manifests(root: Path) -> list[Path]:
     return found
 
 
+def read_manifest(path: Path, max_bytes: int = MAX_MANIFEST_BYTES) -> str | None:
+    """Read a dependency file, or return None if it should not be read.
+
+    Only regular files, and only up to the cap. The read itself is bounded
+    rather than gated on a prior size check, so a file that grows between the
+    two - or a special file that reports no size at all - cannot get past it.
+    """
+    try:
+        if not stat.S_ISREG(path.stat().st_mode):
+            return None
+        with path.open("rb") as fh:
+            raw = fh.read(max_bytes + 1)
+    except OSError:
+        return None
+    if len(raw) > max_bytes:
+        return None
+    return raw.decode("utf-8", errors="replace")
+
+
 def _parse_requirement_line(line: str) -> tuple[str, str | None] | None:
     line = line.strip()
     if not line or line.startswith("#") or line.startswith("-"):
@@ -101,19 +134,18 @@ def _parse_requirement_line(line: str) -> tuple[str, str | None] | None:
     return req.name, pinned
 
 
-def parse_requirements_txt(path: Path, deps: DependencySet) -> None:
+def parse_requirements_txt(path: Path, deps: DependencySet, text: str) -> None:
     origin = path.name
-    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw in text.splitlines():
         parsed = _parse_requirement_line(raw)
         if parsed:
             deps.add(parsed[0], parsed[1], origin, direct=True)
 
 
-def parse_pyproject(path: Path, deps: DependencySet) -> None:
+def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
     origin = path.name
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except tomllib.TOMLDecodeError:
+    data = _load_toml(text)
+    if data is None:
         return
 
     project = data.get("project") or {}
@@ -150,11 +182,24 @@ def parse_pyproject(path: Path, deps: DependencySet) -> None:
             deps.add(name, None, origin, direct=True)
 
 
-def parse_uv_lock(path: Path, deps: DependencySet) -> None:
-    origin = path.name
+def _load_toml(text: str) -> dict | None:
+    """Parse TOML, treating anything the parser cannot survive as unparseable.
+
+    tomllib recurses on nested arrays and inline tables, so a crafted lockfile
+    a few thousand brackets deep raises RecursionError rather than
+    TOMLDecodeError. That must end as "this file is malformed", not as a
+    traceback that stops the scan.
+    """
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except tomllib.TOMLDecodeError:
+        return tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, RecursionError):
+        return None
+
+
+def parse_uv_lock(path: Path, deps: DependencySet, text: str) -> None:
+    origin = path.name
+    data = _load_toml(text)
+    if data is None:
         return
     for pkg in data.get("package") or []:
         name = pkg.get("name")
@@ -162,11 +207,10 @@ def parse_uv_lock(path: Path, deps: DependencySet) -> None:
             deps.add(str(name), pkg.get("version"), origin, direct=False)
 
 
-def parse_poetry_lock(path: Path, deps: DependencySet) -> None:
+def parse_poetry_lock(path: Path, deps: DependencySet, text: str) -> None:
     origin = path.name
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except tomllib.TOMLDecodeError:
+    data = _load_toml(text)
+    if data is None:
         return
     for pkg in data.get("package") or []:
         name = pkg.get("name")
@@ -177,13 +221,14 @@ def parse_poetry_lock(path: Path, deps: DependencySet) -> None:
 _PIPFILE_VERSION = re.compile(r"^==?(?P<v>.+)$")
 
 
-def parse_pipfile_lock(path: Path, deps: DependencySet) -> None:
-    import json
-
+def parse_pipfile_lock(path: Path, deps: DependencySet, text: str) -> None:
     origin = path.name
     try:
-        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except json.JSONDecodeError:
+        data = json.loads(text)
+    except (json.JSONDecodeError, RecursionError):
+        # Older interpreters recurse on nested JSON; see _load_toml.
+        return
+    if not isinstance(data, dict):
         return
     for section in ("default", "develop"):
         for name, spec in (data.get(section) or {}).items():
@@ -196,11 +241,10 @@ def parse_pipfile_lock(path: Path, deps: DependencySet) -> None:
             deps.add(str(name), version, origin, direct=False)
 
 
-def parse_pipfile(path: Path, deps: DependencySet) -> None:
+def parse_pipfile(path: Path, deps: DependencySet, text: str) -> None:
     origin = path.name
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except tomllib.TOMLDecodeError:
+    data = _load_toml(text)
+    if data is None:
         return
     for section in ("packages", "dev-packages"):
         for name in (data.get(section) or {}):
@@ -216,7 +260,9 @@ _PARSERS = {
 }
 
 
-def collect_dependencies(paths: list[Path]) -> DependencySet:
+def collect_dependencies(
+    paths: list[Path], max_bytes: int = MAX_MANIFEST_BYTES
+) -> DependencySet:
     deps = DependencySet()
     for path in paths:
         parser = _PARSERS.get(path.name)
@@ -224,6 +270,10 @@ def collect_dependencies(paths: list[Path]) -> DependencySet:
             parser = parse_requirements_txt
         if parser is None:
             continue
-        parser(path, deps)
+        text = read_manifest(path, max_bytes)
+        if text is None:
+            deps.refused.append(path)
+            continue
+        parser(path, deps, text)
         deps.sources.append(path)
     return deps

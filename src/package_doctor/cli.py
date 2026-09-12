@@ -18,6 +18,7 @@ from .cache import Cache, default_cache_path
 from .exposure import load_exposure_map
 from .models import Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
+from .parsers.discovery import MAX_MANIFEST_BYTES
 from .report import render, render_explain, to_dict
 from .risk import Thresholds
 from .sources.client import Client
@@ -155,6 +156,12 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         return EXIT_USAGE
 
     deps = collect_dependencies(paths)
+    for refused in deps.refused:
+        console.print(
+            f"[yellow]Not read:[/yellow] {escape(refused.name)} - larger than "
+            f"{MAX_MANIFEST_BYTES // (1024 * 1024)}MB, or not a regular file. "
+            f"Its dependencies were not scanned."
+        )
     if not deps:
         console.print("[yellow]No dependencies found.[/yellow]")
         return EXIT_OK

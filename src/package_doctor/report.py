@@ -8,6 +8,8 @@ health score is the thing users cannot act on and maintainers cannot argue with.
 from __future__ import annotations
 
 import datetime as dt
+import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import asdict
 from typing import Any
@@ -18,6 +20,34 @@ from rich.text import Text
 
 from .models import Confidence, Finding, Verdict
 
+
+def clean(value: object) -> str:
+    """Strip control and format characters before anything reaches a terminal.
+
+    rich's ``Text`` neutralises *markup*, but it passes raw escape sequences
+    through, so a version string in a lockfile, a file name in the scanned
+    tree, or a URL in an API response could otherwise clear the screen, retitle
+    the window, or wrap itself in an OSC 8 hyperlink that points somewhere else
+    than it appears to. Every string that originates outside this process goes
+    through here on its way to the console. The JSON output does not need it:
+    ``json.dumps`` escapes these already.
+
+    Unicode category Cc is the C0/C1 controls (ESC included); Cf is the
+    invisible formatting set, which covers the bidi overrides used to make text
+    read differently from how it is written.
+    """
+    text = _ESCAPE_SEQUENCE.sub("", str(value))
+    return "".join(ch for ch in text if unicodedata.category(ch) not in ("Cc", "Cf"))
+
+
+#: Whole CSI and OSC sequences, removed before the character-level pass so that
+#: "\x1b[31m" leaves nothing behind rather than a stray "[31m". Anything the
+#: pattern does not recognise still loses its ESC, which is what makes it inert.
+_ESCAPE_SEQUENCE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"          # CSI: ESC [ params intermediates final
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?"  # OSC: ESC ] ... BEL or ESC \
+)
+
 SECTIONS: list[tuple[Verdict, str, str, str]] = [
     (Verdict.ACT, "EXPOSED + NO ONE HOME", "act on these", "bold red"),
     (Verdict.WATCH, "EXPOSED, MAINTAINED", "watch", "yellow"),
@@ -27,7 +57,7 @@ SECTIONS: list[tuple[Verdict, str, str, str]] = [
 
 
 def _version(finding: Finding) -> str:
-    return finding.package.version or "-"
+    return clean(finding.package.version) if finding.package.version else "-"
 
 
 def _sort_key(finding: Finding) -> tuple:
@@ -109,7 +139,7 @@ def render(
             for i, reason in enumerate(reasons):
                 if i:
                     why.append("\n")
-                why.append(reason.claim)
+                why.append(clean(reason.claim))
             if not reasons:
                 why.append("-", style="dim")
             extra = len(finding.reasons) - len(reasons)
@@ -119,7 +149,7 @@ def render(
                 # as one confusing number.
                 why.append(
                     f"\nand {extra} more reason{'s' if extra > 1 else ''} "
-                    f"- package-doctor explain {finding.package.name}",
+                    f"- package-doctor explain {clean(finding.package.name)}",
                     style="dim",
                 )
 
@@ -127,7 +157,7 @@ def render(
             if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
                 exposure_text.append("?", style="dim")
 
-            table.add_row(finding.package.name, _version(finding), exposure_text, why)
+            table.add_row(clean(finding.package.name), _version(finding), exposure_text, why)
         console.print(table)
 
     ok = by_verdict.get(Verdict.OK, [])
@@ -140,7 +170,7 @@ def render(
         table.add_column("name", style="bold", overflow="fold", max_width=22)
         table.add_column("version", style="dim")
         for finding in sorted(ok, key=_sort_key):
-            table.add_row(finding.package.name, _version(finding))
+            table.add_row(clean(finding.package.name), _version(finding))
         console.print(table)
 
     console.print()
@@ -174,7 +204,7 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     adv = rem.advisories
 
     console.print()
-    title = Text(f"{pkg.name} {pkg.version or ''}".strip(), style="bold")
+    title = Text(clean(f"{pkg.name} {pkg.version or ''}").strip(), style="bold")
     style = {
         Verdict.ACT: "bold red",
         Verdict.WATCH: "yellow",
@@ -199,7 +229,7 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     def row(key: str, value: str, value_style: str = "") -> None:
         line = Text("  ")
         line.append(f"{key:<26}", style="dim")
-        line.append(value, style=value_style)
+        line.append(clean(value), style=value_style)
         console.print(line)
 
     section("Exposure")
@@ -225,7 +255,7 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         where = " (test code only)" if pkg.imported_in_tests_only else ""
         row("Imported by your code", "yes" + where)
         for site in pkg.import_sites[:6]:
-            console.print(Text(f"    {site}", style="dim"))
+            console.print(Text(f"    {clean(site)}", style="dim"))
         if len(pkg.import_sites) > 6:
             console.print(Text(f"    (+{len(pkg.import_sites) - 6} more)", style="dim"))
     elif pkg.reachability_checked:
@@ -316,24 +346,24 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     if rem.gaps:
         section("Missing signals")
         for gap in rem.gaps:
-            console.print(Text(f"  {gap}", style="dim"))
+            console.print(Text(f"  {clean(gap)}", style="dim"))
 
     if finding.reasons:
         section("Why this verdict")
         for reason in finding.reasons:
             line = Text("  • ")
-            line.append(reason.claim)
+            line.append(clean(reason.claim))
             console.print(line)
             if reason.url:
-                console.print(Text(f"    {reason.url}", style="dim blue"))
+                console.print(Text(f"    {clean(reason.url)}", style="dim blue"))
 
     section("Evidence")
-    console.print(Text(f"  https://pypi.org/project/{pkg.name}/", style="dim blue"))
+    console.print(Text(f"  https://pypi.org/project/{clean(pkg.name)}/", style="dim blue"))
     if rem.repo_url:
-        console.print(Text(f"  {rem.repo_url}", style="dim blue"))
+        console.print(Text(f"  {clean(rem.repo_url)}", style="dim blue"))
     if adv.has_signal:
         console.print(
-            Text(f"  https://osv.dev/list?q={pkg.name}&ecosystem=PyPI", style="dim blue")
+            Text(f"  https://osv.dev/list?q={clean(pkg.name)}&ecosystem=PyPI", style="dim blue")
         )
     console.print()
 

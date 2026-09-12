@@ -13,6 +13,7 @@ priority and adds evidence; it never lowers a verdict or marks anything safe.
 from __future__ import annotations
 
 import ast
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -182,12 +183,21 @@ def build_index(
 
     for path in iter_source_files(root)[:max_files]:
         try:
-            # Check the size before reading it, not after.
-            if path.stat().st_size > max_bytes:
+            # Only regular files are read. A FIFO named evil.py blocks open()
+            # until something writes to it, and a symlink to /dev/zero reads
+            # forever - both are things a hostile checkout can contain, and
+            # neither shows up in the size check because a device reports zero.
+            if not stat.S_ISREG(path.stat().st_mode):
+                index.files_failed += 1
+                continue
+            # Bounded read rather than a size check followed by read_text():
+            # the file can grow between the two, and the cap is the point.
+            with path.open("rb") as fh:
+                raw = fh.read(max_bytes + 1)
+            if len(raw) > max_bytes:
                 index.files_too_large += 1
                 continue
-            source = path.read_text(encoding="utf-8", errors="replace")
-            imports = extract_imports(source)
+            imports = extract_imports(raw.decode("utf-8", errors="replace"))
         except (OSError, SyntaxError, ValueError, RecursionError):
             index.files_failed += 1
             continue

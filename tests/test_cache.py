@@ -198,3 +198,27 @@ def test_an_existing_world_readable_cache_is_tightened(tmp_path):
 
     Cache(path=path).close()
     assert not s.S_IMODE(path.stat().st_mode) & s.S_IROTH
+
+
+def test_the_cache_file_is_created_private_not_tightened_afterwards(tmp_path, monkeypatch):
+    """SQLite creates the file with the umask, and chmod-ing afterwards leaves
+    a window. The file is pre-created 0600 so there is no such window; this
+    checks the pre-creation rather than the end state, which the test above
+    already covers."""
+    import os
+    import sqlite3
+    import stat as s
+
+    path = tmp_path / "cache.sqlite3"
+    modes_at_connect = []
+    real_connect = sqlite3.connect
+
+    def spy(target, *a, **kw):
+        modes_at_connect.append(s.S_IMODE(os.stat(target).st_mode))
+        return real_connect(target, *a, **kw)
+
+    monkeypatch.setattr(sqlite3, "connect", spy)
+    monkeypatch.setattr(os, "umask", lambda m: 0)  # not relied upon either way
+    c = Cache(path=path)
+    c.close()
+    assert modes_at_connect == [0o600], "already private when SQLite first opens it"

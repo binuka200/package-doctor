@@ -33,10 +33,22 @@ limits the blast radius, but the following are real and worth reporting:
 - **Code execution from scanned input.** The scanner parses lockfiles and
   AST-parses your source. Neither should ever be able to execute anything.
 - **Resource exhaustion from a scanned repository.** Source files above 2 MB
-  are skipped and reported, package names from lockfiles are validated against
-  PEP 503 before they reach a URL, and a lockfile declaring more than 2,000
-  packages is refused rather than fired at the upstream APIs. A repository that
-  gets past any of those and hangs or exhausts the scanner is worth reporting.
+  and dependency files above 32 MB are skipped and reported; both are read
+  with a bounded read rather than a size check, and only from regular files,
+  so a FIFO or a symlink to a device cannot block or flood the scanner.
+  Pathologically nested TOML or JSON is treated as malformed rather than
+  allowed to raise. Package names from lockfiles are validated against PEP 503
+  and CVE identifiers from advisories against their exact form before either
+  reaches a URL, and a lockfile declaring more than 2,000 packages is refused
+  rather than fired at the upstream APIs. A repository that gets past any of
+  those and hangs or exhausts the scanner is worth reporting.
+- **Terminal escape injection.** Versions from lockfiles, file names from the
+  scanned tree, and URLs and advisory ids from API responses are all rendered
+  to the terminal. Every such string has control and formatting characters
+  stripped first, including whole CSI and OSC sequences, so scanned content
+  cannot clear the screen, retitle the window, or wrap a row in a hyperlink
+  that points somewhere other than it appears to. Output that gets an escape
+  sequence through is worth reporting.
 - **Anything that makes a finding disappear.** Suppression is a false negative
   wearing a different hat. Cache entries are wrapped in an envelope for exactly
   this reason: an earlier version remembered a 404 as a bare
