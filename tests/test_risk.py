@@ -194,3 +194,25 @@ def test_an_inferred_exposure_can_never_demand_action():
     assert assess(pkg(), guessed, rem, now=NOW).verdict is Verdict.WATCH
     # The same evidence with a human-reviewed category is actionable.
     assert assess(pkg(), exposed(), rem, now=NOW).verdict is Verdict.ACT
+
+
+def test_a_known_vulnerable_version_is_never_reported_as_ok():
+    """Found on real projects: black and awscli reported OK while carrying
+    three and four advisories against the pinned version. Both are maintained
+    and neither is in the exposure map, so no rule caught them.
+
+    Map coverage is incomplete by design - roughly half of a real dependency
+    set gets no curated call - so a gap in it must never become silence about
+    a version with published advisories."""
+    rem = healthy(advisories=AdvisoryHistory(
+        total=5, timely=5, affecting_current=3,
+        ids_affecting_current=["GHSA-a", "GHSA-b", "GHSA-c"]))
+    finding = assess(pkg("some-tool"), not_exposed(), rem, now=NOW)
+    assert finding.verdict is not Verdict.OK
+    assert any("3 advisories" in r.claim for r in finding.reasons)
+
+
+def test_a_clean_unmapped_package_is_still_ok():
+    """The rule above must not make everything noisy: no advisories against the
+    installed version and no maintenance signals is genuinely fine."""
+    assert assess(pkg(), not_exposed(), healthy(), now=NOW).verdict is Verdict.OK

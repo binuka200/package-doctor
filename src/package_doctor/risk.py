@@ -197,10 +197,16 @@ def assess(
                 )
             else:
                 reasons.append(Evidence("at a trust boundary; no maintenance concerns found"))
-    elif signals:
-        # Not at a trust boundary, so this is an observation rather than an
-        # accusation. A single weak signal is enough to mention it here, because
-        # nothing in this bucket asks the user to do anything.
+    elif signals or current:
+        # Not at a known trust boundary, so this is an observation rather than
+        # an accusation. A single weak signal is enough to mention it here,
+        # because nothing in this bucket asks the user to do anything.
+        #
+        # `current` belongs in the condition, not just the body: a package whose
+        # installed version has published advisories must never report OK just
+        # because it is maintained and absent from the exposure map. Coverage of
+        # the map is incomplete by design, and this is what stops that gap from
+        # turning into silence about a known-vulnerable version.
         verdict = Verdict.LOW
         reasons.extend(signals)
         reasons.extend(current)

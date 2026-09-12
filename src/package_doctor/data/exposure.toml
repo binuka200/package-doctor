@@ -191,7 +191,7 @@ packages = [
   "databricks-sql-connector", "dataset", "dbutils", "django-filter", "django-redis", "duckdb",
   "elasticsearch", "flask-sqlalchemy", "geoalchemy2", "google-cloud-bigquery",
   "hdbcli", "hiredis", "impyla", "jaydebeapi", "motor", "mssql-python",
-  "mssql-python-odbc", "mysql-connector-python", "mysqlclient", "neo4j",
+  "mssql-python-odbc", "mariadb", "mysql-connector-python", "mysqlclient", "neo4j",
   "opensearch-py", "ormar", "peewee", "pg8000", "pglast", "pony", "postgrest",
   "presto-python-client", "psycopg", "psycopg-binary", "psycopg2", "psycopg2-binary",
   "pyexasol", "pymongo", "pymssql", "pymysql", "pypika", "records", "redis",
