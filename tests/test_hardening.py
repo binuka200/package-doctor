@@ -370,13 +370,16 @@ def test_a_refused_lockfile_is_reported_to_the_user(tmp_path, monkeypatch, capsy
     assert "Not read:" in out and "uv.lock" in out
 
 
+# Explicit ids: pytest puts the test id into PYTEST_CURRENT_TEST, and a
+# twenty-thousand-bracket parameter value pushed that past the 32,767-character
+# ceiling Windows puts on an environment variable.
 @pytest.mark.parametrize("name, body", [
     ("uv.lock", "a = " + "[" * 20000),
     ("poetry.lock", "a = " + "{b=" * 20000),
     ("pyproject.toml", "[project]\ndependencies = " + "[" * 20000),
     ("Pipfile", "[packages]\nx = " + "{a=" * 20000),
     ("Pipfile.lock", "[" * 200000),
-])
+], ids=["uv-arrays", "poetry-tables", "pyproject-arrays", "pipfile-tables", "pipfile-lock-json"])
 def test_pathologically_nested_dependency_files_are_malformed_not_fatal(tmp_path, name, body):
     """tomllib recurses on nested values and raises RecursionError, which is
     not a TOMLDecodeError. It has to end as "malformed", not as a traceback."""
