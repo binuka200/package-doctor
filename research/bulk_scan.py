@@ -86,7 +86,10 @@ async def scan_one(
     info = data.get("info") or {}
     releases = pypi.release_dates(data)
     latest, last_release = pypi.last_release(data)
-    history = build_history(name, vulns, releases, None)
+    # Pass the latest release so "unfixed" means what the product means: the
+    # latest release is still affected. Without it the fallback definition
+    # (open-ended ranges only) applies and the dataset disagrees with the tool.
+    history = build_history(name, vulns, releases, None, latest_version=latest)
 
     exposure = exposure_map.lookup(name, info)
     row.update(

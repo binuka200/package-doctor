@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - GitHub Actions are pinned to commit SHAs, with Dependabot keeping the pins
   and the Python dependencies current. Added a citation file and README badges.
+- README examples and figures updated to the current advisory semantics; the
+  research bulk scan now uses the product's definition of "never fixed".
 
 ## [0.1.0] - 2026-09-12
 

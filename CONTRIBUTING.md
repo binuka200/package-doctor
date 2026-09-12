@@ -78,7 +78,7 @@ git clone https://github.com/binuka200/package-doctor
 cd package-doctor
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                 # offline, ~1s
+pytest                 # offline, about 2s
 pytest -m live         # hits the real APIs; opt-in, not run in PR CI
 ruff check src tests research
 ```
@@ -107,6 +107,13 @@ These are load-bearing, and there are tests asserting each of them:
 `research/` holds the instruments used to study the ecosystem, not the product.
 They write to `data/`, which is gitignored. Run `bulk_scan.py` before
 `analyse.py` or `suggest_map.py --dataset`.
+
+`evaluate_repos.py` produces the accuracy figures in the README: it clones the
+repositories listed in `eval-repos.txt`, scans them, checks every pinned
+package against OSV's own version query and every import site against the
+source line, and dumps the *act* verdicts for reading. Re-run it after any
+change to advisory matching or the risk rules, and update the README if the
+numbers move.
 
 ## Reporting a problem
 

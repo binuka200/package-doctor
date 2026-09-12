@@ -33,7 +33,7 @@ parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](src/package_doctor/data/exposure.toml), not from a heuristic.
 
 It holds **712 packages across 14 categories**, curated against the 3,000
-most-downloaded packages on PyPI — 85% of the top 100 has been reviewed one way
+most-downloaded packages on PyPI — 86 of the top 100 have been reviewed one way
 or the other, and Django, FastAPI/ML, document-processing and web-scraping stacks
 all scan with zero unclassified packages. Anything outside it falls back to
 classifier inference, which is marked `inferred` and flagged with `?` in output
@@ -73,7 +73,9 @@ Exploitability of your version
     Unscored means unknown, not low risk.
 ```
 
-Across the test stacks that turns **361 advisories into 11 worth reading first**.
+Across sixty real projects that turns **2,383 advisories affecting pinned
+versions into 32 worth reading first** — the ones on CISA's list or above a 10%
+exploit probability.
 
 Only advisories affecting your *pinned* version are scored — a CVE fixed five
 releases ago is not your problem, and including it would drown the signal.
@@ -96,10 +98,12 @@ each dependency:
 
 ```
 EXPOSED + NO ONE HOME   act on these
-pyjwt   2.9.0   auth/session        1 advisory with no published fix: PYSEC-2025-183
-                                    imported by your code at api/auth.py:1
-pillow  10.4.0  file/media parsing  pinned version affected by 34 advisories
+pillow  10.0.0  file/media parsing  CVE-2023-4863 on CISA's known-exploited list,
+                                    and your pinned version is affected
                                     imported by your code at api/upload.py:2
+paramiko 3.5.1  remote access       pinned version 3.5.1 is affected by 1 advisory:
+                                    GHSA-r374-rxx8-8654
+                                    imported by your code at api/sftp.py:12
 ```
 
 Findings your code demonstrably imports sort to the top, because those are the
@@ -138,7 +142,8 @@ So it is never sufficient here. Signals are split in two:
 
 - the repository is archived
 - the maintainer set `Development Status :: 7 - Inactive`
-- an advisory exists with **no published fix anywhere**
+- an advisory whose affected range **still includes the latest release** —
+  nobody has shipped a fix
 
 **Weak** (two must agree before the tool says anything):
 
@@ -151,8 +156,9 @@ So it is never sufficient here. Signals are split in two:
 The obvious metric — days from advisory to patch — is wrong, and the data says
 so. Under coordinated disclosure a healthy project ships the patched release at
 or *before* the advisory goes public, so the median delta for well-run projects
-is zero or negative. Measured across real packages, Django fixed 298 of 299
-advisories at or before disclosure; requests, 15 of 16.
+is zero or negative. Measured across real packages, Django fixed 153 of 161
+advisories at or before disclosure, with 7 that cannot be dated; requests,
+7 of 8.
 
 GitHub's advisory backfill makes a naive reading worse still: an advisory
 written in 2022 for a fix shipped in 2012 produces a ten-year negative.
@@ -169,7 +175,7 @@ So package-doctor measures what the data actually supports:
   fix version is recorded, so there is nothing to put on a timeline. Shown in
   `explain`, and never counted against a package.
 - **fixed late** — how often a fix landed only after disclosure, and the median
-  size of that window. PyYAML: 2 of 8, median 163 days.
+  size of that window. PyYAML: 1 of 4, median 259 days.
 - **fixed timely** — the healthy case, shown so a good project reads as good.
 
 One advisory is one advisory: OSV routinely carries a GHSA record and a PYSEC
@@ -217,7 +223,7 @@ EXPOSED + NO ONE HOME    act on these
   old-parser    1.7.4   html/xml parsing   marked Development Status :: 7 - Inactive
 
 EXPOSED, MAINTAINED      watch
-  requests      2.33.1  http/network, url parsing   15 of 16 past advisories
+  requests      2.33.1  http/network, url parsing   7 of 8 past advisories
                                                     fixed at or before disclosure
 
 STALE, NOT EXPOSED       low priority
@@ -233,6 +239,9 @@ package-doctor explain legacy-auth
 Run inside the project, it reads the pinned version from the lockfile so the
 advisories are matched against what you actually install. Anywhere else, pass
 it: `package-doctor explain pillow --pin 10.0.0`.
+
+Responses are cached for a day. `package-doctor cache path` shows where, and
+`package-doctor cache clear` empties it.
 
 ### In CI
 
@@ -264,8 +273,9 @@ package-doctor scan --json -o report.json
 | `--no-cache` | bypass the local response cache |
 
 Reads `uv.lock`, `poetry.lock`, `Pipfile.lock`, `pyproject.toml` (PEP 621,
-PEP 735 and Poetry), `Pipfile`, `requirements*.txt` and `requirements/*.txt`,
-following `-r` includes within the project.
+PEP 735 and Poetry), `Pipfile`, `requirements*.txt`, `requirements/*.txt` and
+one level below that (`requirements/<env>/*.txt`), following `-r` includes
+within the project.
 
 ## Data sources
 
@@ -318,9 +328,13 @@ for its own sake.
 
 `[category.ml_model]` covers `torch`, `transformers`, `huggingface-hub`,
 `joblib` and friends. Loading pickle-based weights is arbitrary code execution,
-and tools aimed at web stacks tend not to model it at all. On a typical ML
-service this is where the findings are: as of writing, `torch` carries 14
-advisories with no published fix and `transformers` carries 9.
+and tools aimed at web stacks tend not to model it at all. It is also where
+advisory data is least conclusive: `torch` and `transformers` each carry
+around thirty advisories, and seven or eight per package are closed in OSV
+without any fix version named — the unsafe-deserialisation reports their
+maintainers regard as by-design. The tool shows those as *closed, no fix
+named* and counts them against nothing, so that an ML stack is judged on what
+it actually imports, not on a pile of disputed pickle advisories.
 
 PRs welcome — include the reasoning, not just the name.
 
@@ -340,7 +354,7 @@ python research/suggest_map.py --dataset data/pypi-top3000.jsonl --limit 30
 
 ```
   1. pytorch-lightning
-     5 advisories never fixed
+     1 advisory never fixed
      "PyTorch Lightning is the lightweight PyTorch wrapper for ML researchers..."
      https://pypi.org/project/pytorch-lightning/
 ```
@@ -386,7 +400,7 @@ guarding them.
 ## Tests
 
 ```bash
-pytest                 # the normal suite: offline, ~0.7s
+pytest                 # the normal suite: offline, about 2s
 pytest -m live         # contract tests against the real APIs
 ```
 

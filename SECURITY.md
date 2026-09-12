@@ -44,8 +44,10 @@ limits the blast radius, but the following are real and worth reporting:
   allowed to raise. Package names from lockfiles are validated against PEP 503
   and CVE identifiers from advisories against their exact form before either
   reaches a URL, and a lockfile declaring more than 2,000 packages is refused
-  rather than fired at the upstream APIs. A repository that gets past any of
-  those and hangs or exhausts the scanner is worth reporting.
+  rather than fired at the upstream APIs. `-r` includes in requirements files
+  are followed only inside the project directory, at most eight levels deep,
+  and each file once. A repository that gets past any of those and hangs or
+  exhausts the scanner is worth reporting.
 - **Terminal escape injection.** Versions from lockfiles, file names from the
   scanned tree, and URLs and advisory ids from API responses are all rendered
   to the terminal. Every such string has control and formatting characters
