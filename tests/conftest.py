@@ -34,6 +34,16 @@ def test_suite_runs_against_this_checkout() -> None:
         )
 
 
+@pytest.fixture(autouse=True)
+def isolated_cache_home(tmp_path, monkeypatch):
+    """Point the default cache path at a temp directory for every test.
+
+    Without this the CLI tests open the developer's real cache, which is both
+    rude and slow - a large one made the suite take a minute.
+    """
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache-home"))
+
+
 @pytest.fixture
 def cache(tmp_path):
     """A throwaway cache whose SQLite connection is always closed."""

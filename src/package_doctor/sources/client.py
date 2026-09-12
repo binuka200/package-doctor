@@ -8,6 +8,7 @@ conflating the two is the single most common flaw in package-health tooling.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import httpx
@@ -15,6 +16,14 @@ import httpx
 from ..cache import Cache
 
 USER_AGENT = "package-doctor/0.1 (+https://github.com/binuka200/package-doctor)"
+
+#: Largest response body we will read, in bytes.
+#:
+#: Every source here is a free, unauthenticated third party. A compromised,
+#: hijacked or simply misbehaving endpoint should not be able to exhaust memory
+#: or fill the cache, and nothing these APIs legitimately return comes close -
+#: the largest real response encountered is CISA's KEV catalogue at a few MB.
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 
 class Client:
@@ -46,20 +55,50 @@ class Client:
             return None if self.is_missing(cached) else cached
         async with self._sem:
             try:
-                resp = await self._client.get(url)
+                resp, body = await self._read_capped("GET", url)
             except httpx.HTTPError:
                 return None
+        if resp is None:
+            return None
         if resp.status_code == 404:
             self.cache.set(key, {"__missing__": True})
             return None
-        if resp.status_code != 200:
+        if resp.status_code != 200 or body is None:
             return None
         try:
-            data = resp.json()
+            data = json.loads(body)
         except ValueError:
             return None
         self.cache.set(key, data)
         return data
+
+    async def _read_capped(
+        self, method: str, url: str, payload: Any | None = None
+    ) -> tuple[httpx.Response | None, bytes | None]:
+        """Read a response, abandoning it if it exceeds MAX_RESPONSE_BYTES.
+
+        Streaming rather than calling .json() directly is the point: a body is
+        only ever in memory up to the cap, so an endpoint cannot make the
+        scanner grow without bound. A declared Content-Length over the cap is
+        rejected before any of it is read.
+        """
+        kwargs: dict[str, Any] = {}
+        if payload is not None:
+            kwargs["json"] = payload
+        async with self._client.stream(method, url, **kwargs) as resp:
+            declared = resp.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > MAX_RESPONSE_BYTES:
+                return resp, None
+            if resp.status_code != 200:
+                return resp, None
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_RESPONSE_BYTES:
+                    return resp, None
+                chunks.append(chunk)
+            return resp, b"".join(chunks)
 
     async def post_json(self, url: str, payload: Any, cache_key: str) -> Any | None:
         cached = self.cache.get(cache_key)
@@ -67,13 +106,13 @@ class Client:
             return cached
         async with self._sem:
             try:
-                resp = await self._client.post(url, json=payload)
+                resp, body = await self._read_capped("POST", url, payload)
             except httpx.HTTPError:
                 return None
-        if resp.status_code != 200:
+        if resp is None or resp.status_code != 200 or body is None:
             return None
         try:
-            data = resp.json()
+            data = json.loads(body)
         except ValueError:
             return None
         self.cache.set(cache_key, data)

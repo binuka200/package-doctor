@@ -24,7 +24,12 @@ limits the blast radius, but the following are real and worth reporting:
   has: it tells you you're safe when you aren't. It is treated as a security
   bug, not a correctness bug.
 - **Cache poisoning.** Anything that lets a malicious API response persist
-  misleading results into `~/.cache/package-doctor/`.
+  misleading results into `~/.cache/package-doctor/`. The cache is created
+  `0600`, since which packages you scan says something about projects you may
+  not have published.
+- **Unbounded responses.** Bodies above 32 MB are abandoned mid-stream. Every
+  source is a free, unauthenticated third party, and a compromised or
+  misbehaving one should not be able to exhaust memory.
 - **Code execution from scanned input.** The scanner parses lockfiles and
   AST-parses your source. Neither should ever be able to execute anything.
 - **Resource exhaustion from a scanned repository.** Source files above 2 MB
