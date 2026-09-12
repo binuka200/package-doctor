@@ -11,6 +11,13 @@ from .client import Client
 
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
 
+#: Fields of ``info`` the tool reads. Everything else - the long description,
+#: the author list, the URL table for every file - is dropped before caching.
+_INFO_FIELDS = (
+    "name", "version", "summary", "keywords", "classifiers",
+    "project_urls", "home_page", "download_url", "requires_python",
+)
+
 _GITHUB_RE = re.compile(r"github\.com/([^/\s]+)/([^/\s#?]+)", re.I)
 
 #: Keys in ``project_urls`` that plausibly point at the source repository,
@@ -69,6 +76,52 @@ def extract_github_repo(info: dict[str, Any]) -> str | None:
     return None
 
 
+def reduce_pypi(data: Any) -> Any:
+    """Keep only what the tool reads from a PyPI response.
+
+    The JSON API returns every file of every release, with digests, download
+    counts and URLs - for a project with two thousand releases that is several
+    megabytes, and the tool reads two fields per file: when it was uploaded
+    and whether it was yanked. Cached whole, a hundred packages cost over a
+    hundred megabytes, which put any real lockfile past the cache's size limit
+    and into a cycle of pruning fresh entries and refetching them.
+
+    Each release collapses to a single synthetic file carrying the earliest
+    upload time and whether *every* file was yanked, which is exactly what
+    ``release_dates`` and ``last_release`` compute from the full list. The
+    shape is kept, so the readers and their tests need no special case, and a
+    release with no files stays an empty list because both readers skip that.
+    """
+    if not isinstance(data, dict):
+        return data
+    info = data.get("info")
+    slim_info = (
+        {k: info.get(k) for k in _INFO_FIELDS if k in info}
+        if isinstance(info, dict) else {}
+    )
+    slim_releases: dict[str, list[dict[str, Any]]] = {}
+    for version, files in (data.get("releases") or {}).items():
+        if not isinstance(files, list):
+            continue
+        entries = [f for f in files if isinstance(f, dict)]
+        if not entries:
+            slim_releases[str(version)] = []
+            continue
+        # Earliest upload, chosen by parsed time rather than string order, and
+        # kept as the original string so the reader parses it the same way.
+        dated = [
+            (ts, raw)
+            for f in entries
+            if isinstance(raw := f.get("upload_time_iso_8601"), str) and (ts := parse_ts(raw))
+        ]
+        earliest = min(dated)[1] if dated else None
+        slim_releases[str(version)] = [{
+            "upload_time_iso_8601": earliest,
+            "yanked": all(f.get("yanked") for f in entries),
+        }]
+    return {"info": slim_info, "releases": slim_releases}
+
+
 class PyPISource:
     def __init__(self, client: Client):
         self.client = client
@@ -78,7 +131,11 @@ class PyPISource:
             # Quoted as defence in depth: names are validated on the way in,
             # and this keeps a future caller from reintroducing the problem.
             PYPI_JSON.format(name=quote(name, safe="")),
-            cache_key=f"pypi:{normalise(name)}",
+            # The key carries the shape version: entries written before the
+            # response was reduced hold the full body, and must not be read
+            # as if they were reduced or kept alive by being looked up.
+            cache_key=f"pypi:v2:{normalise(name)}",
+            reduce=reduce_pypi,
         )
         if data is None or Client.is_missing(data):
             return None

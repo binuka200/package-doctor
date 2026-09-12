@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The response cache file is created `0600` before SQLite opens it, rather
   than tightened afterwards.
 
+### Changed
+
+- PyPI responses are reduced to the fields the tool reads before they are
+  cached: the release timeline collapses to one upload time and one yanked
+  flag per release. The full body was over a megabyte per package on average,
+  which put any lockfile past about 230 packages over the cache's size limit
+  and into a cycle of pruning fresh entries and refetching them. Reduced
+  entries live under a new cache key; old ones expire on their own.
+
 ### Measured
 
 - Advisory version matching agrees with OSV's own version-scoped query on 40/40

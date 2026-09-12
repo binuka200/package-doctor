@@ -9,6 +9,7 @@ from package_doctor.sources.pypi import (
     extract_github_repo,
     normalise,
     parse_ts,
+    reduce_pypi,
 )
 
 
@@ -129,3 +130,108 @@ def test_returns_none_when_there_is_no_github_link():
 
 def test_tolerates_non_string_project_urls():
     assert extract_github_repo({"project_urls": None, "home_page": None}) is None
+
+
+# --- the cached body is a fraction of the response ---------------------------
+
+def full_body():
+    """A response shaped like PyPI's, with the bulk the tool never reads."""
+    def file(stamp, yanked=False, kind="bdist_wheel"):
+        return {
+            "upload_time_iso_8601": stamp, "yanked": yanked, "packagetype": kind,
+            "filename": "x.whl", "url": "https://files.pythonhosted.org/x.whl",
+            "digests": {"sha256": "0" * 64, "md5": "0" * 32}, "size": 12345,
+            "downloads": -1, "comment_text": "", "has_sig": False,
+        }
+    return {
+        "info": {
+            "name": "demo", "version": "2.0", "summary": "a demo",
+            "description": "x" * 50_000, "description_content_type": "text/markdown",
+            "author": "someone", "author_email": "a@b.c", "license": "MIT",
+            "classifiers": ["Development Status :: 7 - Inactive"],
+            "project_urls": {"Source": "https://github.com/o/demo"},
+            "home_page": "", "download_url": "", "keywords": "k", "requires_python": ">=3.9",
+        },
+        "releases": {
+            "1.0": [file("2020-03-01T00:00:00Z"), file("2020-01-01T00:00:00Z", kind="sdist")],
+            "1.5": [
+                file("2022-01-01T00:00:00Z", yanked=True),
+                file("2022-01-02T00:00:00Z", yanked=True),
+            ],
+            "1.6": [file("2022-06-01T00:00:00Z", yanked=True), file("2022-06-01T00:00:00Z")],
+            "2.0": [file("2024-01-01T00:00:00Z")],
+            "3.0": [],
+        },
+        "urls": [file("2024-01-01T00:00:00Z")],
+        "vulnerabilities": [],
+        "last_serial": 123,
+    }
+
+
+def test_reduced_body_gives_identical_answers():
+    """Every reader must see the same thing through the reduced shape."""
+    full, slim = full_body(), reduce_pypi(full_body())
+    assert PyPISource.release_dates(slim) == PyPISource.release_dates(full)
+    assert PyPISource.last_release(slim) == PyPISource.last_release(full)
+    assert PyPISource.has_inactive_classifier(slim) == PyPISource.has_inactive_classifier(full)
+    assert extract_github_repo(slim["info"]) == extract_github_repo(full["info"])
+    assert PyPISource.last_release(slim)[0] == "2.0"
+    assert set(PyPISource.release_dates(slim)) == {"1.0", "1.5", "1.6", "2.0"}
+
+
+def test_reduced_body_is_small():
+    import json
+    full, slim = full_body(), reduce_pypi(full_body())
+    assert len(json.dumps(slim)) * 20 < len(json.dumps(full))
+    assert "description" not in slim["info"]
+    assert "urls" not in slim and "last_serial" not in slim
+    for files in slim["releases"].values():
+        assert len(files) <= 1
+        for f in files:
+            assert set(f) == {"upload_time_iso_8601", "yanked"}
+
+
+def test_reduction_keeps_the_earliest_file_by_time_not_by_string():
+    slim = reduce_pypi({"releases": {"1.0": [
+        {"upload_time_iso_8601": "2024-01-01T00:00:00+00:00"},
+        {"upload_time_iso_8601": "2023-12-31T23:00:00Z"},
+    ]}})
+    assert slim["releases"]["1.0"][0]["upload_time_iso_8601"] == "2023-12-31T23:00:00Z"
+
+
+def test_reduction_marks_a_release_yanked_only_when_every_file_is():
+    slim = reduce_pypi(full_body())
+    assert slim["releases"]["1.5"][0]["yanked"] is True
+    assert slim["releases"]["1.6"][0]["yanked"] is False
+
+
+def test_reduction_survives_malformed_shapes():
+    assert reduce_pypi(None) is None
+    assert reduce_pypi([]) == []
+    assert reduce_pypi({}) == {"info": {}, "releases": {}}
+    slim = reduce_pypi({
+        "info": "not a dict",
+        "releases": {"1.0": "nope", "2.0": [1, "x"], "3.0": [{}]},
+    })
+    assert slim["info"] == {}
+    assert "1.0" not in slim["releases"]
+    assert slim["releases"]["2.0"] == []
+    assert slim["releases"]["3.0"] == [{"upload_time_iso_8601": None, "yanked": False}]
+
+
+async def test_fetch_caches_the_reduced_body_not_the_response(cache):
+    """The point of reducing is that the cache holds the small shape."""
+    import httpx
+
+    from package_doctor.sources.client import Client
+
+    c = Client(cache)
+    c._client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json=full_body())
+    ))
+    data = await PyPISource(c).fetch("demo")
+    assert data is not None and "description" not in data["info"]
+    stored = cache.get("pypi:v2:demo")
+    assert stored["body"] == data
+    assert cache.get("pypi:demo") is None, "the old key is never written"
+    await c.aclose()

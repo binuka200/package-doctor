@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -88,7 +89,19 @@ class Client:
             return True, None
         return True, entry.get("body")
 
-    async def get_json(self, url: str, cache_key: str | None = None) -> Any | None:
+    async def get_json(
+        self,
+        url: str,
+        cache_key: str | None = None,
+        reduce: Callable[[Any], Any] | None = None,
+    ) -> Any | None:
+        """Fetch JSON, serving from the cache when it can.
+
+        ``reduce`` is applied to a fresh body before it is cached or returned,
+        so a caller that needs a fraction of a large response can keep only
+        that fraction. What the cache holds is then what the caller sees, on
+        the first run and every run after.
+        """
         key = cache_key or f"GET {url}"
         recognised, body = self._unwrap(self.cache.get(key))
         if recognised:
@@ -108,6 +121,8 @@ class Client:
         data = _decode(body)
         if data is None:
             return None
+        if reduce is not None:
+            data = reduce(data)
         self.cache.set(key, self._wrap(data))
         return data
 

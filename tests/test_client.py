@@ -146,3 +146,19 @@ async def test_a_pathologically_nested_body_is_treated_as_no_response(make_clien
     assert await client.get_json("https://example.invalid/x") is None
     assert await client.post_json("https://example.invalid/y", {}, cache_key="k") is None
     await client.aclose()
+
+
+async def test_reduce_is_applied_before_caching_and_on_the_way_out(cache):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json={"keep": 1, "drop": "x" * 1000})
+
+    c = client_with(cache, handler)
+    slim = lambda d: {"keep": d["keep"]}  # noqa: E731 - a one-line stub
+    assert await c.get_json("https://x.invalid/a", cache_key="k", reduce=slim) == {"keep": 1}
+    assert cache.get("k")["body"] == {"keep": 1}
+    assert await c.get_json("https://x.invalid/a", cache_key="k", reduce=slim) == {"keep": 1}
+    assert len(calls) == 1
+    await c.aclose()
