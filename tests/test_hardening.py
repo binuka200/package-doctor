@@ -15,7 +15,9 @@ import pytest
 from rich.console import Console
 
 from package_doctor.parsers.discovery import (
-    DependencySet, collect_dependencies, discover_manifests,
+    DependencySet,
+    collect_dependencies,
+    discover_manifests,
 )
 from package_doctor.sources.pypi import PYPI_JSON
 
@@ -103,7 +105,13 @@ def test_findings_render_untrusted_text_literally():
     """Advisory summaries and package descriptions come from third parties and
     are rendered through Text objects, which do not interpret markup."""
     from package_doctor.models import (
-        Confidence, Evidence, Exposure, Finding, Package, Remediation, Verdict,
+        Confidence,
+        Evidence,
+        Exposure,
+        Finding,
+        Package,
+        Remediation,
+        Verdict,
     )
     from package_doctor.report import render
 

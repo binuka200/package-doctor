@@ -5,7 +5,10 @@ from __future__ import annotations
 import datetime as dt
 
 from package_doctor.sources.pypi import (
-    PyPISource, extract_github_repo, normalise, parse_ts,
+    PyPISource,
+    extract_github_repo,
+    normalise,
+    parse_ts,
 )
 
 

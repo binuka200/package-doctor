@@ -51,6 +51,7 @@ def test_inference_does_not_fire_on_bland_metadata():
 
 def _raw_map():
     import sys
+
     from package_doctor.exposure import DATA_FILE
     if sys.version_info >= (3, 11):
         import tomllib

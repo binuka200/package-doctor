@@ -80,10 +80,12 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest                 # offline, ~1s
 pytest -m live         # hits the real APIs; opt-in, not run in PR CI
+ruff check src tests research
 ```
 
 The suite is offline by design — HTTP is served by `httpx.MockTransport`, so no
-upstream outage can redden a build. CI enforces 85% coverage.
+upstream outage can redden a build. CI enforces 85% coverage and a clean
+`ruff check`; the rule set is in `pyproject.toml` and is deliberately small.
 
 ### Principles worth knowing before you change behaviour
 

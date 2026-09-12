@@ -8,8 +8,15 @@ import pytest
 from rich.console import Console
 
 from package_doctor.models import (
-    AdvisoryHistory, Confidence, Evidence, Exploitability, Exposure, Finding,
-    Package, Remediation, Verdict,
+    AdvisoryHistory,
+    Confidence,
+    Evidence,
+    Exploitability,
+    Exposure,
+    Finding,
+    Package,
+    Remediation,
+    Verdict,
 )
 from package_doctor.report import render, render_explain, to_dict
 

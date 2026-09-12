@@ -28,7 +28,13 @@ Usage:
     # 1. produce pip-audit JSON per chunk into $D/pa/
     # 2. D=<dir> python research/benchmark_vs_pip_audit.py
 """
-import asyncio, json, glob, re, sys, os
+import asyncio
+import glob
+import json
+import os
+import re
+import sys
+
 sys.path.insert(0, "src")
 from package_doctor.cache import Cache
 from package_doctor.sources.client import Client
@@ -36,11 +42,17 @@ from package_doctor.sources.osv import OSVSource, build_history
 from package_doctor.sources.pypi import PyPISource
 
 D = os.environ["D"]
-norm = lambda s: re.sub(r"[-_.]+", "-", s).lower()
+
+
+def norm(s):
+    return re.sub(r"[-_.]+", "-", s).lower()
+
 
 pa = {}
 for f in glob.glob(f"{D}/pa/*.json"):
-    for dep in json.load(open(f)).get("dependencies", []):
+    with open(f) as fh:
+        loaded = json.load(fh)
+    for dep in loaded.get("dependencies", []):
         if not dep.get("version"):
             continue
         # Canonicalise each vulnerability to its CVE where one exists, so a
@@ -80,13 +92,15 @@ async def main():
                     continue
                 theirs = pa[key]
                 b, p, d = theirs & mine, theirs - mine, mine - theirs
-                both += len(b); only_pa += len(p); only_pd += len(d)
+                both += len(b)
+                only_pa += len(p)
+                only_pd += len(d)
                 if p or d:
                     rows.append((key, sorted(p)[:4], sorted(d)[:4], len(theirs), len(mine)))
             print(f"  {min(i+40,len(items))}/{len(items)}", file=sys.stderr)
     cache.close()
     total = both + only_pa + only_pd
-    print(f"\nvulnerability-level comparison over 654 packages")
+    print("\nvulnerability-level comparison over 654 packages")
     print(f"  found by both tools        : {both}")
     print(f"  found only by pip-audit    : {only_pa}   <- our false negatives")
     print(f"  found only by package-doctor: {only_pd}")
@@ -97,7 +111,9 @@ async def main():
     print(f"\n  packages where the sets differ: {len(rows)}")
     for key, p, d, tn, mn in rows[:20]:
         print(f"    {key[0]}=={key[1]}  pip-audit {tn} / us {mn}")
-        if p: print(f"       we miss : {p}")
-        if d: print(f"       we add  : {d}")
+        if p:
+            print(f"       we miss : {p}")
+        if d:
+            print(f"       we add  : {d}")
 
 asyncio.run(main())

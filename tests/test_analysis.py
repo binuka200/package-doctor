@@ -27,7 +27,7 @@ def build(monkeypatch, pypi=None, vulns=(), repo=None):
         last_release = staticmethod(lambda d: (None, None))
         has_inactive_classifier = staticmethod(lambda d: False)
 
-    class O:
+    class Osv:
         async def fetch(self, name): return list(vulns)
 
     class R:
@@ -39,7 +39,7 @@ def build(monkeypatch, pypi=None, vulns=(), repo=None):
             return Exploitability()
         async def kev_catalogue(self): return frozenset()
 
-    analyzer.pypi, analyzer.osv, analyzer.repos, analyzer.exploit = P(), O(), R(), E()
+    analyzer.pypi, analyzer.osv, analyzer.repos, analyzer.exploit = P(), Osv(), R(), E()
     return analyzer
 
 

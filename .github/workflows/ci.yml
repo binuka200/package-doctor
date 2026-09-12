@@ -18,6 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
+      - run: ruff check src tests research
       # The suite is offline by design: HTTP is served by httpx.MockTransport,
       # so a flaky upstream API can never turn into a red build.
       #
@@ -25,3 +26,20 @@ jobs:
       # drop rather than to chase a number. The decision logic - risk, exposure,
       # sourcescan, osv - is well above it; the gap is mostly presentation.
       - run: pytest -q --cov=package_doctor --cov-fail-under=85
+
+  # Installs the built wheel, not the editable checkout, and loads the exposure
+  # map from outside the repository. An editable install hides a wheel that is
+  # missing its data file - which is exactly what an over-broad .gitignore once
+  # produced - and this is the only step that would have caught it.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build --wheel
+      - run: pip install dist/*.whl
+      - run: package-doctor --version
+      - run: cd / && python -c "from package_doctor.exposure import load_exposure_map; load_exposure_map(); print('exposure map loads from the installed wheel')"

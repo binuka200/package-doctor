@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-asyncio>=0.24", "ruff>=0.6"]
 
 [project.urls]
 Homepage = "https://github.com/binuka200/package-doctor"
@@ -59,3 +59,12 @@ addopts = '-m "not live"'
 markers = [
   "live: runs against real PyPI/OSV/ecosyste.ms/CISA/FIRST endpoints (opt-in)",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# Correctness and modernisation only. Style opinions beyond this are not
+# enforced, so a contributor's editor config cannot fight the CI.
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF100"]

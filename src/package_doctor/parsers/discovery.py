@@ -139,7 +139,11 @@ def parse_pyproject(path: Path, deps: DependencySet) -> None:
     for section in ("dependencies", "dev-dependencies"):
         for name, spec in (poetry.get(section) or {}).items():
             version = spec if isinstance(spec, str) else None
-            pinned = version.lstrip("^~= ") if isinstance(version, str) and version[:1] == "=" else None
+            pinned = (
+                version.lstrip("^~= ")
+                if isinstance(version, str) and version[:1] == "="
+                else None
+            )
             deps.add(name, pinned, origin, direct=True)
     for group in (poetry.get("group") or {}).values():
         for name in (group.get("dependencies") or {}):

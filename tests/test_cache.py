@@ -153,6 +153,7 @@ def test_pruning_does_not_rewrite_the_file_when_nothing_was_removed(tmp_path, mo
     that it did not run.
     """
     import os
+
     import package_doctor.cache as cache_mod
 
     path = tmp_path / "c.sqlite3"

@@ -265,14 +265,11 @@ async def test_a_healthy_package_is_not_flagged(live_client):
 
 def test_outages_skip_but_real_errors_fail():
     """These tests are only trustworthy if that distinction actually holds."""
-    with pytest.raises(pytest.skip.Exception):
-        with upstream("x"):
-            raise httpx.ConnectError("down")
+    with pytest.raises(pytest.skip.Exception), upstream("x"):
+        raise httpx.ConnectError("down")
 
-    with pytest.raises(KeyError):
-        with upstream("x"):
-            raise KeyError("a field we parse has been renamed")
+    with pytest.raises(KeyError), upstream("x"):
+        raise KeyError("a field we parse has been renamed")
 
-    with pytest.raises(AssertionError):
-        with upstream("x"):
-            assert False, "a contract assertion must not be swallowed"
+    with pytest.raises(AssertionError), upstream("x"):
+        raise AssertionError("a contract assertion must not be swallowed")

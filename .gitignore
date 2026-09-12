@@ -10,4 +10,6 @@ dist/
 htmlcov/
 .ruff_cache/
 .DS_Store
-data/
+# Research output only. Anchored so it cannot match src/package_doctor/data/,
+# which hatchling would otherwise drop from the wheel.
+/data/

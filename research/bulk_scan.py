@@ -38,13 +38,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from package_doctor.cache import Cache  # noqa: E402
-from package_doctor.exposure import load_exposure_map  # noqa: E402
-from package_doctor.sources.client import Client  # noqa: E402
-from package_doctor.sources.ecosystems import EcosystemsSource  # noqa: E402
-from package_doctor.sources.osv import OSVSource, build_history  # noqa: E402
-from package_doctor.sources.pypi import (  # noqa: E402
-    PyPISource, extract_github_repo, normalise,
+from package_doctor.cache import Cache
+from package_doctor.exposure import load_exposure_map
+from package_doctor.sources.client import Client
+from package_doctor.sources.ecosystems import EcosystemsSource
+from package_doctor.sources.osv import OSVSource, build_history
+from package_doctor.sources.pypi import (
+    PyPISource,
+    extract_github_repo,
+    normalise,
 )
 
 TOP_PACKAGES = "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"
@@ -165,7 +167,7 @@ async def run(args: argparse.Namespace) -> int:
                             sources, exposure_map, rank, name, downloads, now,
                             with_repo=not args.no_repo,
                         )
-                    except Exception as exc:  # noqa: BLE001 - one bad package must not end the run
+                    except Exception as exc:
                         row = {"rank": rank, "name": normalise(name), "error": repr(exc)}
                     async with lock:
                         fh.write(json.dumps(row) + "\n")

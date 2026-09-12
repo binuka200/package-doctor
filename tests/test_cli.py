@@ -14,7 +14,12 @@ import pytest
 
 from package_doctor import cli
 from package_doctor.models import (
-    Confidence, Exposure, Finding, Package, Remediation, Verdict,
+    Confidence,
+    Exposure,
+    Finding,
+    Package,
+    Remediation,
+    Verdict,
 )
 
 
@@ -189,3 +194,13 @@ def test_the_limit_can_be_raised(tmp_path, monkeypatch):
     (tmp_path / "requirements.txt").write_text("alpha==1.0\nbeta==1.0\n", encoding="utf-8")
     stub_analyzer(monkeypatch, [finding("alpha", Verdict.OK)])
     assert cli.main(["scan", str(tmp_path), "--max-packages", "2"]) == cli.EXIT_OK
+
+
+def test_version_flag_prints_package_version(capsys):
+    """The bug template asks reporters for this output, so it has to exist."""
+    from package_doctor import __version__
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--version"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.strip() == f"package-doctor {__version__}"

@@ -6,7 +6,12 @@ import datetime as dt
 from pathlib import Path
 
 from package_doctor.models import (
-    AdvisoryHistory, Confidence, Exposure, Package, Remediation, Verdict,
+    AdvisoryHistory,
+    Confidence,
+    Exposure,
+    Package,
+    Remediation,
+    Verdict,
 )
 from package_doctor.risk import assess
 from package_doctor.sourcescan import build_index, detect_source_roots, extract_imports

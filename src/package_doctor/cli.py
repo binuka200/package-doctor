@@ -12,16 +12,17 @@ from pathlib import Path
 from rich.console import Console
 from rich.markup import escape
 
+from . import __version__
 from .analysis import Analyzer
 from .cache import Cache, default_cache_path
 from .exposure import load_exposure_map
 from .models import Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
-from .sources.pypi import normalise
 from .report import render, render_explain, to_dict
-from .sourcescan import MAX_FILE_BYTES, build_index, detect_source_roots
 from .risk import Thresholds
 from .sources.client import Client
+from .sources.pypi import normalise
+from .sourcescan import MAX_FILE_BYTES, build_index, detect_source_roots
 
 #: Refuse to look up more packages than this without being asked.
 #:
@@ -53,6 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Find dependencies that sit at a trust boundary and have no one left to fix them."
         ),
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -166,7 +170,9 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         for src_root in roots:
             src_root = Path(src_root).expanduser().resolve()
             if not src_root.is_dir():
-                console.print(f"[yellow]Not a directory, skipping:[/yellow] {escape(str(src_root))}")
+                console.print(
+                    f"[yellow]Not a directory, skipping:[/yellow] {escape(str(src_root))}"
+                )
                 continue
             part = build_index(src_root, known_packages=known)
             scanned += part.files_scanned
@@ -269,7 +275,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
             deps = collect_dependencies(discover_manifests(root))
             version_from_lock = deps.versions.get(normalise(args.name))
             known = set(deps.versions)
-        except Exception:  # noqa: BLE001 - reachability must never break explain
+        except Exception:
             known = set()
         if args.version is None and version_from_lock:
             package.version = version_from_lock
@@ -277,7 +283,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
         for src_root in detect_source_roots(root):
             try:
                 sites.extend(build_index(src_root, known_packages=known).for_package(args.name))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
         package.reachability_checked = True
         package.import_sites = [str(s) for s in sites]

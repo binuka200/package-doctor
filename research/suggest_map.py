@@ -42,10 +42,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from package_doctor.cache import Cache  # noqa: E402
-from package_doctor.exposure import load_exposure_map  # noqa: E402
-from package_doctor.sources.client import Client  # noqa: E402
-from package_doctor.sources.pypi import PyPISource, normalise  # noqa: E402
+from package_doctor.cache import Cache
+from package_doctor.exposure import load_exposure_map
+from package_doctor.sources.client import Client
+from package_doctor.sources.pypi import PyPISource, normalise
 
 CATEGORIES = (
     "auth", "crypto", "deserialization", "ml_model", "llm_agent", "markup",
@@ -212,7 +212,7 @@ def main() -> int:
     print("For each: does it routinely handle data a stranger sent you?")
     print(f"  yes -> add to one of: {', '.join(CATEGORIES)}")
     print("  no  -> add to [reviewed] not_exposed, with the reason")
-    print(f"\nFile: src/package_doctor/data/exposure.toml")
+    print("\nFile: src/package_doctor/data/exposure.toml")
     return 0
 
 

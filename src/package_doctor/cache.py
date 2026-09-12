@@ -38,7 +38,6 @@ class Cache:
         self._conn: sqlite3.Connection | None = None
         if self.enabled:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            existed = self.path.exists()
             self._conn = sqlite3.connect(str(self.path))
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS entries "

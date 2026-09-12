@@ -9,7 +9,6 @@ box with no token setup.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
 from urllib.parse import quote
 
 from .client import Client

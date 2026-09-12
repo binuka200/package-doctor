@@ -7,9 +7,14 @@ import datetime as dt
 import pytest
 
 from package_doctor.models import (
-    AdvisoryHistory, Confidence, Exposure, Package, Remediation, Verdict,
+    AdvisoryHistory,
+    Confidence,
+    Exposure,
+    Package,
+    Remediation,
+    Verdict,
 )
-from package_doctor.risk import Thresholds, assess
+from package_doctor.risk import assess
 
 NOW = dt.datetime(2026, 9, 12, tzinfo=dt.timezone.utc)
 

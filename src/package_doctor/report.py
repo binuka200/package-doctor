@@ -8,8 +8,9 @@ health score is the thing users cannot act on and maintainers cannot argue with.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 from dataclasses import asdict
-from typing import Any, Iterable
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -41,10 +42,7 @@ def _sort_key(finding: Finding) -> tuple:
     # Reachability leads. A package your code demonstrably imports is more
     # actionable than a more-alarming one you may never reach - which is the
     # whole point of checking. Severity breaks ties within each band.
-    if pkg.is_imported:
-        reach_rank = 1 if pkg.imported_in_tests_only else 0
-    else:
-        reach_rank = 2
+    reach_rank = (1 if pkg.imported_in_tests_only else 0) if pkg.is_imported else 2
     exploit = finding.remediation.exploitability
     top = exploit.top
     return (
@@ -224,7 +222,8 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
 
     section("Reachability")
     if pkg.import_sites:
-        row("Imported by your code", "yes" + (" (test code only)" if pkg.imported_in_tests_only else ""))
+        where = " (test code only)" if pkg.imported_in_tests_only else ""
+        row("Imported by your code", "yes" + where)
         for site in pkg.import_sites[:6]:
             console.print(Text(f"    {site}", style="dim"))
         if len(pkg.import_sites) > 6:
@@ -248,7 +247,9 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         row("Released", rem.last_release.date().isoformat())
     row(
         "Repository",
-        "archived" if rem.repo_archived else ("active" if rem.repo_archived is False else "unknown"),
+        "archived"
+        if rem.repo_archived
+        else ("active" if rem.repo_archived is False else "unknown"),
         "red" if rem.repo_archived else "",
     )
     if rem.repo_last_push:
@@ -273,7 +274,11 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
             row(
                 "Fixed after disclosure",
                 f"{adv.late}"
-                + (f" (median {adv.median_late_days:.0f}d exposed)" if adv.median_late_days else ""),
+                + (
+                    f" (median {adv.median_late_days:.0f}d exposed)"
+                    if adv.median_late_days
+                    else ""
+                ),
                 "yellow",
             )
         if adv.unfixed:

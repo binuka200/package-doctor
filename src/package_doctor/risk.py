@@ -46,9 +46,10 @@ def assess(
     remediation: Remediation,
     *,
     now: dt.datetime,
-    thresholds: Thresholds = Thresholds(),
+    thresholds: Thresholds | None = None,
     known_stable: bool = False,
 ) -> Finding:
+    thresholds = thresholds or Thresholds()
     authoritative: list[Evidence] = []
     weak: list[Evidence] = []
     pypi_url = f"https://pypi.org/project/{package.name}/"
@@ -80,7 +81,8 @@ def assess(
         more = f" and {adv.unfixed - 2} more" if adv.unfixed > 2 else ""
         authoritative.append(
             Evidence(
-                f"{adv.unfixed} advisor{'y' if adv.unfixed == 1 else 'ies'} with no published fix: {ids}{more}",
+                f"{adv.unfixed} advisor{'y' if adv.unfixed == 1 else 'ies'} "
+                f"with no published fix: {ids}{more}",
                 f"https://osv.dev/list?q={package.name}&ecosystem=PyPI",
             )
         )
@@ -152,7 +154,7 @@ def assess(
     # ---- verdict ---------------------------------------------------------
     reasons: list[Evidence] = []
     no_signal = (
-        not remediation.gaps == []
+        remediation.gaps != []
         and remediation.last_release is None
         and remediation.repo_archived is None
         and not adv.has_signal

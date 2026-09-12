@@ -61,7 +61,8 @@ MODULE_TO_DIST: dict[str, str] = {
     "psycopg2": "psycopg2-binary", "memcache": "python-memcached",
     "dns": "dnspython", "jinja2": "jinja2", "markdown_it": "markdown-it-py",
     "ruamel": "ruamel-yaml", "pdfminer": "pdfminer-six", "fake_useragent": "fake-useragent",
-    "slugify": "python-slugify", "multipart": "python-multipart", "lxml_html_clean": "lxml-html-clean",
+    "slugify": "python-slugify", "multipart": "python-multipart",
+    "lxml_html_clean": "lxml-html-clean",
     "socks": "pysocks", "OpenSSL": "pyopenssl", "Crypto": "pycryptodome",
     "PIL": "pillow", "Xlib": "python-xlib", "yaml_env_tag": "pyyaml-env-tag",
 }

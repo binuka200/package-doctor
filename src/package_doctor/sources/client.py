@@ -46,7 +46,7 @@ class Client:
             follow_redirects=True,
         )
 
-    async def __aenter__(self) -> "Client":
+    async def __aenter__(self) -> Client:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

@@ -101,7 +101,7 @@ class Analyzer:
         async def one(pkg: Package) -> Finding:
             try:
                 result = await self.analyze(pkg, now)
-            except Exception as exc:  # noqa: BLE001 - one bad package must not kill a scan
+            except Exception as exc:
                 result = assess(
                     pkg,
                     self.exposure_map.lookup(pkg.name),

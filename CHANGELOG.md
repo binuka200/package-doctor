@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-12
+
 ### Added
 
 - Two-axis risk model: a dependency is only escalated when it sits at a trust
@@ -19,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version — turns "affected by 35 advisories" into which one to read first.
 - Reachability: AST-parses your own source and reports where each dependency is
   imported.
-- `scan`, `explain` and `cache` commands, JSON output, and `--fail-on` exit
-  codes for CI.
+- `scan`, `explain` and `cache` commands, JSON output, `--version`, and
+  `--fail-on` exit codes for CI.
 - Research harness (`research/`) for bulk-scanning PyPI and for deciding what
   the exposure map should cover next.
 
@@ -33,3 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exposure map tested for predictive validity across 3,000 packages: packages it
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
+
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/binuka200/package-doctor/releases/tag/v0.1.0
