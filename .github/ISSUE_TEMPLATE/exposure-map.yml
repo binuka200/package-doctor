@@ -1,0 +1,56 @@
+name: Exposure map correction
+description: A package is in the wrong list, or missing from it
+title: "[map] "
+labels: ["exposure-map"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The map is ~710 judgement calls made by one person, so corrections are
+        the most useful thing this project receives.
+
+        Wrong entries matter more than missing ones: a bad entry makes the tool
+        lie, a gap only makes it quieter.
+  - type: input
+    id: package
+    attributes:
+      label: Package name
+      placeholder: e.g. diskcache
+    validations:
+      required: true
+  - type: dropdown
+    id: change
+    attributes:
+      label: What should change?
+      options:
+        - Add it — an attacker can reach this
+        - Remove it — it is not at a trust boundary
+        - Move it — it is in the wrong category
+        - Mark it mature — at a boundary, but finished by design
+    validations:
+      required: true
+  - type: textarea
+    id: reasoning
+    attributes:
+      label: What convinced you?
+      description: |
+        The part that actually matters. Ideally an advisory, a function, or an
+        API that shows the package handling data from outside the trust
+        boundary — or shows that it doesn't.
+
+        Please don't answer "it's popular" or "it sounds security-related".
+        `bandit` is a security scanner, not a target. `xxhash` is not
+        cryptographic. `num2words` has three unfixed advisories that turn out
+        to be a maintainer account compromise rather than anything it does
+        with input.
+      placeholder: |
+        diskcache stores values by pickling them to disk, and
+        GHSA-... says "DiskCache has unsafe pickle deserialization".
+        Anything that can write the cache directory gets code execution.
+    validations:
+      required: true
+  - type: input
+    id: evidence
+    attributes:
+      label: Link to evidence
+      placeholder: https://osv.dev/vulnerability/GHSA-... or a link to the source

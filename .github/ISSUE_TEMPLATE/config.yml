@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/binuka200/package-doctor/security/advisories/new
+    about: Please report privately rather than opening a public issue.

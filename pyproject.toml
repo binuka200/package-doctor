@@ -16,6 +16,11 @@ classifiers = [
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Security",
   "Topic :: Software Development :: Quality Assurance",
 ]
@@ -30,8 +35,10 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "pytest-asyncio>=0.24"]
 
 [project.urls]
-Homepage = "https://github.com/binukajayaweera/package-doctor"
-Issues = "https://github.com/binukajayaweera/package-doctor/issues"
+Homepage = "https://github.com/binuka200/package-doctor"
+Issues = "https://github.com/binuka200/package-doctor/issues"
+Changelog = "https://github.com/binuka200/package-doctor/blob/main/CHANGELOG.md"
+"The exposure map" = "https://github.com/binuka200/package-doctor/blob/main/src/package_doctor/data/exposure.toml"
 
 [project.scripts]
 package-doctor = "package_doctor.cli:main"

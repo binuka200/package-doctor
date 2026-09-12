@@ -1,0 +1,29 @@
+name: Bug report
+description: The tool reported something wrong, or crashed
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: |
+        If a finding looks wrong, paste the row and what you expected instead.
+
+        Two kinds are especially worth reporting:
+          - a package reported as fine that isn't (a false negative — the worst
+            failure this tool has)
+          - wording that reads as a judgement on a maintainer rather than a
+            description of risk
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: "`package-doctor explain <name>` is usually the most useful thing to paste."
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "package-doctor --version, and your Python version"

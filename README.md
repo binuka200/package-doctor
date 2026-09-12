@@ -327,6 +327,28 @@ archived" is a fact that helps a user without indicting anyone. Findings are
 worded that way on purpose. If you find output that reads as a judgement on a
 maintainer rather than a description of risk, that is a bug — please report it.
 
+## Contributing
+
+The most useful contribution isn't code — it's arguing with
+[`exposure.toml`](src/package_doctor/data/exposure.toml). That file is ~710
+judgement calls about which packages sit where an attacker can reach, all made
+by one person, and a wrong entry is worse than a missing one.
+
+If you know a corner of Python well — Django, ML, crypto, packaging — twenty
+minutes reading the relevant category is worth more than a month of new entries.
+
+```bash
+git clone https://github.com/binuka200/package-doctor
+cd package-doctor
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for what belongs in the map, what
+doesn't, and the four principles that are load-bearing enough to have tests
+guarding them.
+
 ## Tests
 
 ```bash

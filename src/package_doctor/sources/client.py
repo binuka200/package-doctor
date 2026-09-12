@@ -14,7 +14,7 @@ import httpx
 
 from ..cache import Cache
 
-USER_AGENT = "package-doctor/0.1 (+https://github.com/binukajayaweera/package-doctor)"
+USER_AGENT = "package-doctor/0.1 (+https://github.com/binuka200/package-doctor)"
 
 
 class Client:

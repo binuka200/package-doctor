@@ -167,6 +167,12 @@ def main() -> int:
                    help="include candidates with no signal at all")
     args = p.parse_args()
 
+    source = args.scan or args.dataset
+    if not source.exists():
+        hint = ("package-doctor scan . --json -o scan.json" if args.scan else
+                f"python research/bulk_scan.py --top 3000 --out {source}")
+        print(f"No such file: {source}\nCreate one first:  {hint}", file=sys.stderr)
+        return 1
     candidates = from_scan(args.scan) if args.scan else from_dataset(args.dataset)
 
     # Never re-ask about something already decided, in any of the three lists.

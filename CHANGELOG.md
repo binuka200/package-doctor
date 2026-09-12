@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- Two-axis risk model: a dependency is only escalated when it sits at a trust
+  boundary **and** shows evidence that nobody is left to fix it.
+- Exposure map of ~710 packages across 14 trust-boundary categories, plus
+  reviewed-and-cleared and mature-by-design lists.
+- Advisory history from OSV, read as never-fixed / fixed-late / fixed-timely
+  rather than a naive time-to-fix.
+- Exploitability ranking via CISA KEV and FIRST EPSS, scoped to the pinned
+  version — turns "affected by 35 advisories" into which one to read first.
+- Reachability: AST-parses your own source and reports where each dependency is
+  imported.
+- `scan`, `explain` and `cache` commands, JSON output, and `--fail-on` exit
+  codes for CI.
+- Research harness (`research/`) for bulk-scanning PyPI and for deciding what
+  the exposure map should cover next.
+
+### Measured
+
+- Advisory version matching agrees with OSV's own version-scoped query on 40/40
+  real package/version pairs.
+- Benchmarked against `pip-audit` over 654 packages: 173 findings in common,
+  **zero missed**, three found additionally and verified as real.
+- Exposure map tested for predictive validity across 3,000 packages: packages it
+  marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
+  cleared.

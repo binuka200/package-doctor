@@ -147,6 +147,11 @@ def main() -> int:
     p.add_argument("--csv", type=Path, help="also write the group table as CSV")
     args = p.parse_args()
 
+    if not args.dataset.exists():
+        print(f"No dataset at {args.dataset}.\n"
+              f"Build one first:  python research/bulk_scan.py --top 3000 "
+              f"--out {args.dataset}", file=sys.stderr)
+        return 1
     rows = load(args.dataset)
     if not rows:
         print("no usable rows", file=sys.stderr)
