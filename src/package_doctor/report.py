@@ -37,12 +37,21 @@ def _sort_key(finding: Finding) -> tuple:
     report, even when both are only worth watching.
     """
     adv = finding.remediation.advisories
+    pkg = finding.package
+    # Reachability leads. A package your code demonstrably imports is more
+    # actionable than a more-alarming one you may never reach - which is the
+    # whole point of checking. Severity breaks ties within each band.
+    if pkg.is_imported:
+        reach_rank = 1 if pkg.imported_in_tests_only else 0
+    else:
+        reach_rank = 2
     return (
+        reach_rank,
         -adv.unfixed,
         -adv.affecting_current,
         -len(finding.abandonment_signals),
-        0 if finding.package.direct else 1,
-        finding.package.name,
+        0 if pkg.direct else 1,
+        pkg.name,
     )
 
 
@@ -193,6 +202,26 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     if pkg.origins:
         row("Declared in", ", ".join(sorted(pkg.origins)))
 
+    section("Reachability")
+    if pkg.import_sites:
+        row("Imported by your code", "yes" + (" (test code only)" if pkg.imported_in_tests_only else ""))
+        for site in pkg.import_sites[:6]:
+            console.print(Text(f"    {site}", style="dim"))
+        if len(pkg.import_sites) > 6:
+            console.print(Text(f"    (+{len(pkg.import_sites) - 6} more)", style="dim"))
+    elif pkg.reachability_checked:
+        row("Imported by your code", "no direct import found")
+        console.print(
+            Text(
+                "    Not a safety finding: your dependencies call each other, so\n"
+                "    this can still run without appearing in your source.",
+                style="dim",
+            )
+        )
+    else:
+        row("Imported by your code", "not checked")
+        console.print(Text("    Run `package-doctor scan` in the project to check.", style="dim"))
+
     section("Remediation capacity")
     row("Latest release", rem.latest_version or "unknown")
     if rem.last_release:
@@ -271,6 +300,12 @@ def to_dict(findings: list[Finding], sources: Iterable[str], now: dt.datetime) -
             "version": finding.package.version,
             "direct": finding.package.direct,
             "origins": sorted(finding.package.origins),
+            "reachability": {
+                "checked": finding.package.reachability_checked,
+                "imported": finding.package.is_imported,
+                "tests_only": finding.package.imported_in_tests_only,
+                "sites": finding.package.import_sites,
+            },
             "verdict": finding.verdict.value,
             "exposure": {
                 "categories": finding.exposure.categories,

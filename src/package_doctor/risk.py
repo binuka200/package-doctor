@@ -100,6 +100,19 @@ def assess(
     unmaintained = bool(authoritative) or len(weak) >= thresholds.weak_signals_required
     signals = authoritative + weak
 
+    # Reachability is evidence, never a verdict.
+    #
+    # An import site proves the package is in play and is worth showing first.
+    # Its absence proves nothing: your dependencies call each other, so a
+    # package your code never imports can still run on every request. It
+    # therefore raises priority and adds evidence, and never lowers a verdict.
+    reach: list[Evidence] = []
+    if package.import_sites:
+        where = ", ".join(package.import_sites[:2])
+        more = f" (+{len(package.import_sites) - 2} more)" if len(package.import_sites) > 2 else ""
+        scope = " in test code" if package.imported_in_tests_only else ""
+        reach.append(Evidence(f"imported by your code{scope} at {where}{more}"))
+
     # ---- verdict ---------------------------------------------------------
     reasons: list[Evidence] = []
     no_signal = (
@@ -115,6 +128,7 @@ def assess(
     elif exposure.is_exposed and unmaintained:
         verdict = Verdict.ACT
         reasons.extend(signals)
+        reasons.extend(reach)
     elif exposure.is_exposed and adv.affecting_current:
         # Maintained, but the pinned version is known-vulnerable right now.
         verdict = Verdict.ACT
@@ -127,6 +141,7 @@ def assess(
             )
         )
         reasons.extend(signals)
+        reasons.extend(reach)
     elif exposure.is_exposed:
         verdict = Verdict.WATCH
         if adv.timely:
@@ -136,6 +151,7 @@ def assess(
                 )
             )
         reasons.extend(signals)
+        reasons.extend(reach)
         if not reasons:
             # Exposed but nothing adverse found. Say so explicitly rather than
             # leaving a blank cell - and say what we do *not* know, since an

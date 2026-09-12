@@ -16,7 +16,9 @@ from .cache import Cache, default_cache_path
 from .exposure import load_exposure_map
 from .models import Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
+from .sources.pypi import normalise
 from .report import render, render_explain, to_dict
+from .sourcescan import build_index, detect_source_roots
 from .risk import Thresholds
 from .sources.client import Client
 
@@ -73,6 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--direct-only", action="store_true", help="only scan dependencies you declared yourself"
     )
     scan.add_argument(
+        "--src",
+        type=Path,
+        action="append",
+        metavar="PATH",
+        help="source directory to check for imports (repeatable; default: auto-detect)",
+    )
+    scan.add_argument(
+        "--no-reachability",
+        action="store_true",
+        help="skip the import scan of your own source",
+    )
+    scan.add_argument(
         "--fail-on",
         choices=sorted(_FAIL_LEVELS),
         default="act",
@@ -83,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
     explain = sub.add_parser("explain", help="show the evidence behind one package")
     explain.add_argument("name", help="package name")
     explain.add_argument("--version", help="the version you depend on, for advisory matching")
+    explain.add_argument(
+        "--path", default=".", help="project directory to check for imports (default: .)"
+    )
+    explain.add_argument(
+        "--no-reachability", action="store_true", help="skip the import scan of your own source"
+    )
     explain.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
     common(explain)
 
@@ -119,15 +139,40 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         console.print("[yellow]No dependencies found.[/yellow]")
         return EXIT_OK
 
-    packages = [
-        Package(
-            name=name,
-            version=version,
-            direct=name in deps.direct,
-            origins=sorted(deps.origins.get(name, set())),
+    # Reachability: which of these the project's own code actually imports.
+    # Positive evidence only - see sourcescan for why absence proves nothing.
+    index = None
+    if not args.no_reachability:
+        roots = args.src or detect_source_roots(root)
+        known = set(deps.versions)
+        merged: dict[str, list] = {}
+        scanned = 0
+        for src_root in roots:
+            src_root = Path(src_root).expanduser().resolve()
+            if not src_root.is_dir():
+                console.print(f"[yellow]Not a directory, skipping:[/yellow] {src_root}")
+                continue
+            part = build_index(src_root, known_packages=known)
+            scanned += part.files_scanned
+            for dist, sites in part.sites.items():
+                merged.setdefault(dist, []).extend(sites)
+        if scanned:
+            index = merged
+
+    packages = []
+    for name, version in sorted(deps.versions.items()):
+        sites = (index or {}).get(name, [])
+        packages.append(
+            Package(
+                name=name,
+                version=version,
+                direct=name in deps.direct,
+                origins=sorted(deps.origins.get(name, set())),
+                import_sites=[str(s) for s in sites],
+                imported_in_tests_only=bool(sites) and all(s.in_test for s in sites),
+                reachability_checked=index is not None,
+            )
         )
-        for name, version in sorted(deps.versions.items())
-    ]
     if args.direct_only:
         packages = [p for p in packages if p.direct]
 
@@ -179,6 +224,29 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
     exposure_map = load_exposure_map()
     package = Package(name=args.name, version=args.version, direct=True)
+
+    # Reachability is most useful exactly here, so check it when `explain` is
+    # run inside a project rather than making the user go back to `scan`.
+    root = Path(args.path).expanduser().resolve()
+    if not args.no_reachability and root.is_dir():
+        version_from_lock = None
+        try:
+            deps = collect_dependencies(discover_manifests(root))
+            version_from_lock = deps.versions.get(normalise(args.name))
+            known = set(deps.versions)
+        except Exception:  # noqa: BLE001 - reachability must never break explain
+            known = set()
+        if args.version is None and version_from_lock:
+            package.version = version_from_lock
+        sites: list = []
+        for src_root in detect_source_roots(root):
+            try:
+                sites.extend(build_index(src_root, known_packages=known).for_package(args.name))
+            except Exception:  # noqa: BLE001
+                continue
+        package.reachability_checked = True
+        package.import_sites = [str(s) for s in sites]
+        package.imported_in_tests_only = bool(sites) and all(s.in_test for s in sites)
 
     try:
         async with Client(cache, concurrency=args.concurrency) as client:

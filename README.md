@@ -39,6 +39,45 @@ so you can distrust it.
 Both must fire. `six` going quiet is not a finding, because `six` is not at a
 trust boundary. `legacy-auth` going quiet is the whole point.
 
+## Reachability
+
+package-doctor also AST-parses your own source and reports **where** you import
+each dependency:
+
+```
+EXPOSED + NO ONE HOME   act on these
+pyjwt   2.9.0   auth/session        1 advisory with no published fix: PYSEC-2025-183
+                                    imported by your code at api/auth.py:1
+pillow  10.4.0  file/media parsing  pinned version affected by 34 advisories
+                                    imported by your code at api/upload.py:2
+```
+
+Findings your code demonstrably imports sort to the top, because those are the
+ones you can act on today. Import names are mapped to distributions, so
+`from PIL import Image` is reported against `pillow` and `import jwt` against
+`pyjwt`. Imports that only appear in test code are labelled as such.
+
+### What "not imported" does not mean
+
+**It does not mean unreachable, and it never lowers a verdict.** Your
+dependencies call each other: a package absent from your source can still run on
+every request. An import site is positive evidence that something is in play;
+its absence is not evidence of anything, and the tool says so rather than
+implying safety:
+
+```
+Reachability
+  Imported by your code     no direct import found
+    Not a safety finding: your dependencies call each other, so
+    this can still run without appearing in your source.
+```
+
+A test asserts this invariant directly — the same package with an import site,
+without one, and never checked all produce the same verdict.
+
+Use `--src PATH` to point at source directories explicitly, or
+`--no-reachability` to skip the scan.
+
 ## What it measures, and what it refuses to
 
 Release age is a famously bad signal on its own — it cannot tell an abandoned
@@ -139,6 +178,8 @@ package-doctor scan --json -o report.json
 | Flag | Meaning |
 | --- | --- |
 | `--direct-only` | skip transitive dependencies |
+| `--src PATH` | source directory to check for imports (repeatable) |
+| `--no-reachability` | skip the import scan of your own source |
 | `--show-ok` | also list packages with no concerns |
 | `--offline-repo` | skip repository lookups (faster, fewer signals) |
 | `--stale-release-days N` | tune the weak release-age signal (default 730) |

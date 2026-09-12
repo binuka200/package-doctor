@@ -133,6 +133,18 @@ class Package:
     direct: bool = True
     #: Which manifest/lockfile this came from, for the "where did this come from" question.
     origins: list[str] = field(default_factory=list)
+    #: Places the project's own code imports this package, as "path:line".
+    import_sites: list[str] = field(default_factory=list)
+    #: True when every import site is in test or tooling code.
+    imported_in_tests_only: bool = False
+    #: Whether source was scanned at all. Distinguishes "we looked and found no
+    #: import" from "we never looked" - and neither means the package is
+    #: unreachable, since dependencies call each other at runtime.
+    reachability_checked: bool = False
+
+    @property
+    def is_imported(self) -> bool:
+        return bool(self.import_sites)
 
 
 @dataclass
