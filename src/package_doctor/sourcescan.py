@@ -169,13 +169,20 @@ def build_index(
     known_packages: set[str] | None = None,
     max_files: int = 5000,
     max_bytes: int = MAX_FILE_BYTES,
+    display_root: Path | None = None,
 ) -> ImportIndex:
     """Walk a project's source and map its imports onto distribution names.
 
     ``known_packages`` are the normalised names from the lockfile. A module that
     resolves to something outside that set is the project's own code or an
     uninstalled extra, and is dropped rather than guessed at.
+
+    ``display_root`` is what reported paths are relative to - the project
+    directory, normally. A scan walks each package directory as its own
+    ``root``, and naming files relative to that produced ``models.py:11`` in a
+    project with an ``analytics/models.py`` and a ``zerver/models.py``.
     """
+    display_root = display_root or root
     index = ImportIndex()
     stdlib = _stdlib_names()
     env_map = _env_module_map()
@@ -203,10 +210,7 @@ def build_index(
             continue
 
         index.files_scanned += 1
-        try:
-            rel = str(path.relative_to(root))
-        except ValueError:  # pragma: no cover
-            rel = str(path)
+        rel = _relative(path, display_root, root)
         in_test = any(marker in rel.replace("\\", "/") for marker in TEST_MARKERS)
 
         for module, line in imports:
@@ -241,6 +245,16 @@ def build_index(
         index.sites[dist] = sorted(seen.values(), key=lambda s: (s.in_test, s.file, s.line))
 
     return index
+
+
+def _relative(path: Path, *roots: Path) -> str:
+    """The path relative to the first root that contains it, forward slashes."""
+    for root in roots:
+        try:
+            return path.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return str(path)  # pragma: no cover - --src outside every root
 
 
 def detect_source_roots(root: Path) -> list[Path]:

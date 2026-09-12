@@ -40,6 +40,16 @@ def _years(days: int) -> str:
     return f"{days / 365.25:.1f}y"
 
 
+def _ago(days: int) -> str:
+    """A short age for recent events, where "0.0y" would read as a bug."""
+    if days < 60:
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    if days < 730:
+        months = round(days / 30.44)
+        return f"{months} month{'s' if months != 1 else ''} ago"
+    return f"{_years(days)} ago"
+
+
 def assess(
     package: Package,
     exposure: Exposure,
@@ -55,10 +65,25 @@ def assess(
     pypi_url = f"https://pypi.org/project/{package.name}/"
 
     # ---- authoritative: statements of fact -------------------------------
+    since_release = remediation.days_since_release(now)
     if remediation.repo_archived is True:
-        authoritative.append(
-            Evidence("repository is archived", remediation.repo_url)
-        )
+        if since_release is not None and since_release <= thresholds.stale_release_days:
+            # The *declared* repository is archived, but releases keep coming,
+            # so the code has most likely moved - google-cloud-bigquery's repo
+            # was archived when Google folded it into a monorepo, and it ships
+            # monthly. The fact is stated, but it is not proof nobody is home,
+            # so it counts as one weak signal rather than settling the matter.
+            weak.append(
+                Evidence(
+                    f"declared repository is archived, but a release shipped "
+                    f"{_ago(since_release)} - the code may have moved",
+                    remediation.repo_url,
+                )
+            )
+        else:
+            authoritative.append(
+                Evidence("repository is archived", remediation.repo_url)
+            )
     if remediation.inactive_classifier:
         authoritative.append(
             Evidence("marked Development Status :: 7 - Inactive by its maintainer", pypi_url)
@@ -88,7 +113,6 @@ def assess(
         )
 
     # ---- weak: only meaningful in combination ----------------------------
-    since_release = remediation.days_since_release(now)
     if since_release is not None and since_release > thresholds.stale_release_days:
         weak.append(
             Evidence(f"no release in {_years(since_release)}", pypi_url)

@@ -233,3 +233,13 @@ def test_scan_reports_sources_relative_to_the_project(tmp_path, monkeypatch, cap
     cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
     out = capsys.readouterr().out
     assert "from requirements.txt, requirements/base.txt" in out
+
+
+def test_scan_says_which_local_packages_it_skipped(tmp_path, monkeypatch, capsys):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "myproj"\ndependencies = ["alpha==1.0"]\n', encoding="utf-8"
+    )
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
+    cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
+    out = capsys.readouterr().out
+    assert "Skipped myproj" in out and "own package" in out

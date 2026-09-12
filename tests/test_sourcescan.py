@@ -154,3 +154,17 @@ def test_test_only_imports_are_described_as_such():
                   imported_in_tests_only=True, reachability_checked=True)
     finding = assess(pkg, _exposed(), _abandoned(), now=NOW)
     assert any("test code" in r.claim for r in finding.reasons)
+
+
+def test_sites_are_named_relative_to_the_project_not_the_package_dir(tmp_path):
+    """zulip has analytics/models.py and zerver/models.py; "models.py:11" told
+    the user nothing about which."""
+    for pkg in ("analytics", "zerver"):
+        (tmp_path / pkg).mkdir()
+        (tmp_path / pkg / "__init__.py").write_text("", encoding="utf-8")
+        (tmp_path / pkg / "models.py").write_text("import django\n", encoding="utf-8")
+    sites = []
+    for root in detect_source_roots(tmp_path):
+        index = build_index(root, known_packages={"django"}, display_root=tmp_path)
+        sites += index.for_package("django")
+    assert sorted(str(s) for s in sites) == ["analytics/models.py:1", "zerver/models.py:1"]

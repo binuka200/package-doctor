@@ -170,6 +170,15 @@ So package-doctor measures what the data actually supports:
 One advisory is one advisory: OSV routinely carries a GHSA record and a PYSEC
 record for the same CVE, and they are merged before anything is counted.
 
+### An archived repository is not always an abandoned package
+
+"Repository is archived" is a fact about the URL PyPI declares, and projects
+move: Google archived `python-bigquery` when it folded the package into a
+monorepo, and `google-cloud-bigquery` ships monthly. So an archived repository
+only settles the matter when nothing has been released in the stale window
+either. With a recent release it is stated, but as one weak signal, worded
+*the code may have moved*.
+
 ### Missing data is never a bad score
 
 If a package has no advisory history, that is *unknown*, not *good*. If it

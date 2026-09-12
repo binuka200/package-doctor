@@ -179,3 +179,82 @@ def test_a_missing_include_is_reported_not_fatal(tmp_path):
     deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
     assert set(deps.versions) == {"requests"}
     assert [p.name for p in deps.refused] == ["nope.txt"]
+
+
+# --- the project's own package is not a dependency ---------------------------
+
+def test_the_projects_own_name_is_skipped_not_assessed(tmp_path):
+    """mlflow's lockfile lists mlflow, and the tool put it at the top of
+    mlflow's own report with 36 advisories against it."""
+    write(tmp_path, "pyproject.toml",
+          '[project]\nname = "mlflow"\ndependencies = ["requests==2.31.0"]\n')
+    write(tmp_path, "uv.lock", """
+[[package]]
+name = "mlflow"
+version = "3.0.0"
+source = { editable = "." }
+
+[[package]]
+name = "requests"
+version = "2.31.0"
+source = { registry = "https://pypi.org/simple" }
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert set(deps.versions) == {"requests"}
+    assert deps.local == {"mlflow"}
+
+
+def test_uv_workspace_members_and_local_paths_are_skipped(tmp_path):
+    write(tmp_path, "uv.lock", """
+[[package]]
+name = "app"
+version = "0.1.0"
+source = { editable = "backend" }
+
+[[package]]
+name = "shared"
+version = "0.1.0"
+source = { virtual = "libs/shared" }
+
+[[package]]
+name = "vendored"
+version = "1.0"
+source = { directory = "vendor/thing" }
+
+[[package]]
+name = "urllib3"
+version = "2.0.7"
+source = { registry = "https://pypi.org/simple" }
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert set(deps.versions) == {"urllib3"}
+    assert deps.local == {"app", "shared", "vendored"}
+
+
+def test_poetry_directory_sources_are_skipped(tmp_path):
+    write(tmp_path, "poetry.lock", """
+[[package]]
+name = "local-lib"
+version = "0.1.0"
+
+[package.source]
+type = "directory"
+url = "libs/local-lib"
+
+[[package]]
+name = "urllib3"
+version = "2.0.7"
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert set(deps.versions) == {"urllib3"}
+    assert deps.local == {"local-lib"}
+
+
+def test_marking_local_after_the_fact_removes_an_earlier_entry(tmp_path):
+    """A requirements file can list the project itself (`-e .` is skipped, but
+    a bare name is not); pyproject is discovered after it and must still win."""
+    write(tmp_path, "requirements.txt", "myproj==1.0\nrequests==2.31.0\n")
+    write(tmp_path, "pyproject.toml", '[project]\nname = "myproj"\n')
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert set(deps.versions) == {"requests"}
+    assert "myproj" not in deps.direct

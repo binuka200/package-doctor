@@ -58,7 +58,9 @@ def test_two_weak_signals_agreeing_is_enough():
 
 
 def test_archived_repo_alone_is_enough():
-    rem = healthy(repo_archived=True)
+    """With no release inside the stale window; see the moved-code tests for
+    an archived repository that is still shipping."""
+    rem = healthy(repo_archived=True, last_release=years_ago(3))
     finding = assess(pkg(), exposed(), rem, now=NOW)
     assert finding.verdict is Verdict.ACT
     assert any("archived" in r.claim for r in finding.reasons)
@@ -221,3 +223,49 @@ def test_a_clean_unmapped_package_is_still_ok():
     """The rule above must not make everything noisy: no advisories against the
     installed version and no maintenance signals is genuinely fine."""
     assert assess(pkg(), not_exposed(), healthy(), now=NOW).verdict is Verdict.OK
+
+
+# --- an archived repository that keeps releasing -----------------------------
+
+def test_an_archived_repo_with_a_recent_release_is_a_weak_signal_not_proof():
+    """google-cloud-bigquery's declared repo is archived because Google moved
+    it into a monorepo; it ships monthly. The fact is stated, but it cannot
+    settle "nobody is home" on its own."""
+    rem = healthy(repo_archived=True, last_release=years_ago(0.1))
+    finding = assess(pkg(), exposed(), rem, now=NOW)
+    assert finding.verdict is Verdict.WATCH
+    claims = [e.claim for e in finding.abandonment_signals]
+    assert any("may have moved" in c for c in claims)
+    assert "repository is archived" not in claims
+
+
+def test_an_archived_repo_with_no_recent_release_is_authoritative():
+    rem = healthy(repo_archived=True, last_release=years_ago(3), repo_last_push=years_ago(3))
+    finding = assess(pkg(), exposed(), rem, now=NOW)
+    assert finding.verdict is Verdict.ACT
+    assert "repository is archived" in [e.claim for e in finding.abandonment_signals]
+
+
+def test_an_archived_repo_with_unknown_release_date_stays_authoritative():
+    """Missing data must not soften a stated fact."""
+    rem = Remediation(repo_archived=True, last_release=None)
+    finding = assess(pkg(), exposed(), rem, now=NOW)
+    assert finding.verdict is Verdict.ACT
+
+
+def test_moved_and_stale_together_still_escalate():
+    """Archived-but-releasing plus a second weak signal is two weak signals."""
+    rem = healthy(repo_archived=True, last_release=years_ago(0.5), repo_last_push=years_ago(3))
+    assert assess(pkg(), exposed(), rem, now=NOW).verdict is Verdict.ACT
+
+
+def test_recent_ages_are_worded_in_days_or_months_not_zero_years():
+    from package_doctor.risk import _ago
+    assert _ago(0) == "0 days ago"
+    assert _ago(1) == "1 day ago"
+    assert _ago(12) == "12 days ago"
+    assert _ago(95) == "3 months ago"
+    assert _ago(800) == "2.2y ago"
+    rem = healthy(repo_archived=True, last_release=years_ago(0.02))
+    claims = [e.claim for e in assess(pkg(), exposed(), rem, now=NOW).abandonment_signals]
+    assert any("days ago" in c for c in claims) and not any("0.0y" in c for c in claims)

@@ -174,6 +174,13 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
             f"{MAX_MANIFEST_BYTES // (1024 * 1024)}MB, outside the project, or not a "
             f"regular file. Its dependencies were not scanned."
         )
+    if deps.local:
+        shown = ", ".join(sorted(deps.local)[:4])
+        more = f" and {len(deps.local) - 4} more" if len(deps.local) > 4 else ""
+        console.print(
+            f"[dim]Skipped {shown}{more}: this project's own package"
+            f"{'s' if len(deps.local) > 1 else ''}, not a dependency.[/dim]"
+        )
     if not deps:
         console.print("[yellow]No dependencies found.[/yellow]")
         return EXIT_OK
@@ -193,7 +200,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
                     f"[yellow]Not a directory, skipping:[/yellow] {escape(str(src_root))}"
                 )
                 continue
-            part = build_index(src_root, known_packages=known)
+            part = build_index(src_root, known_packages=known, display_root=root)
             scanned += part.files_scanned
             if part.files_too_large:
                 console.print(
@@ -301,7 +308,10 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
         sites: list = []
         for src_root in detect_source_roots(root):
             try:
-                sites.extend(build_index(src_root, known_packages=known).for_package(args.name))
+                sites.extend(
+                    build_index(src_root, known_packages=known, display_root=root)
+                    .for_package(args.name)
+                )
             except Exception:
                 continue
         package.reachability_checked = True

@@ -43,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release with no fix named is reported as closed, not counted either way.
 - GHSA and PYSEC records of the same CVE are merged before counting.
   cryptography 46.0.7 read as "affected by 7 advisories"; it is four.
+- Import sites are named relative to the project directory rather than to
+  the package directory being walked, so zulip's `analytics/models.py` and
+  `zerver/models.py` no longer both report as `models.py`.
+- The project's own package, uv workspace members, and anything a lockfile
+  records with a local source are skipped and listed as such, instead of
+  being assessed as dependencies. mlflow's report led with mlflow.
+- An archived repository with a release inside the stale window is one weak
+  signal, worded "the code may have moved", rather than proof of abandonment.
+  google-cloud-bigquery's archived repo is a monorepo migration.
 
 ### Security
 

@@ -66,12 +66,28 @@ class DependencySet:
     #: that points outside the project - so the user can be told, because a
     #: skipped lockfile must not look like an empty one
     refused: list[Path] = field(default_factory=list)
+    #: normalised names of packages that come from the project itself rather
+    #: than from an index: the project's own distribution, workspace members,
+    #: and anything a lockfile records with a local source. They have no PyPI
+    #: history to judge and no maintainer other than the user, so they are
+    #: reported as skipped rather than assessed.
+    local: set[str] = field(default_factory=set)
     #: resolved paths already read, so a file reached both by discovery and by
     #: an include is parsed once
     _seen: set[Path] = field(default_factory=set, repr=False)
 
+    def mark_local(self, name: str) -> None:
+        key = normalise(name)
+        if key:
+            self.local.add(key)
+            self.versions.pop(key, None)
+            self.direct.discard(key)
+            self.origins.pop(key, None)
+
     def add(self, name: str, version: str | None, origin: str, direct: bool) -> None:
         key = normalise(name)
+        if key in self.local:
+            return
         if not key or key in _IGNORED or not _VALID_NAME.match(key):
             # Lockfiles are just TOML and JSON: nothing in them is validated the
             # way a requirements.txt line is by packaging.Requirement. A crafted
@@ -204,6 +220,9 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
         return
 
     project = data.get("project") or {}
+    own = project.get("name") or ((data.get("tool") or {}).get("poetry") or {}).get("name")
+    if isinstance(own, str):
+        deps.mark_local(own)
     for item in project.get("dependencies") or []:
         parsed = _parse_requirement_line(str(item))
         if parsed:
@@ -251,6 +270,10 @@ def _load_toml(text: str) -> dict | None:
         return None
 
 
+#: uv source kinds that mean "this checkout", not an index.
+_UV_LOCAL_SOURCES = ("editable", "directory", "virtual", "workspace", "path")
+
+
 def parse_uv_lock(path: Path, deps: DependencySet, text: str) -> None:
     origin = path.name
     data = _load_toml(text)
@@ -258,8 +281,13 @@ def parse_uv_lock(path: Path, deps: DependencySet, text: str) -> None:
         return
     for pkg in data.get("package") or []:
         name = pkg.get("name")
-        if name:
-            deps.add(str(name), pkg.get("version"), origin, direct=False)
+        if not name:
+            continue
+        source = pkg.get("source")
+        if isinstance(source, dict) and any(k in source for k in _UV_LOCAL_SOURCES):
+            deps.mark_local(str(name))
+            continue
+        deps.add(str(name), pkg.get("version"), origin, direct=False)
 
 
 def parse_poetry_lock(path: Path, deps: DependencySet, text: str) -> None:
@@ -269,8 +297,13 @@ def parse_poetry_lock(path: Path, deps: DependencySet, text: str) -> None:
         return
     for pkg in data.get("package") or []:
         name = pkg.get("name")
-        if name:
-            deps.add(str(name), pkg.get("version"), origin, direct=False)
+        if not name:
+            continue
+        source = pkg.get("source")
+        if isinstance(source, dict) and source.get("type") in ("directory", "file"):
+            deps.mark_local(str(name))
+            continue
+        deps.add(str(name), pkg.get("version"), origin, direct=False)
 
 
 _PIPFILE_VERSION = re.compile(r"^==?(?P<v>.+)$")
