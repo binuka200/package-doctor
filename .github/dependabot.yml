@@ -1,0 +1,16 @@
+# Keeps the commit-pinned actions and the Python dependencies current.
+# Actions are pinned by SHA in the workflows; Dependabot moves the SHA and
+# the version comment together, so the pin never goes stale.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev:
+        dependency-type: development

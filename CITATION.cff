@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use package-doctor in research, please cite it as below."
+title: "package-doctor"
+abstract: >-
+  Finds the Python dependencies that sit at a trust boundary and have no one
+  left to fix them. A two-axis model: escalation requires both curated
+  trust-boundary exposure and evidence of lost remediation capacity, with
+  advisories read under OSV's range semantics and ranked by CISA KEV and
+  FIRST EPSS.
+type: software
+authors:
+  - family-names: Jayaweera
+    given-names: Binuka
+version: 0.1.0
+date-released: "2026-09-12"
+license: MIT
+repository-code: "https://github.com/binuka200/package-doctor"
+url: "https://pypi.org/project/package-doctor/"
+keywords:
+  - dependencies
+  - software supply chain
+  - vulnerability management
+  - open source maintenance
+  - Python

@@ -1,5 +1,10 @@
 # package-doctor
 
+[![CI](https://github.com/binuka200/package-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/binuka200/package-doctor/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/package-doctor.svg)](https://pypi.org/project/package-doctor/)
+[![Python](https://img.shields.io/pypi/pyversions/package-doctor.svg)](https://pypi.org/project/package-doctor/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Finds the dependencies that sit at a trust boundary and have no one left to fix them.**
 
 In late August 2026, Anthropic's coordinated disclosure programme reported 2,300
