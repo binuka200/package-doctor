@@ -290,6 +290,18 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         row("Open issues", str(rem.open_issues))
 
     section("Security track record")
+    if pkg.version is None:
+        # Advisory matching needs a version, and without one this section
+        # would silently be about the project's history rather than the
+        # reader's install. Say what was not checked, and how to check it.
+        row("Your version", "unknown - advisory matching skipped", "yellow")
+        console.print(
+            Text(
+                "    Pass --pin VERSION, or run this inside the project so it can\n"
+                "    be read from the lockfile.",
+                style="dim",
+            )
+        )
     if not adv.has_signal:
         row("Advisories", "none on record", "dim")
         row("Reading", "no history means unknown, not good", "dim")

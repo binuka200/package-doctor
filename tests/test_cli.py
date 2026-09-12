@@ -204,3 +204,32 @@ def test_version_flag_prints_package_version(capsys):
         cli.main(["--version"])
     assert exc.value.code == 0
     assert capsys.readouterr().out.strip() == f"package-doctor {__version__}"
+
+
+def test_explain_takes_the_pinned_version_with_pin(tmp_path, monkeypatch):
+    """`--version` is the tool's version; the version to match is `--pin`."""
+    seen = {}
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def analyze(self, package, now):
+            seen["version"] = package.version
+            return finding("pillow", Verdict.WATCH)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    cli.main(["explain", "pillow", "--pin", "10.0.0", "--path", str(tmp_path), "--no-cache"])
+    assert seen["version"] == "10.0.0"
+    with pytest.raises(SystemExit):
+        cli.main(["explain", "pillow", "--version", "10.0.0"])
+
+
+def test_scan_reports_sources_relative_to_the_project(tmp_path, monkeypatch, capsys):
+    (tmp_path / "requirements").mkdir()
+    (tmp_path / "requirements.txt").write_text("-r requirements/base.txt\n", encoding="utf-8")
+    (tmp_path / "requirements" / "base.txt").write_text("alpha==1.0\n", encoding="utf-8")
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
+    cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
+    out = capsys.readouterr().out
+    assert "from requirements.txt, requirements/base.txt" in out

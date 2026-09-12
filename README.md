@@ -205,6 +205,10 @@ Then get the working behind any row:
 package-doctor explain legacy-auth
 ```
 
+Run inside the project, it reads the pinned version from the lockfile so the
+advisories are matched against what you actually install. Anywhere else, pass
+it: `package-doctor explain pillow --pin 10.0.0`.
+
 ### In CI
 
 ```bash
@@ -228,10 +232,15 @@ package-doctor scan --json -o report.json
 | `--show-ok` | also list packages with no concerns |
 | `--offline-repo` | skip repository lookups (faster, fewer signals) |
 | `--stale-release-days N` | tune the weak release-age signal (default 730) |
+| `--stale-push-days N` | tune the weak commit-age signal (default 545) |
+| `--max-packages N` | refuse to look up more than this many (default 2000) |
+| `--concurrency N` | parallel requests to the free upstream APIs (default 8) |
+| `--cache-ttl SECONDS` | how long responses are reused (default 86400) |
 | `--no-cache` | bypass the local response cache |
 
 Reads `uv.lock`, `poetry.lock`, `Pipfile.lock`, `pyproject.toml` (PEP 621,
-PEP 735 and Poetry), `Pipfile`, and `requirements*.txt`.
+PEP 735 and Poetry), `Pipfile`, `requirements*.txt` and `requirements/*.txt`,
+following `-r` includes within the project.
 
 ## Data sources
 

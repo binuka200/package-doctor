@@ -98,3 +98,84 @@ def test_malformed_files_do_not_crash(tmp_path):
     write(tmp_path, "pyproject.toml", "this is [not valid toml")
     write(tmp_path, "requirements.txt", "!!! not a requirement\n")
     assert len(collect_dependencies(discover_manifests(tmp_path))) == 0
+
+
+# --- requirements includes and the requirements/ directory -------------------
+
+def test_a_requirements_directory_is_discovered(tmp_path):
+    """The pip-tools and Django layout: nothing at the root but a directory."""
+    (tmp_path / "requirements").mkdir()
+    write(tmp_path / "requirements", "base.txt", "requests==2.31.0\n")
+    write(tmp_path / "requirements", "dev.txt", "pytest==8.0.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"requests": "2.31.0", "pytest": "8.0.0"}
+    assert deps.origins["requests"] == {"requirements/base.txt"}
+
+
+def test_r_includes_are_followed_relative_to_the_including_file(tmp_path):
+    (tmp_path / "requirements").mkdir()
+    write(tmp_path, "requirements.txt", "-r requirements/prod.txt\nlocal-only==1.0\n")
+    write(tmp_path / "requirements", "prod.txt", "--requirement=base.txt\ngunicorn==21.2.0\n")
+    write(tmp_path / "requirements", "base.txt", "requests==2.31.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {
+        "local-only": "1.0", "gunicorn": "21.2.0", "requests": "2.31.0",
+    }
+    assert deps.origins["requests"] == {"requirements/base.txt"}
+    assert not deps.refused
+
+
+def test_a_file_reached_twice_is_read_once(tmp_path):
+    """Discovered under requirements/ and also included from the root."""
+    (tmp_path / "requirements").mkdir()
+    write(tmp_path, "requirements.txt", "-r requirements/base.txt\n")
+    write(tmp_path / "requirements", "base.txt", "requests==2.31.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert [p.name for p in deps.sources].count("base.txt") == 1
+
+
+def test_an_include_outside_the_project_is_refused(tmp_path):
+    """A checkout must not be able to read files beyond its own directory."""
+    project = tmp_path / "project"
+    project.mkdir()
+    write(tmp_path, "secret.txt", "leaked==1.0\n")
+    write(project, "requirements.txt", "-r ../secret.txt\nrequests==2.31.0\n")
+    deps = collect_dependencies(discover_manifests(project), root=project)
+    assert set(deps.versions) == {"requests"}
+    assert [p.name for p in deps.refused] == ["secret.txt"]
+
+
+def test_an_include_cycle_terminates(tmp_path):
+    write(tmp_path, "requirements.txt", "-r requirements-a.txt\n")
+    write(tmp_path, "requirements-a.txt", "-r requirements.txt\nrequests==2.31.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"requests": "2.31.0"}
+
+
+def test_an_include_chain_deeper_than_the_limit_is_refused(tmp_path):
+    from package_doctor.parsers.discovery import MAX_INCLUDE_DEPTH
+    depth = MAX_INCLUDE_DEPTH + 2
+    write(tmp_path, "requirements.txt", "-r requirements-0.txt\n")
+    for i in range(depth):
+        write(tmp_path, f"requirements-{i}.txt", f"-r requirements-{i + 1}.txt\n")
+    write(tmp_path, f"requirements-{depth}.txt", "requests==2.31.0\n")
+    # Every file is also discovered at the root, so the leaf is still read;
+    # the point is that the chain itself stops and says so.
+    deps = collect_dependencies([tmp_path / "requirements.txt"], root=tmp_path)
+    assert not deps.versions
+    assert deps.refused, "the chain was cut, and reported"
+
+
+def test_constraints_files_are_not_followed(tmp_path):
+    """-c pins what is installed; it does not install anything."""
+    write(tmp_path, "requirements.txt", "-c constraints.txt\nrequests==2.31.0\n")
+    write(tmp_path, "constraints.txt", "urllib3==2.0.7\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert set(deps.versions) == {"requests"}
+
+
+def test_a_missing_include_is_reported_not_fatal(tmp_path):
+    write(tmp_path, "requirements.txt", "-r nope.txt\nrequests==2.31.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert set(deps.versions) == {"requests"}
+    assert [p.name for p in deps.refused] == ["nope.txt"]

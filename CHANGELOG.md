@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--fail-on` exit codes for CI.
 - Research harness (`research/`) for bulk-scanning PyPI and for deciding what
   the exposure map should cover next.
+- `requirements/*.txt` is discovered, and `-r` includes are followed within
+  the project, so the pip-tools and Django layouts scan without flags.
+- `explain` says when no pinned version was known and advisory matching was
+  therefore skipped; the version to match is given with `--pin`.
 
 ### Security
 

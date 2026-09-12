@@ -49,6 +49,14 @@ def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def _display(path: Path, root: Path) -> str:
+    """A file as the user would name it: relative to the project when inside it."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="package-doctor",
@@ -117,7 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     explain = sub.add_parser("explain", help="show the evidence behind one package")
     explain.add_argument("name", help="package name")
-    explain.add_argument("--version", help="the version you depend on, for advisory matching")
+    explain.add_argument(
+        "--pin",
+        metavar="VERSION",
+        help="the version you depend on, for advisory matching (default: read from the lockfile)",
+    )
     explain.add_argument(
         "--path", default=".", help="project directory to check for imports (default: .)"
     )
@@ -155,12 +167,12 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         )
         return EXIT_USAGE
 
-    deps = collect_dependencies(paths)
+    deps = collect_dependencies(paths, root=root)
     for refused in deps.refused:
         console.print(
-            f"[yellow]Not read:[/yellow] {escape(refused.name)} - larger than "
-            f"{MAX_MANIFEST_BYTES // (1024 * 1024)}MB, or not a regular file. "
-            f"Its dependencies were not scanned."
+            f"[yellow]Not read:[/yellow] {escape(_display(refused, root))} - larger than "
+            f"{MAX_MANIFEST_BYTES // (1024 * 1024)}MB, outside the project, or not a "
+            f"regular file. Its dependencies were not scanned."
         )
     if not deps:
         console.print("[yellow]No dependencies found.[/yellow]")
@@ -250,7 +262,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     finally:
         cache.close()
 
-    source_names = [p.name for p in deps.sources]
+    source_names = [_display(p, root) for p in deps.sources]
     payload = to_dict(findings, source_names, now)
 
     if args.output:
@@ -271,7 +283,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     now = _now()
     cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
     exposure_map = load_exposure_map()
-    package = Package(name=args.name, version=args.version, direct=True)
+    package = Package(name=args.name, version=args.pin, direct=True)
 
     # Reachability is most useful exactly here, so check it when `explain` is
     # run inside a project rather than making the user go back to `scan`.
@@ -279,12 +291,12 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     if not args.no_reachability and root.is_dir():
         version_from_lock = None
         try:
-            deps = collect_dependencies(discover_manifests(root))
+            deps = collect_dependencies(discover_manifests(root), root=root)
             version_from_lock = deps.versions.get(normalise(args.name))
             known = set(deps.versions)
         except Exception:
             known = set()
-        if args.version is None and version_from_lock:
+        if args.pin is None and version_from_lock:
             package.version = version_from_lock
         sites: list = []
         for src_root in detect_source_roots(root):

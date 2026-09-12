@@ -152,3 +152,37 @@ def test_json_counts_every_verdict():
 def test_json_preserves_evidence_urls():
     row = to_dict([make()], [], NOW)["findings"][0]
     assert row["reasons"][0]["url"] == "https://example.invalid"
+
+
+def test_explain_says_when_no_version_was_known():
+    """Without a version, advisory matching never ran. The section would
+    otherwise read as a clean bill of health for the reader's install."""
+    import io
+
+    from rich.console import Console
+
+    from package_doctor.models import (
+        AdvisoryHistory,
+        Confidence,
+        Exposure,
+        Finding,
+        Package,
+        Remediation,
+        Verdict,
+    )
+    from package_doctor.report import render_explain
+
+    def out_for(version):
+        buf = io.StringIO()
+        finding = Finding(
+            package=Package(name="pillow", version=version),
+            exposure=Exposure(categories=["file/media parsing"], confidence=Confidence.CURATED),
+            remediation=Remediation(advisories=AdvisoryHistory(total=153, timely=147)),
+            verdict=Verdict.WATCH,
+        )
+        render_explain(Console(file=buf, width=100, force_terminal=False), finding)
+        return buf.getvalue()
+
+    assert "advisory matching skipped" in out_for(None)
+    assert "--pin" in out_for(None)
+    assert "advisory matching skipped" not in out_for("10.0.0")

@@ -354,7 +354,7 @@ def test_a_refused_lockfile_is_reported_to_the_user(tmp_path, monkeypatch, capsy
     (tmp_path / "uv.lock").write_text("x" * 10, encoding="utf-8")
     monkeypatch.setattr(
         cli, "collect_dependencies",
-        lambda paths: discovery.collect_dependencies(paths, max_bytes=5),
+        lambda paths, **kw: discovery.collect_dependencies(paths, max_bytes=5, **kw),
     )
 
     class Stub:

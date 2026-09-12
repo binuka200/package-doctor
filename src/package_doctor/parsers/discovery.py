@@ -28,6 +28,13 @@ else:  # pragma: no cover - exercised only on 3.10
 MANIFESTS = ("pyproject.toml", "Pipfile")
 LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock")
 REQUIREMENTS_GLOB = "requirements*.txt"
+#: The pip-tools and Django convention: one file per environment in a
+#: directory, usually pulled in from a root requirements.txt with ``-r``.
+REQUIREMENTS_DIR = "requirements"
+
+#: How many ``-r`` includes deep a requirements file may reach. Real layouts
+#: are one or two; a cycle or a chain past this is refused, not followed.
+MAX_INCLUDE_DEPTH = 8
 
 #: Largest dependency file we will read, in bytes.
 #:
@@ -55,10 +62,13 @@ class DependencySet:
     origins: dict[str, set[str]] = field(default_factory=dict)
     #: files we read, for reporting
     sources: list[Path] = field(default_factory=list)
-    #: files we refused to read - too large, or not a regular file - so the
-    #: user can be told, because a skipped lockfile must not look like an
-    #: empty one
+    #: files we refused to read - too large, not a regular file, or an include
+    #: that points outside the project - so the user can be told, because a
+    #: skipped lockfile must not look like an empty one
     refused: list[Path] = field(default_factory=list)
+    #: resolved paths already read, so a file reached both by discovery and by
+    #: an include is parsed once
+    _seen: set[Path] = field(default_factory=set, repr=False)
 
     def add(self, name: str, version: str | None, origin: str, direct: bool) -> None:
         key = normalise(name)
@@ -93,6 +103,9 @@ def discover_manifests(root: Path) -> list[Path]:
         if path.is_file():
             found.append(path)
     found.extend(sorted(p for p in root.glob(REQUIREMENTS_GLOB) if p.is_file()))
+    reqdir = root / REQUIREMENTS_DIR
+    if reqdir.is_dir():
+        found.extend(sorted(p for p in reqdir.glob("*.txt") if p.is_file()))
     return found
 
 
@@ -134,9 +147,51 @@ def _parse_requirement_line(line: str) -> tuple[str, str | None] | None:
     return req.name, pinned
 
 
-def parse_requirements_txt(path: Path, deps: DependencySet, text: str) -> None:
-    origin = path.name
+_INCLUDE = re.compile(r"^(?:-r|--requirement)(?:\s+|=)(?P<target>\S.*?)\s*$")
+
+
+def _origin(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
+def parse_requirements_txt(
+    path: Path,
+    deps: DependencySet,
+    text: str,
+    root: Path | None = None,
+    depth: int = 0,
+) -> None:
+    """Parse a requirements file, following ``-r`` includes.
+
+    Includes resolve relative to the file that names them, as pip does, and
+    are bounded three ways: they must stay inside the project directory, the
+    chain may not exceed MAX_INCLUDE_DEPTH, and a file already read is not
+    read again. ``-c`` constraints are not followed: they pin what *is*
+    installed rather than adding to it.
+    """
+    root = root or path.parent
+    origin = _origin(path, root)
     for raw in text.splitlines():
+        include = _INCLUDE.match(raw.strip())
+        if include:
+            target = (path.parent / include.group("target")).resolve()
+            if target in deps._seen:
+                continue
+            inside = target.is_relative_to(root.resolve())
+            if not inside or depth >= MAX_INCLUDE_DEPTH:
+                deps.refused.append(target)
+                continue
+            body = read_manifest(target)
+            if body is None:
+                deps.refused.append(target)
+                continue
+            deps._seen.add(target)
+            deps.sources.append(target)
+            parse_requirements_txt(target, deps, body, root, depth + 1)
+            continue
         parsed = _parse_requirement_line(raw)
         if parsed:
             deps.add(parsed[0], parsed[1], origin, direct=True)
@@ -261,19 +316,34 @@ _PARSERS = {
 
 
 def collect_dependencies(
-    paths: list[Path], max_bytes: int = MAX_MANIFEST_BYTES
+    paths: list[Path], max_bytes: int = MAX_MANIFEST_BYTES, root: Path | None = None
 ) -> DependencySet:
+    """Parse every discovered file. ``root`` is the project directory, which
+    bounds where requirements includes may reach; it defaults to the first
+    file's directory."""
     deps = DependencySet()
+    if root is None and paths:
+        root = paths[0].parent
     for path in paths:
+        is_requirements = path.match(REQUIREMENTS_GLOB) or (
+            path.parent.name == REQUIREMENTS_DIR and path.suffix == ".txt"
+        )
         parser = _PARSERS.get(path.name)
-        if parser is None and path.match(REQUIREMENTS_GLOB):
+        if parser is None and is_requirements:
             parser = parse_requirements_txt
         if parser is None:
+            continue
+        resolved = path.resolve()
+        if resolved in deps._seen:
             continue
         text = read_manifest(path, max_bytes)
         if text is None:
             deps.refused.append(path)
             continue
-        parser(path, deps, text)
+        deps._seen.add(resolved)
         deps.sources.append(path)
+        if parser is parse_requirements_txt:
+            parse_requirements_txt(path, deps, text, root)
+        else:
+            parser(path, deps, text)
     return deps
