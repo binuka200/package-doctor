@@ -180,3 +180,13 @@ def test_vector_stores_are_treated_as_databases():
     m = load_exposure_map()
     for name in ("chromadb", "qdrant-client", "pinecone-client", "weaviate-client"):
         assert "query building" in m.lookup(name).categories, name
+
+
+def test_model_serving_infrastructure_is_mapped():
+    """A 3,000-package bulk scan found the largest remediation gaps in the
+    dataset - mlflow 36 unfixed, gradio 25, vllm 15, sglang 12 - sitting
+    outside the map entirely. These accept untrusted requests and load model
+    artifacts; they are servers, not libraries."""
+    m = load_exposure_map()
+    for name in ("mlflow", "gradio", "vllm", "sglang", "ray", "bentoml"):
+        assert m.lookup(name).is_exposed, name

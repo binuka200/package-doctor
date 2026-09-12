@@ -105,7 +105,9 @@ packages = [
   "haystack-ai", "crewai", "autogen-core", "pyautogen", "semantic-kernel", "dspy",
   "dspy-ai", "guidance", "instructor", "openai", "anthropic", "mistralai", "cohere",
   "google-generativeai", "google-genai", "replicate", "tavily-python",
-  "duckduckgo-search", "ddgs", "mcp", "fastmcp", "smolagents", "browser-use",
+  "duckduckgo-search", "ddgs", "mcp", "fastmcp", "smolagents", "browser-use", "mlflow", "gradio", "vllm", "sglang",
+  "ray", "mem0ai", "litserve", "bentoml", "text-generation",
+  "sentence-transformers", "open-webui",
 ]
 
 [category.markup]

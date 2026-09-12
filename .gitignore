@@ -10,3 +10,4 @@ dist/
 htmlcov/
 .ruff_cache/
 .DS_Store
+data/
