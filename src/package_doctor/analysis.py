@@ -82,7 +82,7 @@ class Analyzer:
             remediation.gaps.append("no dated releases on PyPI")
 
         remediation.advisories = build_history(
-            package.name, vulns, releases, package.version
+            package.name, vulns, releases, package.version, latest_version=latest_version
         )
 
         # Score only what affects the pinned version. Historical CVEs are not

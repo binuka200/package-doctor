@@ -154,10 +154,21 @@ written in 2022 for a fix shipped in 2012 produces a ten-year negative.
 
 So package-doctor measures what the data actually supports:
 
-- **never fixed** — advisories with no patched release. The strongest signal here.
+- **never fixed** — advisories whose affected range still includes the
+  *latest* release. That is the only reading under which "nobody shipped a
+  patch" is a fact: OSV closes ranges with `fixed` or with `last_affected`,
+  and GitHub's advisory database encodes most older fixes as the latter. An
+  earlier version of this tool only recognised `fixed`, and escalated Django 6
+  for a CSRF bug closed at 1.2.7. The strongest signal here, once read right.
+- **closed, no fix named** — the range ends before the latest release but no
+  fix version is recorded, so there is nothing to put on a timeline. Shown in
+  `explain`, and never counted against a package.
 - **fixed late** — how often a fix landed only after disclosure, and the median
   size of that window. PyYAML: 2 of 8, median 163 days.
 - **fixed timely** — the healthy case, shown so a good project reads as good.
+
+One advisory is one advisory: OSV routinely carries a GHSA record and a PYSEC
+record for the same CVE, and they are merged before anything is counted.
 
 ### Missing data is never a bad score
 
@@ -382,10 +393,17 @@ tests are for. There is a test for that distinction itself.
 Measured, not asserted. Two checks, both reproducible from `research/`.
 
 **Against OSV's own version-scoped query** — the authoritative answer to "is
-this pinned version affected?" — over 40 real (package, version) pairs:
-**40/40 exact agreement.** An earlier run scored 39/40; the failure was
-`tornado 6.3.0`, where we reported zero advisories against OSV's thirty,
-because the version was matched as a string rather than under PEP 440.
+this pinned version affected?" — over every pinned package in eight real
+projects (zulip, mlflow, langchain, paperless-ngx, saleor, netbox, dispatch
+and the FastAPI template), 1,194 distinct (package, version) pairs:
+**1,194/1,194 exact agreement.** Two earlier runs each found one failure:
+`tornado 6.3.0`, matched as a string rather than under PEP 440, and
+`scrapy 2.17.0`, an open-ended range that a matcher waiting for a `fixed`
+event never reported. Both are now tests.
+
+**Reachability**, same eight projects: of 25,845 import sites reported, 25,830
+open to an import of that package on that line. The rest are ambiguous paths
+under more than one source root, not wrong lines.
 
 **Against `pip-audit`** on 654 packages drawn from real repositories, compared
 at the vulnerability level and with identifiers canonicalised to CVE:

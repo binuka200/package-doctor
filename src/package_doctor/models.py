@@ -97,6 +97,9 @@ class AdvisoryHistory:
     cves_affecting_current: list[str] = field(default_factory=list)
     #: Advisories we could not place on a timeline (fix version missing from PyPI).
     unmatched: int = 0
+    #: Advisories whose affected range ends before the latest release but
+    #: which name no fix version. Closed for anyone current; not datable.
+    bounded: int = 0
 
     @property
     def has_signal(self) -> bool:

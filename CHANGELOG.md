@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `explain` says when no pinned version was known and advisory matching was
   therefore skipped; the version to match is given with `--pin`.
 
+### Fixed
+
+- Advisory ranges are read with OSV's semantics: `last_affected` closes a
+  range inclusively and an `introduced` with no closing event runs to
+  infinity. Only `fixed` was recognised before, so an advisory closed by
+  `last_affected` read as "no published fix" and an open-ended one never
+  matched the pinned version. Across eight real projects that produced 36 of
+  64 *act on these* verdicts, all wrong - Django 6 escalated for a CSRF bug
+  closed at 1.2.7 - and one missed advisory. "Never fixed" now means the
+  latest release is still affected; a range that ends before the latest
+  release with no fix named is reported as closed, not counted either way.
+- GHSA and PYSEC records of the same CVE are merged before counting.
+  cryptography 46.0.7 read as "affected by 7 advisories"; it is four.
+
 ### Security
 
 - Terminal output strips control and formatting characters, including whole

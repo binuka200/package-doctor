@@ -45,17 +45,30 @@ def _fixed_versions(vuln: dict[str, Any], package: str) -> list[str]:
     return out
 
 
-def _affects_version(vuln: dict[str, Any], package: str, version: str) -> bool:
-    """Whether a pinned version falls inside an advisory's affected range.
+def _parse(raw: Any) -> Version | None:
+    try:
+        return Version(str(raw))
+    except InvalidVersion:
+        return None
 
-    Prefers OSV's explicit ``versions`` list; falls back to interpreting
-    introduced/fixed events as a half-open interval.
+
+def _affects_version(vuln: dict[str, Any], package: str, version: str) -> bool:
+    """Whether a version falls inside an advisory's affected set, as OSV reads it.
+
+    OSV's explicit ``versions`` list is checked first. Ranges are then read
+    with OSV's own semantics: an ``introduced`` event opens an interval that a
+    ``fixed`` event closes exclusively, a ``last_affected`` event closes
+    inclusively, and one that nothing closes runs to infinity.
+
+    The last two matter. GitHub's advisory database encodes most older fixes
+    as ``last_affected``, and reading only ``fixed`` made a Django CSRF bug
+    from 2011, closed at 1.2.7, look like it had never been fixed. And an
+    open-ended range - scrapy's PYSEC-2017-83 is ``introduced: 0.7`` and
+    nothing else - affects every version since, which a matcher that waits
+    for a ``fixed`` event never reports.
     """
     target = normalise(package)
-    try:
-        current = Version(version)
-    except InvalidVersion:
-        current = None
+    current = _parse(version)
 
     for affected in vuln.get("affected") or []:
         pkg = (affected.get("package") or {}).get("name") or ""
@@ -67,14 +80,8 @@ def _affects_version(vuln: dict[str, Any], package: str, version: str) -> bool:
                 return True
             # PEP 440 equality, not string equality: tornado publishes "6.3"
             # while a lockfile may pin "6.3.0", and those are the same release.
-            # Matching on the string alone silently under-reports.
-            if current is not None:
-                for candidate in listed:
-                    try:
-                        if Version(candidate) == current:
-                            return True
-                    except InvalidVersion:
-                        continue
+            if current is not None and any(_parse(c) == current for c in listed):
+                return True
             # Fall through to the ranges rather than giving up here. An OSV
             # `versions` list is a convenience, not an exhaustive index, and
             # treating a miss as "not affected" turns a gap into a false
@@ -83,25 +90,100 @@ def _affects_version(vuln: dict[str, Any], package: str, version: str) -> bool:
             continue
         for rng in affected.get("ranges") or []:
             introduced: Version | None = None
+            open_interval = False
             for event in rng.get("events") or []:
                 if "introduced" in event:
-                    raw = event["introduced"]
-                    if raw == "0":
-                        introduced = Version("0")
-                        continue
-                    try:
-                        introduced = Version(raw)
-                    except InvalidVersion:
-                        introduced = None
-                elif "fixed" in event:
-                    try:
-                        fixed = Version(event["fixed"])
-                    except InvalidVersion:
-                        continue
-                    lower_ok = introduced is None or current >= introduced
-                    if lower_ok and current < fixed:
+                    # A second `introduced` before anything closed the first
+                    # means the first ran to infinity.
+                    if open_interval and introduced is not None and current >= introduced:
                         return True
+                    raw = event["introduced"]
+                    introduced = Version("0") if raw == "0" else _parse(raw)
+                    open_interval = introduced is not None
+                elif "fixed" in event:
+                    fixed = _parse(event["fixed"])
+                    closed = fixed is not None and open_interval and introduced is not None
+                    if closed and introduced <= current < fixed:
+                        return True
+                    open_interval = False
+                elif "last_affected" in event:
+                    last = _parse(event["last_affected"])
+                    closed = last is not None and open_interval and introduced is not None
+                    if closed and introduced <= current <= last:
+                        return True
+                    open_interval = False
+            if open_interval and introduced is not None and current >= introduced:
+                return True
     return False
+
+
+def _is_open_ended(vuln: dict[str, Any], package: str) -> bool:
+    """A range with an ``introduced`` that nothing closes.
+
+    Used only when the latest release is unknown, as the fallback definition
+    of "no fix": every version since `introduced` is affected, so whatever
+    the latest one is, it is too.
+    """
+    target = normalise(package)
+    for affected in vuln.get("affected") or []:
+        pkg = (affected.get("package") or {}).get("name") or ""
+        if normalise(pkg) != target:
+            continue
+        for rng in affected.get("ranges") or []:
+            pending = False
+            for event in rng.get("events") or []:
+                if "introduced" in event:
+                    if pending:
+                        return True
+                    pending = True
+                elif "fixed" in event or "last_affected" in event:
+                    pending = False
+            if pending:
+                return True
+    return False
+
+
+def _mentions(vuln: dict[str, Any], package: str) -> bool:
+    target = normalise(package)
+    return any(
+        normalise((a.get("package") or {}).get("name") or "") == target
+        for a in vuln.get("affected") or []
+    )
+
+
+_ID_PREFERENCE = ("GHSA-", "PYSEC-", "CVE-")
+
+
+def _canonical_id(ids: list[str]) -> str:
+    for prefix in _ID_PREFERENCE:
+        for i in ids:
+            if i.startswith(prefix):
+                return i
+    return ids[0]
+
+
+def _group_by_cve(vulns: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Merge records that describe the same vulnerability.
+
+    OSV routinely carries a GHSA record and a PYSEC record for one CVE, and
+    counting both told a user that cryptography 46.0.7 was "affected by 7
+    advisories" when it was four distinct issues. Records are grouped by
+    shared CVE alias; a record with no CVE stands alone.
+    """
+    by_cve: dict[str, int] = {}
+    groups: list[list[dict[str, Any]]] = []
+    for vuln in vulns:
+        cves = sorted(str(a) for a in vuln.get("aliases") or [] if CVE_ID.match(str(a)))
+        if CVE_ID.match(str(vuln.get("id") or "")):
+            cves.append(str(vuln["id"]))
+        index = next((by_cve[c] for c in cves if c in by_cve), None)
+        if index is None:
+            index = len(groups)
+            groups.append([])
+        groups[index].append(vuln)
+        for c in cves:
+            by_cve.setdefault(c, index)
+    return groups
 
 
 class OSVSource:
@@ -135,27 +217,55 @@ def build_history(
     vulns: list[dict[str, Any]],
     release_dates: dict[str, dt.datetime],
     current_version: str | None,
+    latest_version: str | None = None,
 ) -> AdvisoryHistory:
-    history = AdvisoryHistory(total=len(vulns))
+    """Read a package's advisories as evidence about its ability to ship fixes.
+
+    "Never fixed" means the latest release is still affected - that is the
+    only reading under which "nobody shipped a patch" is a fact rather than an
+    inference. An advisory whose affected range ends before the latest
+    release, but names no fix version, is counted as *bounded* instead: it is
+    closed for anyone on a current version, but there is no fix date to put
+    on a timeline. When the latest release is unknown, an open-ended range is
+    the fallback definition of unfixed.
+    """
+    # A record that never names this package says nothing about it. OSV's
+    # query is package-scoped so this is rare, but a stray record must not be
+    # read as "an advisory nobody fixed".
+    groups = _group_by_cve([v for v in vulns if _mentions(v, package)])
+    history = AdvisoryHistory(total=len(groups))
     late_windows: list[int] = []
+    latest = latest_version if latest_version and _parse(latest_version) else None
 
-    for vuln in vulns:
-        vuln_id = str(vuln.get("id") or "?")
-        published = parse_ts(vuln.get("published"))
-        fixes = _fixed_versions(vuln, package)
+    for members in groups:
+        vuln_id = _canonical_id([str(v.get("id") or "?") for v in members])
+        published_all = [p for v in members if (p := parse_ts(v.get("published")))]
+        published = min(published_all) if published_all else None
+        fixes = [f for v in members for f in _fixed_versions(v, package)]
 
-        if current_version and _affects_version(vuln, package, current_version):
+        if current_version and any(
+            _affects_version(v, package, current_version) for v in members
+        ):
             history.affecting_current += 1
             history.ids_affecting_current.append(vuln_id)
             # Keep CVE aliases so exploitability can be scored later. GHSA and
             # PYSEC ids mean nothing to EPSS or KEV, which are CVE-keyed.
-            for alias in vuln.get("aliases") or []:
-                if CVE_ID.match(str(alias)):
-                    history.cves_affecting_current.append(str(alias))
+            for v in members:
+                for alias in v.get("aliases") or []:
+                    if CVE_ID.match(str(alias)):
+                        history.cves_affecting_current.append(str(alias))
 
-        if not fixes:
+        if latest is not None:
+            unfixed = any(_affects_version(v, package, latest) for v in members)
+        else:
+            unfixed = not fixes and any(_is_open_ended(v, package) for v in members)
+        if unfixed:
             history.unfixed += 1
             history.ids_unfixed.append(vuln_id)
+            continue
+
+        if not fixes:
+            history.bounded += 1
             continue
 
         # The first fix to reach users is what closed the window.

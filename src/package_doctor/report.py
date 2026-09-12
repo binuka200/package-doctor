@@ -331,6 +331,15 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
                 f"{adv.affecting_current}  {', '.join(adv.ids_affecting_current[:4])}",
                 "bold red",
             )
+        if adv.bounded:
+            row("Closed, no fix named", str(adv.bounded), "dim")
+            console.print(
+                Text(
+                    "    The affected range ends before the latest release, so it is\n"
+                    "    closed for current versions, but no fix date can be placed.",
+                    style="dim",
+                )
+            )
         if adv.unmatched:
             row("Not datable", str(adv.unmatched), "dim")
 
