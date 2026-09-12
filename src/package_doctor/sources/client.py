@@ -40,7 +40,10 @@ class Client:
         key = cache_key or f"GET {url}"
         cached = self.cache.get(key)
         if cached is not None:
-            return cached
+            # A remembered 404 must come back as None, exactly like a fresh one.
+            # Returning the sentinel would hand callers a truthy dict for a
+            # resource that does not exist.
+            return None if self.is_missing(cached) else cached
         async with self._sem:
             try:
                 resp = await self._client.get(url)

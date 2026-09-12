@@ -18,6 +18,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      # The suite is offline by design: network responses are fixtures, so a
-      # flaky upstream API can never turn into a red build.
-      - run: pytest -q
+      # The suite is offline by design: HTTP is served by httpx.MockTransport,
+      # so a flaky upstream API can never turn into a red build.
+      #
+      # The coverage floor sits just under where the suite is today, to catch a
+      # drop rather than to chase a number. The decision logic - risk, exposure,
+      # sourcescan, osv - is well above it; the gap is mostly presentation.
+      - run: pytest -q --cov=package_doctor --cov-fail-under=85
