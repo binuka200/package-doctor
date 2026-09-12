@@ -98,10 +98,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Measured
 
-- Advisory version matching agrees with OSV's own version-scoped query on 40/40
-  real package/version pairs.
-- Benchmarked against `pip-audit` over 654 packages: 173 findings in common,
-  **zero missed**, three found additionally and verified as real.
+On sixty open source repositories (`research/eval-repos.txt`, harness in
+`research/evaluate_repos.py`), 12,973 packages:
+
+- Advisory version matching agrees with OSV's own version-scoped query on
+  6,727 of 6,728 distinct pinned pairs; the one disagreement is a
+  SEMVER-typed range OSV ignores for PyPI and this tool reads.
+- Against `pip-audit` on the same pins: 1,672 vulnerabilities found by both,
+  **zero missed**, one found additionally (the same range).
+- Of 108,193 reported import sites, 108,162 verified against the source line;
+  the rest are pytest's `_pytest` and `py` modules, attributed correctly.
+- Every act verdict resting on a maintenance signal was read; none was found
+  wrong on the tool's stated criteria.
 - Exposure map tested for predictive validity across 3,000 packages: packages it
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.

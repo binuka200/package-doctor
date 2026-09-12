@@ -399,36 +399,71 @@ tests are for. There is a test for that distinction itself.
 
 ## Accuracy
 
-Measured, not asserted. Two checks, both reproducible from `research/`.
-
-**Against OSV's own version-scoped query** — the authoritative answer to "is
-this pinned version affected?" — over every pinned package in eight real
-projects (zulip, mlflow, langchain, paperless-ngx, saleor, netbox, dispatch
-and the FastAPI template), 1,194 distinct (package, version) pairs:
-**1,194/1,194 exact agreement.** Two earlier runs each found one failure:
-`tornado 6.3.0`, matched as a string rather than under PEP 440, and
-`scrapy 2.17.0`, an open-ended range that a matcher waiting for a `fixed`
-event never reported. Both are now tests.
-
-**Reachability**, same eight projects: of 25,845 import sites reported, 25,830
-open to an import of that package on that line. The rest are ambiguous paths
-under more than one source root, not wrong lines.
-
-**Against `pip-audit`** on 654 packages drawn from real repositories, compared
-at the vulnerability level and with identifiers canonicalised to CVE:
+Measured, not asserted, on sixty open source repositories: web frameworks
+and the apps built on them, the pallets and pydantic families, LLM tooling,
+ML and data projects, infrastructure and CLI tools, from home-assistant at
+1,247 packages down to ansible at 5. The list is
+[`research/eval-repos.txt`](research/eval-repos.txt) and the harness is
+[`research/evaluate_repos.py`](research/evaluate_repos.py); everything below
+reproduces from those two files.
 
 | | |
 | --- | --- |
-| found by both | 173 |
-| found only by pip-audit | **0** |
-| found only by package-doctor | 3 |
+| repositories | 60 (59 with a dependency file the tool reads) |
+| packages assessed | 12,973 |
+| distinct pinned (package, version) pairs | 6,728 |
+| import sites reported | 108,193 |
 
-**Zero false negatives.** The three extra findings were each verified against
-OSV directly and are real — `pip-audit` reports them too once pointed at OSV
-rather than its default PyPI advisory source, which lags.
+**Advisory matching, against OSV's own version-scoped query** — the
+authoritative answer to "is this pinned version affected?" — over all 6,728
+pairs, after collapsing GHSA and PYSEC aliases to their CVE:
+**6,727 / 6,728 exact agreement.** The one disagreement is `langsmith 0.3.45`,
+whose record carries a range typed `SEMVER` alongside its `ECOSYSTEM` range;
+OSV ignores the first for PyPI, this tool reads it, and reports the version
+affected. Earlier runs found and fixed three failures, each now a test:
+`tornado 6.3.0` matched as a string rather than under PEP 440,
+`scrapy 2.17.0` an open-ended range that a matcher waiting for a `fixed`
+event never reported, and `click==8.*` stored as a version rather than read
+as a range.
+
+**Against `pip-audit`** (`--no-deps -s osv`) on the same pins, compared at the
+vulnerability level with identifiers canonicalised to CVE:
+
+| | |
+| --- | --- |
+| packages flagged, pip-audit / package-doctor | 322 / 322 |
+| vulnerabilities found by both | 1,672 |
+| found only by pip-audit | **0** |
+| found only by package-doctor | 1 (the langsmith range above) |
+
+**Reachability:** of 108,193 import sites reported, 108,162 open to an import
+of that package on that line. The 31 remaining are `from _pytest...` and
+`import py` attributed to pytest, which is correct — both modules ship in the
+pytest distribution — and only the checker's static table did not know it.
 
 The honest limit: both tools read OSV, so this shows we read it correctly, not
 that OSV is complete. And it measures the *data* layer.
+
+### The verdicts, read
+
+The verdict layer is a judgement, so the check is reading them. Of the 437
+*act on these* verdicts across the sixty projects, 340 rest on the pinned
+version being affected by a published advisory, which the OSV agreement above
+makes right by construction; they are mostly old lockfiles. The other 97, on
+28 distinct packages, rest on maintenance signals, and every one was read:
+libraries deprecated by their owners (adal, msrest, oauth2client,
+google-generativeai, redis-py-cluster), advisories the maintainers consider
+by-design and will not fix (nltk, keras, diskcache), and packages quiet for
+three to eight years. Two are arguable at the margin — python-pptx and
+requests-kerberos, each just over the two-year threshold — and that is a
+threshold choice rather than a misreading.
+
+That result is recent. An earlier version of this tool recognised only a
+`fixed` event as closing an advisory's range, and on an eight-project sample
+36 of its 64 act verdicts rested on advisories that were in fact closed by
+`last_affected`, Django 6 among them for a 2011 CSRF bug. Reading ranges as
+OSV does took the sixty-project run from 207 "never fixed" advisory records
+to 15.
 
 ### The exposure map, measured
 
@@ -460,9 +495,11 @@ can no longer produce an actionable verdict** — it can raise something to
 
 ### What is still unmeasured
 
-Coverage, on 988 real dependencies across six projects: **56% get a curated
-call, 44% get no opinion.** Those 44% are not assessed as safe — they surface
-as unknown, which is the honest answer, but it is a gap rather than a result.
+Coverage, on the 12,973 packages above: **45% get a curated call, 55% get no
+opinion.** The larger the sample, the longer the tail of transitive
+dependencies, and that tail is what "no opinion" is for. Those 55% are not
+assessed as safe — they surface as unknown, which is the honest answer, but it
+is a gap rather than a result.
 
 And there is no external review. Every batch of repositories scanned so far has
 turned up at least one miscategorisation, the rate is falling, and it is not
