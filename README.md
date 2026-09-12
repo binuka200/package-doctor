@@ -298,6 +298,25 @@ archived" is a fact that helps a user without indicting anyone. Findings are
 worded that way on purpose. If you find output that reads as a judgement on a
 maintainer rather than a description of risk, that is a bug — please report it.
 
+## Tests
+
+```bash
+pytest                 # the normal suite: offline, ~0.7s
+pytest -m live         # contract tests against the real APIs
+```
+
+The default suite serves all HTTP from `httpx.MockTransport`, so no upstream
+outage can redden a build. That proves the code is self-consistent but nothing
+about upstream, so a second suite runs weekly against real PyPI, OSV,
+ecosyste.ms, CISA and FIRST endpoints to catch drift — a renamed field, a
+changed envelope, a tightened pagination cap.
+
+Those tests draw one distinction deliberately: **a service being unreachable
+skips, a service answering with a shape we do not expect fails.** Somebody
+else's outage is not a defect here, and paging on it would train everyone to
+ignore the suite; drift silently corrupts findings and is exactly what the
+tests are for. There is a test for that distinction itself.
+
 ## Use it alongside pip-audit, not instead of it
 
 `pip-audit` is the PyPA tool and is better at what it does: telling you, on every

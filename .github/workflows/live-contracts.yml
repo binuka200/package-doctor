@@ -1,0 +1,28 @@
+name: Live API contracts
+
+# These hit real PyPI, OSV, ecosyste.ms, CISA and FIRST endpoints to catch
+# upstream drift - a renamed field, a changed envelope, a new pagination cap -
+# which unit tests with stubbed transport cannot see.
+#
+# Deliberately NOT part of pull-request CI: four third-party services have no
+# business deciding whether somebody's PR is red. A failure here means the tool
+# is now misreading real data and needs a fix, not that a contributor did
+# anything wrong.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays, early UTC
+  workflow_dispatch:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # -rs reports skips, so an outage is visible in the log rather than
+      # looking like a clean pass.
+      - run: pytest -m live -q -rs

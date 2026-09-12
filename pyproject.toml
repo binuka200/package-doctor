@@ -45,3 +45,10 @@ testpaths = ["tests"]
 # modern pytest - but setting it explicitly means new async tests just run.
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning:pytest_asyncio.*"]
+# Live contract tests hit four third-party APIs. They catch upstream drift, but
+# an outage elsewhere must not redden a pull request, so they are opt-in:
+#   pytest -m live
+addopts = '-m "not live"'
+markers = [
+  "live: runs against real PyPI/OSV/ecosyste.ms/CISA/FIRST endpoints (opt-in)",
+]
