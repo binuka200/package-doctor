@@ -1,0 +1,144 @@
+# Which Python packages sit at a trust boundary.
+#
+# A package belongs here when it routinely handles data an attacker can
+# influence: request bodies, uploaded files, tokens, markup, archives, queries.
+# Staleness only matters for packages in this file - that is the whole point of
+# the two-axis model, and it is why `six` going quiet is not a finding.
+#
+# Criteria for adding an entry:
+#   1. The package parses, decodes, renders, verifies or transports data that
+#      commonly originates outside the trust boundary, OR
+#   2. it makes an authorisation/authentication decision, OR
+#   3. it constructs queries or commands from caller-supplied values.
+#
+# "Popular" is not a criterion. "Security-adjacent sounding" is not a criterion.
+# PRs welcome - include the reasoning, not just the name.
+
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+
+[category.auth]
+label = "auth/session"
+description = "Authentication, authorisation, sessions and token handling"
+packages = [
+  "pyjwt", "python-jose", "authlib", "oauthlib", "requests-oauthlib",
+  "itsdangerous", "flask-login", "flask-jwt-extended", "flask-security-too",
+  "django-allauth", "django-oauth-toolkit", "djangorestframework-simplejwt",
+  "social-auth-core", "social-auth-app-django", "python-keycloak",
+  "msal", "google-auth", "google-auth-oauthlib", "authcaptureproxy",
+  "fastapi-users", "casbin", "pycasbin", "django-guardian", "pysaml2",
+  "python3-saml", "ldap3", "python-ldap", "webauthn", "fido2", "pyotp",
+]
+
+[category.crypto]
+label = "crypto"
+description = "Cryptographic primitives, password hashing and TLS"
+packages = [
+  "cryptography", "pycryptodome", "pycryptodomex", "pycrypto", "pynacl",
+  "bcrypt", "passlib", "argon2-cffi", "scrypt", "rsa", "ecdsa",
+  "pyopenssl", "certifi", "pyca-cryptography", "nacl", "python-jwt",
+  "jwcrypto", "secretstorage", "keyring", "hashids", "sslyze",
+]
+
+[category.deserialization]
+label = "deserialization"
+description = "Turning untrusted bytes into live objects"
+packages = [
+  "pyyaml", "ruamel-yaml", "dill", "cloudpickle", "jsonpickle", "msgpack",
+  "ujson", "orjson", "simplejson", "rapidjson", "python-rapidjson",
+  "marshmallow", "pydantic", "cattrs", "dataclasses-json", "pyarrow",
+  "protobuf", "thrift", "avro", "fastavro", "bson", "cbor2", "plistlib2",
+  "joblib", "numpy",
+]
+
+[category.markup]
+label = "html/xml parsing"
+description = "Parsing or sanitising attacker-supplied markup"
+packages = [
+  "beautifulsoup4", "lxml", "html5lib", "bleach", "nh3", "markupsafe",
+  "defusedxml", "xmltodict", "xmlsec", "untangle", "markdown", "markdown2",
+  "mistune", "bs4", "pyquery", "feedparser", "readability-lxml",
+  "python-markdown-math", "cssutils", "tinycss2", "soupsieve",
+]
+
+[category.templating]
+label = "templating"
+description = "Rendering templates, where injection becomes code execution"
+packages = ["jinja2", "mako", "chameleon", "genshi", "cheetah3", "pystache"]
+
+[category.url]
+label = "url parsing"
+description = "Parsing or normalising URLs and hostnames, where SSRF starts"
+packages = ["urllib3", "yarl", "furl", "purl", "idna", "publicsuffix2", "tldextract", "w3lib"]
+
+[category.http]
+label = "http/network"
+description = "Moving attacker-influenced bytes across a trust boundary"
+packages = [
+  "requests", "httpx", "aiohttp", "httplib2", "urllib3", "h11", "h2",
+  "hpack", "websockets", "websocket-client", "tornado", "werkzeug",
+  "uvicorn", "gunicorn", "waitress", "hypercorn", "starlette", "asgiref",
+  "twisted", "scrapy", "pycurl", "grpcio", "paho-mqtt", "pika", "kombu",
+]
+
+[category.framework]
+label = "web framework"
+description = "Request handling, routing and session management"
+packages = [
+  "django", "flask", "fastapi", "bottle", "pyramid", "sanic", "falcon",
+  "cherrypy", "web-py", "quart", "connexion", "djangorestframework",
+  "flask-restful", "flask-cors", "django-cors-headers", "strawberry-graphql",
+  "graphene", "ariadne", "graphql-core",
+]
+
+[category.query]
+label = "query building"
+description = "Building queries or commands from caller-supplied values"
+packages = [
+  "sqlalchemy", "psycopg2", "psycopg2-binary", "psycopg", "pymysql",
+  "mysqlclient", "mysql-connector-python", "asyncpg", "aiomysql", "aiosqlite",
+  "peewee", "pony", "tortoise-orm", "sqlmodel", "sqlparse", "pypika",
+  "records", "dataset", "pymongo", "motor", "redis", "elasticsearch",
+  "opensearch-py", "cassandra-driver", "clickhouse-driver", "duckdb",
+]
+
+[category.archive]
+label = "archive extraction"
+description = "Unpacking archives, where path traversal and zip bombs live"
+packages = [
+  "zipp", "py7zr", "rarfile", "patool", "libarchive-c", "zipfile38",
+  "tarsafe", "brotli", "zstandard", "python-lzo", "pyzipper",
+]
+
+[category.filetype]
+label = "file/media parsing"
+description = "Parsing uploaded documents, images and media"
+packages = [
+  "pillow", "pil", "python-magic", "filetype", "imageio", "opencv-python",
+  "opencv-python-headless", "pypdf", "pypdf2", "pdfminer-six", "pdfplumber",
+  "pymupdf", "reportlab", "python-docx", "python-pptx", "openpyxl", "xlrd",
+  "xlsxwriter", "odfpy", "olefile", "exifread", "piexif", "mutagen",
+  "pydub", "svglib", "cairosvg", "wand", "pytesseract", "numpy-stl",
+]
+
+[category.remote_exec]
+label = "remote access"
+description = "Executing commands or moving files on remote hosts"
+packages = ["paramiko", "fabric", "asyncssh", "pexpect", "scp", "ansible-core", "netmiko"]
+
+# ---------------------------------------------------------------------------
+# Packages that are frequently flagged as "stale" by release-age heuristics and
+# should never be, because they are finished, not abandoned, and sit nowhere
+# near a trust boundary. Presence here suppresses the abandonment verdict but
+# is still overridden by an unfixed advisory.
+
+[stable]
+packages = [
+  "six", "pytz", "toml", "tomli", "tomlkit", "packaging", "typing-extensions",
+  "wcwidth", "attrs", "colorama", "decorator", "future", "pluggy", "py",
+  "iniconfig", "distlib", "filelock", "platformdirs", "appdirs",
+  "zipp-deprecated", "backports-abc", "monotonic", "pathlib2", "scandir",
+  "funcsigs", "enum34", "ipaddress", "contextlib2", "mock",
+  "termcolor", "tabulate", "humanize", "inflection", "shortuuid",
+]
