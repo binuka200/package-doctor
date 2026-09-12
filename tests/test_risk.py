@@ -179,3 +179,18 @@ def test_advisory_ids_are_listed_before_the_overflow_count():
         ids_affecting_current=[f"GHSA-{i}" for i in range(9)]))
     claims = " ".join(r.claim for r in assess(pkg(), exposed(), rem, now=NOW).reasons)
     assert "GHSA-0, GHSA-1 and 7 more" in claims
+
+
+def test_an_inferred_exposure_can_never_demand_action():
+    """Measured against 3,000 packages, classifier inference carried no signal:
+    packages it called exposed had advisories at 11.3% against 12.1% for
+    packages reviewed as NOT exposed. A guess may raise something to WATCH and
+    explain itself; it must not be able to produce an ACT verdict."""
+    guessed = Exposure(categories=["http/network"], confidence=Confidence.INFERRED)
+    rem = healthy(repo_archived=True,
+                  advisories=AdvisoryHistory(total=2, unfixed=1, ids_unfixed=["PYSEC-1"],
+                                             affecting_current=3,
+                                             ids_affecting_current=["GHSA-a"]))
+    assert assess(pkg(), guessed, rem, now=NOW).verdict is Verdict.WATCH
+    # The same evidence with a human-reviewed category is actionable.
+    assert assess(pkg(), exposed(), rem, now=NOW).verdict is Verdict.ACT

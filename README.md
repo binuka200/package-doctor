@@ -341,10 +341,45 @@ OSV directly and are real — `pip-audit` reports them too once pointed at OSV
 rather than its default PyPI advisory source, which lags.
 
 The honest limit: both tools read OSV, so this shows we read it correctly, not
-that OSV is complete. And it measures the *data* layer. The exposure map is
-679 human judgements with no external review, and every batch of repositories
-scanned so far has turned up at least one miscategorisation — so treat the
-advisory numbers as solid and the categories as a draft.
+that OSV is complete. And it measures the *data* layer.
+
+### The exposure map, measured
+
+The map is the judgement layer, and it is a different kind of claim. Tested
+against 3,000 packages, asking whether its call predicts anything real —
+whether a package it marks exposed is more likely to have security advisories:
+
+| bucket | packages | have advisories |
+| --- | --- | --- |
+| curated, exposed | 635 | **31.3%** |
+| curated, not exposed | 124 | 12.1% |
+| no opinion | 2,236 | 6.8% |
+
+Packages the map calls exposed carry advisories at ~2.6× the rate of packages
+it reviewed and cleared, and that holds when controlling for popularity (43.7%
+against 16.2% within the top 500). The curated map carries real signal.
+
+**The inference fallback did not.** Packages it guessed as exposed had
+advisories at 11.3% — indistinguishable from the 12.1% of packages reviewed and
+marked *not* exposed. A hand audit showed why: `Topic :: Security` was catching
+bandit, semgrep and pip-audit, which are security *tools*; `Topic :: System ::
+Archiving` caught setuptools and wheel; `Framework :: Django` caught
+pytest-django and factory-boy. Roughly three in five were wrong.
+
+So inference was cut back to the handful of classifiers that genuinely imply
+untrusted input, taking it from 151 packages to 5, and **an inferred category
+can no longer produce an actionable verdict** — it can raise something to
+*watch* and say why, and that is all. Saying "not reviewed" beats guessing.
+
+### What is still unmeasured
+
+Coverage, on 988 real dependencies across six projects: **56% get a curated
+call, 44% get no opinion.** Those 44% are not assessed as safe — they surface
+as unknown, which is the honest answer, but it is a gap rather than a result.
+
+And there is no external review. Every batch of repositories scanned so far has
+turned up at least one miscategorisation, the rate is falling, and it is not
+zero. Treat the advisory numbers as solid and the categories as a draft.
 
 ## Use it alongside pip-audit, not instead of it
 

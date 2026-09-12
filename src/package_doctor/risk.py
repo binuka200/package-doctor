@@ -161,9 +161,18 @@ def assess(
     if no_signal:
         verdict = Verdict.UNKNOWN
         reasons.append(Evidence("not enough data to judge: " + "; ".join(remediation.gaps)))
-    elif exposure.is_exposed and (unmaintained or adv.affecting_current):
+    elif (
+        exposure.is_exposed
+        and exposure.confidence is Confidence.CURATED
+        and (unmaintained or adv.affecting_current)
+    ):
         # Either nobody is left to fix it, or the version installed right now
         # is known-vulnerable. Both are actionable and both get stated.
+        #
+        # Only a *curated* exposure can reach this branch. An inferred category
+        # is a guess, measured at roughly 40% accurate, and a guess must never
+        # be able to demand action - it can raise something to WATCH and say
+        # why, and that is all.
         verdict = Verdict.ACT
         reasons.extend(signals)
         reasons.extend(current)

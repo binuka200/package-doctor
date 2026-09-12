@@ -190,3 +190,30 @@ def test_model_serving_infrastructure_is_mapped():
     m = load_exposure_map()
     for name in ("mlflow", "gradio", "vllm", "sglang", "ray", "bentoml"):
         assert m.lookup(name).is_exposed, name
+
+
+# --- the inference layer, after it was measured -----------------------------
+
+def test_security_tooling_classifiers_do_not_imply_exposure():
+    """`Topic :: Security` means "this is a security tool", not "this handles
+    untrusted input". It was catching bandit, semgrep and pip-audit."""
+    m = load_exposure_map()
+    for summary in ("Static analysis for security", "Audit Python environments"):
+        result = m.lookup("some-scanner", {
+            "classifiers": ["Topic :: Security"], "summary": summary,
+        })
+        assert not result.is_exposed
+
+
+def test_build_and_plotting_tools_are_not_inferred_as_exposed():
+    """setuptools and wheel were 'archive extraction'; seaborn and pydeck were
+    'file/media parsing'. None of them touch a trust boundary."""
+    m = load_exposure_map()
+    cases = [
+        {"classifiers": ["Topic :: System :: Archiving :: Packaging"]},
+        {"classifiers": ["Topic :: Multimedia :: Graphics"]},
+        {"classifiers": ["Framework :: Django"], "summary": "pytest plugin for django"},
+        {"classifiers": ["Topic :: Database"], "summary": "HDF5 for Python"},
+    ]
+    for info in cases:
+        assert not m.lookup("some-package", info).is_exposed, info
