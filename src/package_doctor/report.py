@@ -107,6 +107,17 @@ def render(
     header.append(f"   {total} packages · {direct} direct", style="dim")
     console.print(header)
     console.print(Text(f"from {src}", style="dim"))
+    unpinned = sum(1 for f in findings if not f.package.version)
+    if unpinned:
+        # Advisory matching needs a version. Without one the package can still
+        # be judged on maintenance, but "no advisories" must not be implied.
+        console.print(
+            Text(
+                f"{unpinned} of {total} without a pinned version: advisory matching "
+                f"skipped for those (use a lockfile to pin them)",
+                style="yellow",
+            )
+        )
 
     by_verdict: dict[Verdict, list[Finding]] = {}
     for finding in findings:
@@ -443,5 +454,6 @@ def to_dict(findings: list[Finding], sources: Iterable[str], now: dt.datetime) -
         "generated_at": now.isoformat(),
         "sources": list(sources),
         "counts": counts,
+        "unpinned": sum(1 for f in findings if not f.package.version),
         "findings": [serialise(f) for f in findings],
     }

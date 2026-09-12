@@ -95,6 +95,11 @@ class DependencySet:
             # URL construction, so names are checked against PEP 503 here, where
             # every parser passes through.
             return
+        if version and "*" in version:
+            # `click==8.*` is a range, not a pin. Stored as the version "8.*"
+            # it reached OSV as a literal string and matched nothing, which
+            # read as "no advisories" for a package that had them.
+            version = None
         if version and not self.versions.get(key):
             self.versions[key] = version
         else:
@@ -122,6 +127,10 @@ def discover_manifests(root: Path) -> list[Path]:
     reqdir = root / REQUIREMENTS_DIR
     if reqdir.is_dir():
         found.extend(sorted(p for p in reqdir.glob("*.txt") if p.is_file()))
+        # One level deeper: text-generation-webui keeps requirements/full/*.txt
+        # and requirements/portable/*.txt, and pip-tools layouts often do the
+        # same per environment. No deeper than that, on purpose.
+        found.extend(sorted(p for p in reqdir.glob("*/*.txt") if p.is_file()))
     return found
 
 
@@ -359,7 +368,8 @@ def collect_dependencies(
         root = paths[0].parent
     for path in paths:
         is_requirements = path.match(REQUIREMENTS_GLOB) or (
-            path.parent.name == REQUIREMENTS_DIR and path.suffix == ".txt"
+            path.suffix == ".txt"
+            and REQUIREMENTS_DIR in (path.parent.name, path.parent.parent.name)
         )
         parser = _PARSERS.get(path.name)
         if parser is None and is_requirements:

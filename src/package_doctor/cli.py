@@ -153,6 +153,10 @@ def _thresholds(args: argparse.Namespace) -> Thresholds:
 
 
 async def _run_scan(args: argparse.Namespace, console: Console) -> int:
+    # With --json on stdout, stdout *is* the report and must parse. Notes
+    # about skipped files and packages go to stderr in that mode, so a
+    # pipeline reading the JSON never sees a stray line ahead of it.
+    notes = Console(stderr=True) if args.as_json and not args.output else console
     root = Path(args.path).expanduser().resolve()
     if not root.is_dir():
         console.print(f"[red]Not a directory:[/red] {escape(str(root))}")
@@ -169,7 +173,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
 
     deps = collect_dependencies(paths, root=root)
     for refused in deps.refused:
-        console.print(
+        notes.print(
             f"[yellow]Not read:[/yellow] {escape(_display(refused, root))} - larger than "
             f"{MAX_MANIFEST_BYTES // (1024 * 1024)}MB, outside the project, or not a "
             f"regular file. Its dependencies were not scanned."
@@ -177,12 +181,12 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     if deps.local:
         shown = ", ".join(sorted(deps.local)[:4])
         more = f" and {len(deps.local) - 4} more" if len(deps.local) > 4 else ""
-        console.print(
+        notes.print(
             f"[dim]Skipped {shown}{more}: this project's own package"
             f"{'s' if len(deps.local) > 1 else ''}, not a dependency.[/dim]"
         )
     if not deps:
-        console.print("[yellow]No dependencies found.[/yellow]")
+        notes.print("[yellow]No dependencies found.[/yellow]")
         return EXIT_OK
 
     # Reachability: which of these the project's own code actually imports.
@@ -196,14 +200,14 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         for src_root in roots:
             src_root = Path(src_root).expanduser().resolve()
             if not src_root.is_dir():
-                console.print(
+                notes.print(
                     f"[yellow]Not a directory, skipping:[/yellow] {escape(str(src_root))}"
                 )
                 continue
             part = build_index(src_root, known_packages=known, display_root=root)
             scanned += part.files_scanned
             if part.files_too_large:
-                console.print(
+                notes.print(
                     f"[dim]Skipped {part.files_too_large} source file"
                     f"{'s' if part.files_too_large > 1 else ''} over "
                     f"{MAX_FILE_BYTES // (1024 * 1024)}MB; imports in them were "
@@ -232,11 +236,11 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         packages = [p for p in packages if p.direct]
 
     if len(packages) > args.max_packages:
-        console.print(
+        notes.print(
             f"[yellow]{len(packages)} packages declared, which is more than the "
             f"{args.max_packages} this will look up.[/yellow]"
         )
-        console.print(
+        notes.print(
             "[dim]Each one costs requests to free, unauthenticated services. "
             "Use --max-packages to raise the limit, or --direct-only to scan "
             "just what you declared.[/dim]"

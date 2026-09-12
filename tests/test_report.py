@@ -186,3 +186,33 @@ def test_explain_says_when_no_version_was_known():
     assert "advisory matching skipped" in out_for(None)
     assert "--pin" in out_for(None)
     assert "advisory matching skipped" not in out_for("10.0.0")
+
+
+def test_scan_header_says_how_many_packages_had_no_version():
+    import io
+    import json
+
+    from rich.console import Console
+
+    from package_doctor.models import Confidence, Exposure, Finding, Package, Remediation, Verdict
+    from package_doctor.report import render, to_dict
+
+    def one(name, version):
+        return Finding(
+            package=Package(name=name, version=version),
+            exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
+            remediation=Remediation(),
+            verdict=Verdict.WATCH,
+        )
+
+    findings = [one("a", "1.0"), one("b", None), one("c", None)]
+    buf = io.StringIO()
+    render(Console(file=buf, width=100, force_terminal=False), findings, sources=["x"])
+    assert "2 of 3 without a pinned version" in buf.getvalue()
+    payload = to_dict(findings, ["x"], dt.datetime(2026, 9, 12, tzinfo=dt.timezone.utc))
+    assert payload["unpinned"] == 2
+    assert json.dumps(payload)
+
+    buf = io.StringIO()
+    render(Console(file=buf, width=100, force_terminal=False), [one("a", "1.0")], sources=["x"])
+    assert "without a pinned version" not in buf.getvalue()

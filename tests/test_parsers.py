@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from package_doctor.parsers import collect_dependencies, discover_manifests
 
 
@@ -258,3 +260,46 @@ def test_marking_local_after_the_fact_removes_an_earlier_entry(tmp_path):
     deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
     assert set(deps.versions) == {"requests"}
     assert "myproj" not in deps.direct
+
+
+# --- a wildcard is a range ---------------------------------------------------
+
+@pytest.mark.parametrize("line", ["click==8.*", "click == 8.*", "click===8.*"])
+def test_a_wildcard_pin_is_not_a_version(tmp_path, line):
+    """`click==8.*` stored as the version "8.*" reached OSV as a literal and
+    matched nothing, which read as a package with no advisories."""
+    write(tmp_path, "requirements.txt", line + "\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"click": None}
+
+
+def test_wildcards_in_every_parser_are_unpinned(tmp_path):
+    write(tmp_path, "pyproject.toml", """
+[project]
+dependencies = ["httpcore==1.*"]
+[tool.poetry.dependencies]
+pygments = "=2.*"
+""")
+    write(tmp_path, "Pipfile.lock", '{"default": {"socksio": {"version": "==1.*"}}}')
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"httpcore": None, "pygments": None, "socksio": None}
+
+
+# --- requirements/<env>/*.txt ------------------------------------------------
+
+def test_requirements_one_level_deeper_are_discovered(tmp_path):
+    """text-generation-webui: requirements/full/requirements.txt and
+    requirements/portable/requirements.txt, nothing at the root."""
+    for env in ("full", "portable"):
+        (tmp_path / "requirements" / env).mkdir(parents=True)
+    write(tmp_path / "requirements" / "full", "requirements.txt", "torch==2.13.0\n")
+    write(tmp_path / "requirements" / "portable", "requirements.txt", "gradio==5.0.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"torch": "2.13.0", "gradio": "5.0.0"}
+    assert deps.origins["torch"] == {"requirements/full/requirements.txt"}
+
+
+def test_discovery_does_not_go_deeper_than_one_level(tmp_path):
+    (tmp_path / "requirements" / "a" / "b").mkdir(parents=True)
+    write(tmp_path / "requirements" / "a" / "b", "deep.txt", "requests==2.31.0\n")
+    assert not collect_dependencies(discover_manifests(tmp_path), root=tmp_path).versions

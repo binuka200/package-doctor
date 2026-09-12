@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The project's own package, uv workspace members, and anything a lockfile
   records with a local source are skipped and listed as such, instead of
   being assessed as dependencies. mlflow's report led with mlflow.
+- A wildcard such as `click==8.*` is read as a range, not stored as the
+  version "8.*", which OSV matched against nothing.
+- `requirements/<env>/*.txt` is discovered, one level deep.
+- The scan header and the JSON say how many packages had no pinned version
+  and so had no advisory matching, instead of implying "no advisories".
 - An archived repository with a release inside the stale window is one weak
   signal, worded "the code may have moved", rather than proof of abandonment.
   google-cloud-bigquery's archived repo is a monorepo migration.

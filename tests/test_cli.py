@@ -243,3 +243,24 @@ def test_scan_says_which_local_packages_it_skipped(tmp_path, monkeypatch, capsys
     cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
     out = capsys.readouterr().out
     assert "Skipped myproj" in out and "own package" in out
+
+
+def test_json_on_stdout_stays_valid_when_there_are_notes(tmp_path, monkeypatch, capsys):
+    """The "Skipped myproj: this project's own package" note landed on stdout
+    ahead of the JSON and broke every pipeline that parsed it."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "myproj"\ndependencies = ["alpha==1.0"]\n', encoding="utf-8"
+    )
+    # Over the cap below; pyproject.toml, at ~50 bytes, stays under it.
+    (tmp_path / "uv.lock").write_text("x" * 200, encoding="utf-8")
+    from package_doctor.parsers import discovery
+    monkeypatch.setattr(
+        cli, "collect_dependencies",
+        lambda paths, **kw: discovery.collect_dependencies(paths, max_bytes=100, **kw),
+    )
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
+    cli.main(["scan", str(tmp_path), "--json", "--no-reachability", "--no-cache"])
+    out, err = capsys.readouterr()
+    payload = json.loads(out)
+    assert payload["counts"]["watch"] == 1
+    assert "Skipped myproj" in err and "Not read:" in err
