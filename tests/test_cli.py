@@ -158,3 +158,34 @@ def test_direct_only_filters_transitives(project, monkeypatch):
 def test_cache_path_is_printed(capsys):
     assert cli.main(["cache", "path"]) == cli.EXIT_OK
     assert "package-doctor" in capsys.readouterr().out
+
+
+def test_an_implausibly_large_lockfile_is_refused(tmp_path, monkeypatch):
+    """Each package costs up to three requests to free, unauthenticated
+    services. Nothing stops a scanned repository from declaring a hundred
+    thousand of them, and firing a third of a million requests would quite
+    reasonably get the user's address blocked."""
+    lock = "\n".join(
+        f'[[package]]\nname = "pkg{i}"\nversion = "1.0"\n' for i in range(50)
+    )
+    (tmp_path / "uv.lock").write_text(lock, encoding="utf-8")
+
+    called = []
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def analyze_all(self, packages, now, progress=None):
+            called.append(1)
+            return []
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    assert cli.main(["scan", str(tmp_path), "--max-packages", "10"]) == cli.EXIT_USAGE
+    assert not called, "nothing should have been looked up"
+
+
+def test_the_limit_can_be_raised(tmp_path, monkeypatch):
+    (tmp_path / "requirements.txt").write_text("alpha==1.0\nbeta==1.0\n", encoding="utf-8")
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.OK)])
+    assert cli.main(["scan", str(tmp_path), "--max-packages", "2"]) == cli.EXIT_OK

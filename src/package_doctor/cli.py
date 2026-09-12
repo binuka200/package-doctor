@@ -23,6 +23,15 @@ from .sourcescan import MAX_FILE_BYTES, build_index, detect_source_roots
 from .risk import Thresholds
 from .sources.client import Client
 
+#: Refuse to look up more packages than this without being asked.
+#:
+#: Each package costs up to three requests to free, unauthenticated services.
+#: A lockfile with a hundred thousand entries - which nothing stops a scanned
+#: repository from containing - would fire a third of a million requests and
+#: quite reasonably get the user's address blocked. The largest real project
+#: tested here had 349 dependencies.
+MAX_PACKAGES = 2000
+
 EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_USAGE = 2
@@ -74,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--show-ok", action="store_true", help="also list packages with no concerns")
     scan.add_argument(
         "--direct-only", action="store_true", help="only scan dependencies you declared yourself"
+    )
+    scan.add_argument(
+        "--max-packages",
+        type=int,
+        default=MAX_PACKAGES,
+        help=f"refuse to look up more than this many packages (default {MAX_PACKAGES})",
     )
     scan.add_argument(
         "--src",
@@ -183,6 +198,18 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         )
     if args.direct_only:
         packages = [p for p in packages if p.direct]
+
+    if len(packages) > args.max_packages:
+        console.print(
+            f"[yellow]{len(packages)} packages declared, which is more than the "
+            f"{args.max_packages} this will look up.[/yellow]"
+        )
+        console.print(
+            "[dim]Each one costs requests to free, unauthenticated services. "
+            "Use --max-packages to raise the limit, or --direct-only to scan "
+            "just what you declared.[/dim]"
+        )
+        return EXIT_USAGE
 
     now = _now()
     cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)

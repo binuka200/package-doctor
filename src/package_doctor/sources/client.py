@@ -25,6 +25,16 @@ USER_AGENT = "package-doctor/0.1 (+https://github.com/binuka200/package-doctor)"
 #: the largest real response encountered is CISA's KEV catalogue at a few MB.
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
+#: Cache envelope version. Every entry is wrapped, so a response body can never
+#: be mistaken for cache bookkeeping.
+#:
+#: The first version stored a bare {"__missing__": true} to remember a 404, in
+#: the same namespace as real API data - so an endpoint returning that shape
+#: would have been read back as "this package does not exist", suppressing the
+#: package from the report entirely. Suppression is a false negative, which is
+#: the worst failure this tool has.
+_ENVELOPE = "pd_cache_v1"
+
 
 class Client:
     def __init__(self, cache: Cache, concurrency: int = 8, timeout: float = 20.0):
@@ -45,14 +55,27 @@ class Client:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    @staticmethod
+    def _wrap(body: Any | None, missing: bool = False) -> dict[str, Any]:
+        return {_ENVELOPE: 1, "missing": missing, "body": body}
+
+    @staticmethod
+    def _unwrap(entry: Any) -> tuple[bool, Any | None]:
+        """Return (recognised, body). An unrecognised entry is treated as a
+        miss, which makes an older cache format self-healing rather than
+        something that has to be migrated."""
+        if not isinstance(entry, dict) or entry.get(_ENVELOPE) != 1:
+            return False, None
+        if entry.get("missing"):
+            # A remembered 404 comes back as None, exactly like a fresh one.
+            return True, None
+        return True, entry.get("body")
+
     async def get_json(self, url: str, cache_key: str | None = None) -> Any | None:
         key = cache_key or f"GET {url}"
-        cached = self.cache.get(key)
-        if cached is not None:
-            # A remembered 404 must come back as None, exactly like a fresh one.
-            # Returning the sentinel would hand callers a truthy dict for a
-            # resource that does not exist.
-            return None if self.is_missing(cached) else cached
+        recognised, body = self._unwrap(self.cache.get(key))
+        if recognised:
+            return body
         async with self._sem:
             try:
                 resp, body = await self._read_capped("GET", url)
@@ -61,7 +84,7 @@ class Client:
         if resp is None:
             return None
         if resp.status_code == 404:
-            self.cache.set(key, {"__missing__": True})
+            self.cache.set(key, self._wrap(None, missing=True))
             return None
         if resp.status_code != 200 or body is None:
             return None
@@ -69,7 +92,7 @@ class Client:
             data = json.loads(body)
         except ValueError:
             return None
-        self.cache.set(key, data)
+        self.cache.set(key, self._wrap(data))
         return data
 
     async def _read_capped(
@@ -101,9 +124,9 @@ class Client:
             return resp, b"".join(chunks)
 
     async def post_json(self, url: str, payload: Any, cache_key: str) -> Any | None:
-        cached = self.cache.get(cache_key)
-        if cached is not None:
-            return cached
+        recognised, body = self._unwrap(self.cache.get(cache_key))
+        if recognised:
+            return body
         async with self._sem:
             try:
                 resp, body = await self._read_capped("POST", url, payload)
@@ -115,9 +138,11 @@ class Client:
             data = json.loads(body)
         except ValueError:
             return None
-        self.cache.set(cache_key, data)
+        self.cache.set(cache_key, self._wrap(data))
         return data
 
     @staticmethod
     def is_missing(data: Any) -> bool:
-        return isinstance(data, dict) and data.get("__missing__") is True
+        """Kept for callers that still guard on it. get_json now translates a
+        remembered 404 to None itself, so this should never see one."""
+        return data is None

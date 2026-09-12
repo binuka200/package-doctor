@@ -33,9 +33,15 @@ limits the blast radius, but the following are real and worth reporting:
 - **Code execution from scanned input.** The scanner parses lockfiles and
   AST-parses your source. Neither should ever be able to execute anything.
 - **Resource exhaustion from a scanned repository.** Source files above 2 MB
-  are skipped and reported, and package names from lockfiles are validated
-  against PEP 503 before they reach a URL. A repository that gets past either
-  and hangs or exhausts the scanner is worth reporting.
+  are skipped and reported, package names from lockfiles are validated against
+  PEP 503 before they reach a URL, and a lockfile declaring more than 2,000
+  packages is refused rather than fired at the upstream APIs. A repository that
+  gets past any of those and hangs or exhausts the scanner is worth reporting.
+- **Anything that makes a finding disappear.** Suppression is a false negative
+  wearing a different hat. Cache entries are wrapped in an envelope for exactly
+  this reason: an earlier version remembered a 404 as a bare
+  `{"__missing__": true}` in the same namespace as real API data, so a response
+  with that shape would have removed the package from the report entirely.
 - **Data leaving the machine that shouldn't.** The tool sends package *names*
   to PyPI, OSV and ecosyste.ms. It should never transmit source code, file
   contents or paths.

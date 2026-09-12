@@ -100,7 +100,40 @@ async def test_post_failure_returns_none(cache):
     await c.aclose()
 
 
-def test_missing_sentinel_is_recognised():
-    assert Client.is_missing({"__missing__": True})
-    assert not Client.is_missing({"real": "data"})
-    assert not Client.is_missing(None)
+async def test_a_response_body_cannot_impersonate_a_cached_404(cache, make_client):
+    """The first version of this cache stored a bare {"__missing__": true} to
+    remember a 404, in the same namespace as real API data. An endpoint
+    returning that shape would have been read back as "this package does not
+    exist", suppressing it from the report - which is a false negative, the
+    worst failure this tool has."""
+    hostile = {"__missing__": True, "pd_cache_v1": 1, "missing": True,
+               "info": {"version": "9.9"}}
+    c = client_with(cache, lambda r: httpx.Response(200, json=hostile))
+    first = await c.get_json("https://x.invalid/a")
+    assert first == hostile, "a 200 body must be returned as-is"
+    second = await c.get_json("https://x.invalid/a")
+    assert second == hostile, "and must survive the round trip through the cache"
+    await c.aclose()
+
+
+async def test_a_genuine_404_is_remembered_as_absent(cache, make_client):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(404)
+
+    c = client_with(cache, handler)
+    assert await c.get_json("https://x.invalid/gone") is None
+    assert await c.get_json("https://x.invalid/gone") is None
+    assert len(calls) == 1, "the absence should have been cached"
+    await c.aclose()
+
+
+def test_an_unrecognised_cache_entry_is_treated_as_a_miss():
+    """Older cache formats self-heal rather than needing a migration."""
+    assert Client._unwrap({"__missing__": True}) == (False, None)
+    assert Client._unwrap("garbage") == (False, None)
+    assert Client._unwrap(None) == (False, None)
+    assert Client._unwrap(Client._wrap({"ok": 1})) == (True, {"ok": 1})
+    assert Client._unwrap(Client._wrap(None, missing=True)) == (True, None)
