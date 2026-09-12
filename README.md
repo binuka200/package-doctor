@@ -317,6 +317,35 @@ else's outage is not a defect here, and paging on it would train everyone to
 ignore the suite; drift silently corrupts findings and is exactly what the
 tests are for. There is a test for that distinction itself.
 
+## Accuracy
+
+Measured, not asserted. Two checks, both reproducible from `research/`.
+
+**Against OSV's own version-scoped query** — the authoritative answer to "is
+this pinned version affected?" — over 40 real (package, version) pairs:
+**40/40 exact agreement.** An earlier run scored 39/40; the failure was
+`tornado 6.3.0`, where we reported zero advisories against OSV's thirty,
+because the version was matched as a string rather than under PEP 440.
+
+**Against `pip-audit`** on 654 packages drawn from real repositories, compared
+at the vulnerability level and with identifiers canonicalised to CVE:
+
+| | |
+| --- | --- |
+| found by both | 173 |
+| found only by pip-audit | **0** |
+| found only by package-doctor | 3 |
+
+**Zero false negatives.** The three extra findings were each verified against
+OSV directly and are real — `pip-audit` reports them too once pointed at OSV
+rather than its default PyPI advisory source, which lags.
+
+The honest limit: both tools read OSV, so this shows we read it correctly, not
+that OSV is complete. And it measures the *data* layer. The exposure map is
+679 human judgements with no external review, and every batch of repositories
+scanned so far has turned up at least one miscategorisation — so treat the
+advisory numbers as solid and the categories as a draft.
+
 ## Use it alongside pip-audit, not instead of it
 
 `pip-audit` is the PyPA tool and is better at what it does: telling you, on every
