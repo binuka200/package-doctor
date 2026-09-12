@@ -1,0 +1,50 @@
+name: Publish to PyPI
+
+# Uploads through PyPI's trusted publishing: the `pypi` environment below and
+# this file's name are what PyPI checks, and no API token exists anywhere.
+#
+# Runs when a GitHub release is published, or by hand for a given tag - the
+# first upload of a version that was released before this workflow existed.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to publish, e.g. v0.1.0"
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      # The wheel once shipped without the exposure map, and an editable
+      # install could not see it. Refuse to publish anything that lacks it.
+      - run: unzip -l dist/*.whl | grep -q "package_doctor/data/exposure.toml"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
