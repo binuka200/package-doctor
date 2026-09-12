@@ -93,6 +93,21 @@ packages = [
   "torchvision", "transformers", "tritonclient",
 ]
 
+[category.llm_agent]
+label = "llm/agent"
+description = "Loading untrusted documents or acting on model output, where prompt injection is the trust boundary"
+packages = [
+  "langchain", "langchain-core", "langchain-community", "langchain-text-splitters",
+  "langchain-openai", "langchain-anthropic", "langchain-mistralai", "langchain-google-genai",
+  "langchain-aws", "langchain-unstructured", "langchain-experimental", "langchain-chroma",
+  "langgraph", "langgraph-sdk", "langgraph-prebuilt", "langsmith",
+  "llama-index", "llama-index-core", "llama-index-readers-file", "llama-parse",
+  "haystack-ai", "crewai", "autogen-core", "pyautogen", "semantic-kernel", "dspy",
+  "dspy-ai", "guidance", "instructor", "openai", "anthropic", "mistralai", "cohere",
+  "google-generativeai", "google-genai", "replicate", "tavily-python",
+  "duckduckgo-search", "ddgs", "mcp", "fastmcp", "smolagents", "browser-use",
+]
+
 [category.markup]
 label = "html/xml parsing"
 description = "Parsing or sanitising attacker-supplied markup"
@@ -168,7 +183,8 @@ packages = [
 label = "query building"
 description = "Building queries or commands from caller-supplied values"
 packages = [
-  "aiomysql", "aiosqlite", "alembic", "asyncpg", "cassandra-driver", "chdb",
+  "aiomysql", "aiosqlite", "alembic", "asyncpg", "cassandra-driver", "chdb", "chromadb", "qdrant-client", "pinecone-client",
+  "weaviate-client", "pgvector", "lancedb", "pymilvus", "faiss-cpu",
   "clickhouse-connect", "clickhouse-driver", "cloud-sql-python-connector",
   "databricks-sql-connector", "dataset", "dbutils", "django-filter", "django-redis", "duckdb",
   "elasticsearch", "flask-sqlalchemy", "geoalchemy2", "google-cloud-bigquery",

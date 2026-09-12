@@ -131,3 +131,24 @@ def test_packages_misclassified_on_a_real_repository_are_mapped():
     assert m.lookup("drf-spectacular").is_exposed
     for name in ("nltk", "django-filter", "drf-spectacular"):
         assert m.lookup(name).confidence is Confidence.CURATED
+
+
+def test_the_llm_agent_stack_is_mapped():
+    """Scanning a real RAG project found langchain-core reporting "ok" while
+    carrying 12 advisories against the pinned version, and langchain-community
+    sitting in low-priority with an archived repository and an unfixed
+    advisory. Document loaders fetch untrusted URLs and agents act on model
+    output, so prompt injection is a trust boundary like any other."""
+    m = load_exposure_map()
+    for name in ("langchain", "langchain-core", "langchain-community", "langgraph",
+                 "llama-index", "openai", "anthropic", "mcp", "tavily-python"):
+        assert m.lookup(name).is_exposed, name
+        assert m.lookup(name).confidence is Confidence.CURATED, name
+    assert "llm/agent" in m.lookup("langchain").categories
+
+
+def test_vector_stores_are_treated_as_databases():
+    """chromadb had eight unfixed advisories and was reported as not exposed."""
+    m = load_exposure_map()
+    for name in ("chromadb", "qdrant-client", "pinecone-client", "weaviate-client"):
+        assert "query building" in m.lookup(name).categories, name
