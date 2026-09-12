@@ -27,6 +27,10 @@ limits the blast radius, but the following are real and worth reporting:
   misleading results into `~/.cache/package-doctor/`.
 - **Code execution from scanned input.** The scanner parses lockfiles and
   AST-parses your source. Neither should ever be able to execute anything.
+- **Resource exhaustion from a scanned repository.** Source files above 2 MB
+  are skipped and reported, and package names from lockfiles are validated
+  against PEP 503 before they reach a URL. A repository that gets past either
+  and hangs or exhausts the scanner is worth reporting.
 - **Data leaving the machine that shouldn't.** The tool sends package *names*
   to PyPI, OSV and ecosyste.ms. It should never transmit source code, file
   contents or paths.

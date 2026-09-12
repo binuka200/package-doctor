@@ -119,3 +119,53 @@ def test_findings_render_untrusted_text_literally():
     render(console, [finding], sources=["requirements.txt"])
     out = buf.getvalue()
     assert "[blink]LOOK AT ME[/blink]" in out
+
+
+# --- a scanned file must not be able to exhaust the scanner -----------------
+
+def test_an_oversized_source_file_is_skipped_and_counted(tmp_path):
+    """Reading and building an AST costs memory and time proportional to file
+    size, and this scanner runs over repositories the user did not write."""
+    from package_doctor.sourcescan import build_index
+
+    (tmp_path / "normal.py").write_text("import requests\n", encoding="utf-8")
+    (tmp_path / "huge.py").write_text(
+        "import yaml\n" + "# padding\n" * 300_000, encoding="utf-8"
+    )
+    assert (tmp_path / "huge.py").stat().st_size > 2 * 1024 * 1024
+
+    index = build_index(tmp_path, known_packages={"requests", "pyyaml"})
+    assert index.files_too_large == 1
+    assert index.for_package("requests"), "the normal file must still be read"
+    assert not index.for_package("pyyaml"), "the oversized file must not be parsed"
+
+
+def test_the_size_limit_is_adjustable(tmp_path):
+    from package_doctor.sourcescan import build_index
+
+    (tmp_path / "small.py").write_text("import requests\n", encoding="utf-8")
+    tight = build_index(tmp_path, known_packages={"requests"}, max_bytes=4)
+    assert tight.files_too_large == 1
+    assert not tight.for_package("requests")
+
+
+def test_skipping_is_distinguishable_from_finding_nothing(tmp_path):
+    """A skipped file must never look like a file with no imports - "we did not
+    look" and "we looked and found nothing" are different answers."""
+    from package_doctor.sourcescan import build_index
+
+    (tmp_path / "empty.py").write_text("", encoding="utf-8")
+    index = build_index(tmp_path, known_packages={"requests"})
+    assert index.files_scanned == 1 and index.files_too_large == 0
+
+
+def test_pathological_nesting_does_not_crash_the_scan(tmp_path):
+    """CPython's parser rejects this with a SyntaxError, which must be caught
+    like any other unparseable file rather than ending the scan."""
+    from package_doctor.sourcescan import build_index
+
+    (tmp_path / "bomb.py").write_text("(" * 5000 + "1" + ")" * 5000, encoding="utf-8")
+    (tmp_path / "ok.py").write_text("import requests\n", encoding="utf-8")
+    index = build_index(tmp_path, known_packages={"requests"})
+    assert index.files_failed == 1
+    assert index.for_package("requests")

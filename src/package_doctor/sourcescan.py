@@ -31,6 +31,21 @@ SKIP_DIRS = {
 #: request path, and the user should be able to see which they are looking at.
 TEST_MARKERS = ("test_", "_test", "tests/", "test/", "conftest.py", "/tests/")
 
+#: Largest source file we will parse, in bytes.
+#:
+#: Reading and building an AST costs memory and time proportional to file size,
+#: and this scanner is pointed at repositories the user did not write. Real
+#: hand-written Python is orders of magnitude below this; what sits above it is
+#: generated code, vendored bundles, or something designed to waste your
+#: afternoon. Skipped files are counted and reported rather than passed over in
+#: silence, because "we did not look" must stay distinguishable from "we looked
+#: and found nothing".
+#:
+#: CPython's own parser already rejects pathologically nested source with a
+#: SyntaxError, and ast.walk iterates rather than recurses, so size is the
+#: remaining lever.
+MAX_FILE_BYTES = 2 * 1024 * 1024
+
 #: Import name -> PyPI distribution, for the cases where they differ. Used only
 #: when the environment cannot answer authoritatively.
 MODULE_TO_DIST: dict[str, str] = {
@@ -70,6 +85,8 @@ class ImportIndex:
     sites: dict[str, list[ImportSite]] = field(default_factory=dict)
     files_scanned: int = 0
     files_failed: int = 0
+    #: Files skipped for exceeding MAX_FILE_BYTES.
+    files_too_large: int = 0
     #: Top-level modules we saw but could not attribute to a distribution.
     unresolved: set[str] = field(default_factory=set)
 
@@ -149,6 +166,7 @@ def build_index(
     root: Path,
     known_packages: set[str] | None = None,
     max_files: int = 5000,
+    max_bytes: int = MAX_FILE_BYTES,
 ) -> ImportIndex:
     """Walk a project's source and map its imports onto distribution names.
 
@@ -163,9 +181,13 @@ def build_index(
 
     for path in iter_source_files(root)[:max_files]:
         try:
+            # Check the size before reading it, not after.
+            if path.stat().st_size > max_bytes:
+                index.files_too_large += 1
+                continue
             source = path.read_text(encoding="utf-8", errors="replace")
             imports = extract_imports(source)
-        except (OSError, SyntaxError, ValueError):
+        except (OSError, SyntaxError, ValueError, RecursionError):
             index.files_failed += 1
             continue
 

@@ -19,7 +19,7 @@ from .models import Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
 from .sources.pypi import normalise
 from .report import render, render_explain, to_dict
-from .sourcescan import build_index, detect_source_roots
+from .sourcescan import MAX_FILE_BYTES, build_index, detect_source_roots
 from .risk import Thresholds
 from .sources.client import Client
 
@@ -155,6 +155,13 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
                 continue
             part = build_index(src_root, known_packages=known)
             scanned += part.files_scanned
+            if part.files_too_large:
+                console.print(
+                    f"[dim]Skipped {part.files_too_large} source file"
+                    f"{'s' if part.files_too_large > 1 else ''} over "
+                    f"{MAX_FILE_BYTES // (1024 * 1024)}MB; imports in them were "
+                    f"not checked.[/dim]"
+                )
             for dist, sites in part.sites.items():
                 merged.setdefault(dist, []).extend(sites)
         if scanned:
