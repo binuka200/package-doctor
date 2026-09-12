@@ -41,8 +41,7 @@ here — in issues, in pull requests, or in the tool's own output.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behaviour may be
-reported to the maintainer. <!-- TODO: add a contact address before publishing.
-A GitHub noreply address will not receive mail; use one you actually read. -->
+reported to the maintainer at **contact@binukajayaweera.dev**.
 
 All complaints will be reviewed and investigated promptly and fairly. The
 maintainer is obligated to respect the privacy and security of the reporter.

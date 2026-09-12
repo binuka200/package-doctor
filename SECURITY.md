@@ -6,6 +6,9 @@ Please report privately through
 [GitHub's security advisories](https://github.com/binuka200/package-doctor/security/advisories/new)
 rather than opening a public issue.
 
+If you would rather not use GitHub, or do not have an account,
+**contact@binukajayaweera.dev** reaches the same person.
+
 I'll acknowledge within a few days. This is a small project maintained by one
 person, so please be patient with timelines — and if something is being actively
 exploited, say so clearly and I'll prioritise it.
