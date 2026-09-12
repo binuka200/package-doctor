@@ -64,7 +64,20 @@ def _affects_version(vuln: dict[str, Any], package: str, version: str) -> bool:
         if isinstance(listed, list) and listed:
             if version in listed:
                 return True
-            continue
+            # PEP 440 equality, not string equality: tornado publishes "6.3"
+            # while a lockfile may pin "6.3.0", and those are the same release.
+            # Matching on the string alone silently under-reports.
+            if current is not None:
+                for candidate in listed:
+                    try:
+                        if Version(candidate) == current:
+                            return True
+                    except InvalidVersion:
+                        continue
+            # Fall through to the ranges rather than giving up here. An OSV
+            # `versions` list is a convenience, not an exhaustive index, and
+            # treating a miss as "not affected" turns a gap into a false
+            # negative on a security finding.
         if current is None:
             continue
         for rng in affected.get("ranges") or []:
