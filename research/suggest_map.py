@@ -237,7 +237,7 @@ def main() -> int:
         return 1
     candidates = from_scan(args.scan) if args.scan else from_dataset(args.dataset)
 
-    # Never re-ask about something already decided, in any of the three lists.
+    # Never re-ask about something already decided, in any list or by a family pattern.
     exposure_map = load_exposure_map()
     candidates = [c for c in candidates if not exposure_map.is_reviewed(c.name)]
     if not args.all:

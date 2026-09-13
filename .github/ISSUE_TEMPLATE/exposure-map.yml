@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The map is ~710 judgement calls made by one person, so corrections are
+        The map is ~1,440 judgement calls made by one person, each with a reason,, so corrections are
         the most useful thing this project receives.
 
         Wrong entries matter more than missing ones: a bad entry makes the tool

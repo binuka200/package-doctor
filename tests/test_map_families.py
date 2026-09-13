@@ -64,10 +64,50 @@ FAMILIES: dict[str, tuple[bool, list[str]]] = {
     "wsgi and asgi servers": (True, ["gunicorn", "uvicorn", "uwsgi"]),
     "celery and its tooling": (True, ["celery", "kombu", "flower"]),
     "task and job queues over a wire protocol": (True, ["gearman3", "python3-gearman", "kombu"]),
-    "packaging toolchain": (True, ["pip", "setuptools", "wheel"]),
+    "packaging toolchain": (True, [
+        "pip", "setuptools", "wheel", "pdm", "poetry", "uv", "pipenv", "installer",
+    ]),
+    "inbound webhook verifiers": (True, [
+        "stripe", "twilio", "slack-sdk", "svix", "sendgrid", "django-anymail",
+    ]),
+    "rate limiters": (True, ["flask-limiter", "slowapi", "django-ratelimit", "limits"]),
+    "broker consumers": (True, [
+        "confluent-kafka", "kafka-python", "aiokafka", "nats-py", "faststream", "pulsar-client",
+        "azure-servicebus", "arq", "taskiq",
+    ]),
+    "expression evaluators": (True, [
+        "simpleeval", "asteval", "restrictedpython", "numexpr", "sympy", "lupa",
+    ]),
+    "hostile-by-design parsers": (True, [
+        "pefile", "oletools", "yara-python", "pyelftools", "lief", "capstone", "androguard",
+    ]),
+    "notebook and app servers": (True, [
+        "jupyter-server", "jupyterlab", "notebook", "marimo", "voila", "panel", "bokeh",
+        "nicegui", "reflex", "streamlit", "gradio",
+    ]),
+    "hdf5 and netcdf": (True, ["h5py", "netcdf4", "h5netcdf", "tables", "zarr"]),
+    "gdal and geos": (True, ["fiona", "pyogrio", "rasterio", "shapely", "geopandas"]),
+    "model serving engines": (True, ["vllm", "sglang", "bentoml", "litserve", "mlflow", "ray"]),
     # Not exposed: the obvious guess is wrong for the same reason across the family.
     "test doubles": (False, [
         "fakeredis", "mongomock", "moto", "responses", "respx", "vcrpy", "aioresponses",
+        "requests-mock", "freezegun", "time-machine",
+    ]),
+    "the developer's own tools": (False, [
+        "black", "ruff", "isort", "mypy", "pylint", "flake8", "pyright", "cython",
+        "pyinstaller", "nuitka", "coverage", "tox", "pre-commit",
+    ]),
+    "build backends and frontends": (False, [
+        "build", "hatchling", "hatch", "flit-core", "poetry-core", "uv-build", "maturin",
+        "setuptools-scm", "twine",
+    ]),
+    "telemetry egress": (False, [
+        "sentry-sdk", "rollbar", "datadog", "posthog", "langfuse", "lmnr", "wandb",
+        "opencensus", "prometheus-client",
+    ]),
+    "api clients over a listed transport": (False, [
+        "ghapi", "pygithub", "jira", "gspread", "tableauserverclient", "databricks-sdk",
+        "okta", "mailchimp-marketing",
     ]),
     "cli frameworks": (False, ["click", "typer", "docopt", "fire"]),
     "documentation generators": (False, ["sphinx", "mkdocs", "mkdocs-material", "pdoc"]),

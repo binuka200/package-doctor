@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,30 @@ def entries(block: Any) -> list[tuple[str, str | None]]:
     return out
 
 
+def families(block: Any) -> list[tuple[str, str | None]]:
+    """The (pattern, why) pairs of the reviewed-as-a-family list.
+
+    A family is a glob over normalised names - ``google-cloud-*`` - standing
+    for a shelf of packages that were reviewed together because they are the
+    same kind of thing: generated API wrappers, typing stubs, test plugins.
+    Recording the rule as data rather than as a comment means the tool
+    reports its members as reviewed, the suggestion tooling stops proposing
+    them, and an explicit entry for one member can still overrule the rule.
+    """
+    out: list[tuple[str, str | None]] = []
+    for item in block or []:
+        if not isinstance(item, dict) or not isinstance(item.get("pattern"), str):
+            raise ValueError(f"family without a pattern: {item!r}")
+        pattern = item["pattern"].strip()
+        if not pattern or "*" not in pattern:
+            raise ValueError(f"family pattern must contain a wildcard: {pattern!r}")
+        why = item.get("why")
+        if not isinstance(why, str) or not why.strip():
+            raise ValueError(f"family {pattern!r} records no reason")
+        out.append((normalise(pattern), why.strip()))
+    return out
+
+
 #: What a flaw at each kind of boundary tends to cost, worst first.
 #:
 #: This is a vocabulary, not a score. Each category names one of these, the
@@ -136,7 +161,7 @@ class ExposureMap:
             for name, why in entries(block.get("packages")):
                 self._by_package.setdefault(normalise(name), []).append(label)
                 if why:
-                    self._why[normalise(name)] = why
+                    self._add_why(normalise(name), why)
         stable_block = data.get("stable") or {}
         self._stable = set()
         for name, why in entries(stable_block.get("packages")):
@@ -159,6 +184,25 @@ class ExposureMap:
             self._mature.add(normalise(name))
             if why:
                 self._why[normalise(name)] = why
+        # Reviewed as a shelf. A pattern here says every package it matches
+        # was looked at together and found to be the same kind of thing; any
+        # explicit entry above wins over it, which is how the exceptions - the
+        # one provider package that is an auth manager - are recorded.
+        reviewed_block = data.get("reviewed") or {}
+        self._families: list[tuple[str, str]] = [
+            (pattern, why or "") for pattern, why in families(reviewed_block.get("families"))
+        ]
+
+    def _add_why(self, key: str, why: str) -> None:
+        """Record a reason, keeping every distinct one a multi-category entry has.
+
+        `mlflow` is llm/agent for what it is and model loading for what its
+        advisories say; the second entry must not erase the first."""
+        existing = self._why.get(key)
+        if not existing:
+            self._why[key] = why
+        elif why not in existing:
+            self._why[key] = f"{existing} / {why}"
 
     @property
     def size(self) -> int:
@@ -170,13 +214,35 @@ class ExposureMap:
         """Every package a human has made a call on, either way."""
         return len(self._by_package) + len(self._stable) + len(self._reviewed_safe)
 
+    @property
+    def family_count(self) -> int:
+        """Shelves reviewed as a whole, by name pattern."""
+        return len(self._families)
+
+    def family_for(self, name: str) -> tuple[str, str] | None:
+        """The (pattern, why) of the reviewed family a name falls in, if any."""
+        key = normalise(name)
+        for pattern, why in self._families:
+            if fnmatchcase(key, pattern):
+                return pattern, why
+        return None
+
     def is_reviewed(self, name: str) -> bool:
         key = normalise(name)
-        return key in self._by_package or key in self._stable or key in self._reviewed_safe
+        return (
+            key in self._by_package or key in self._stable or key in self._reviewed_safe
+            or self.family_for(key) is not None
+        )
 
     def why(self, name: str) -> str | None:
         """The recorded reason behind a package's entry, if the curator left one."""
-        return self._why.get(normalise(name))
+        key = normalise(name)
+        if key in self._why:
+            return self._why[key]
+        if key in self._by_package or key in self._stable or key in self._reviewed_safe:
+            return None
+        family = self.family_for(key)
+        return family[1] if family else None
 
     @property
     def explained(self) -> int:
@@ -229,6 +295,16 @@ class ExposureMap:
                 confidence=Confidence.CURATED,
                 note="reviewed: not at a trust boundary",
                 why=why,
+            )
+
+        family = self.family_for(key)
+        if family:
+            pattern, family_why = family
+            return Exposure(
+                categories=[],
+                confidence=Confidence.CURATED,
+                note=f"reviewed as part of the {pattern} family: not at a trust boundary",
+                why=family_why,
             )
 
         if pypi_info:

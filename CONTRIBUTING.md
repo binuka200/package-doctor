@@ -6,8 +6,9 @@ Thanks for looking. Most of what this project needs is not code.
 
 **Argue with [`exposure.toml`](src/package_doctor/data/exposure.toml).**
 
-That file is ~710 judgement calls about which Python packages sit somewhere an
-attacker can reach. Every one of them was made by one person. Some are wrong,
+That file is ~1,440 judgement calls about which Python packages sit somewhere an
+attacker can reach, each with a one-sentence reason. Every one of them was made
+by one person. Some are wrong,
 and the wrong ones are worse than the missing ones — a bad entry makes the tool
 lie, while a gap only makes it quieter.
 
@@ -49,12 +50,13 @@ their one-line description and turn out to be textbook: `diskcache` is "a disk
 cache" whose advisories say *unsafe pickle deserialization*; `apscheduler` is
 "a task scheduler" whose serializers had remote code execution.
 
-### The three lists
+### The four lists
 
 | list | meaning |
 | --- | --- |
-| `[category.*]` | an attacker can reach this |
+| `[category.*]` | an attacker can reach this — and a package may sit in more than one |
 | `[reviewed] not_exposed` | checked, and they can't — with a note saying why the obvious guess is wrong |
+| `[reviewed] families` | a whole shelf checked at once by name pattern — `types-*`, `google-cloud-*` — with an explicit entry anywhere else overriding it |
 | `[stable] mature` | they can, but the library is finished, so ignore its age |
 
 The second list matters as much as the first. It is how "we checked and it's
@@ -116,10 +118,9 @@ Use the table form and put the reason in the data, not just the PR:
 ```
 
 `package-doctor explain foo` shows that sentence, and it is what the next
-reviewer argues with. CI fails on a new category entry without a `why`;
-entries that predate the field are listed in `tests/exposure_unexplained.txt`,
-and removing a name from that list when you write its reason is a welcome
-contribution on its own.
+reviewer argues with. CI fails on a new category entry without a `why`. Every entry now has one;
+`tests/exposure_unexplained.txt` is the empty list that used to hold the
+exceptions, kept so the test that enforces this stays in place.
 
 ### Opening the PR
 

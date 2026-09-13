@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Families as data.** `[reviewed] families` holds the name patterns the
+  map's header used to describe in a comment - `google-cloud-*`, `types-*`,
+  `pytest-*`, `opentelemetry-*` and twelve others - each with a reason.
+  `is_reviewed` honours them, `explain` shows the family's reason, and the
+  suggestion tooling stops proposing their members. An explicit entry beats
+  the pattern, which is how `apache-airflow-providers-fab` (auth manager),
+  `google-cloud-aiplatform` (stored XSS) and `opentelemetry-instrumentation`
+  (request-attribute cardinality DoS) stay exposed inside not-exposed
+  families. Exposure map `schema_version` is 6.
+- **A reason on every entry.** All 997 category entries, the
+  reviewed-and-cleared list and the stable list record what convinced the
+  curator; `tests/exposure_unexplained.txt` is empty and stays that way.
+- **249 new category entries**, worked from the CWE-backed candidate list
+  and the rank 101-1,000 gap: every one of the top 100 and 998 of the top
+  1,000 packages by downloads now have a curated call (1,774 of 3,000). New
+  shelves with a family test each: inbound webhook verifiers (`stripe`,
+  `twilio`, `slack-sdk`, `svix`, `sendgrid`, `django-anymail`), rate
+  limiters (`flask-limiter`, `slowapi`, `django-ratelimit`, `limits`),
+  broker consumers (`confluent-kafka`, `kafka-python`, `aiokafka`,
+  `nats-py`, `faststream`, `arq`, `taskiq`), expression evaluators
+  (`simpleeval`, `asteval`, `restrictedpython`, `numexpr`, `sympy`),
+  hostile-by-design parsers (`pefile`, `oletools`, `yara-python`,
+  `pyelftools`, `lief`, `capstone`), HDF5, netCDF and GDAL readers, notebook
+  and app servers (`jupyterlab`, `notebook`, `marimo`, `voila`, `panel`,
+  `bokeh`, `nicegui`), the packaging toolchain (`uv`, `poetry`, `pipenv`,
+  `installer`), and email parsing.
+
+### Changed
+
+- **Placements.** A package may now carry several categories and the report
+  takes the worst consequence: `mlflow`, `vllm`, `sglang`, `bentoml` and
+  `ray` add the deserialization, model-loading, framework or remote-access
+  categories their advisories describe instead of only llm/agent;
+  `pandas` adds deserialization for `read_pickle`; `reportlab` adds
+  templating for CVE-2023-33733; `litellm` and `gradio` add web framework.
+  Moved: `django-redis` to deserialization (pickle by default),
+  `flask-session` to auth, `dateparser`, `lark`, `pyparsing` and `webcolors`
+  out of markup into data parsing, `pathvalidate` to archive extraction,
+  `lmdb` to file parsing (its advisories are crafted database files),
+  `faiss-cpu` to model loading, `docxtpl` to templating, `babel` to
+  deserialization (CVE-2021-20095 loaded pickled locale data by
+  Accept-Language). `svgwrite`, `xlsxwriter` and `xlwt` write and parse
+  nothing and move to reviewed-not-exposed.
+
 ## [0.8.2] - 2026-09-13
 
 ### Added

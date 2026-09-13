@@ -40,12 +40,13 @@ extraction, deserialization, HTML parsing, query building, cryptography, URL
 parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](src/package_doctor/data/exposure.toml), not from a heuristic.
 
-It holds **731 packages across 15 categories**, curated against the 3,000
-most-downloaded packages on PyPI — 86 of the top 100 have been reviewed one way
-or the other, and Django, FastAPI/ML, document-processing and web-scraping stacks
-all scan with zero unclassified packages. Anything outside it falls back to
-classifier inference, which is marked `inferred` and flagged with `?` in output
-so you can distrust it.
+It holds **997 packages across 15 categories**, curated against the 3,000
+most-downloaded packages on PyPI — every one of the top 100 and 998 of the top
+1,000 have been reviewed one way or the other, and Django, FastAPI/ML,
+document-processing and web-scraping stacks all scan with zero unclassified
+packages. Every entry records what convinced the curator, and `explain` shows
+it. Anything outside the map falls back to classifier inference, which is
+marked `inferred` and flagged with `?` in output so you can distrust it.
 
 **Axis 2 — Remediation capacity.** If a fix were needed, would one ship?
 
@@ -596,6 +597,24 @@ exactly those names. It also means "we looked and it's fine" is distinguishable
 in the data from "nobody has looked yet", which is the distinction the rest of
 this tool is built on.
 
+Whole shelves are reviewed at once as `[reviewed] families`: `google-cloud-*`,
+`types-*`, `pytest-*`, `opentelemetry-*` and a dozen other name patterns
+whose members are generated API wrappers, typing stubs or test plugins over a
+transport that is already in the map. The pattern is data, so `is_reviewed`
+honours it, and an explicit entry always beats it — which is how the one
+Airflow provider that is an authentication manager, or the one
+`google-cloud-*` package that moves bytes, is recorded as exposed anyway.
+
+### One package, several boundaries
+
+A package can carry more than one category, and the report takes the worst
+consequence among them. `mlflow` is llm/agent for what it is and model loading
+for what its advisories say went wrong; `pandas` is file parsing for
+`read_csv` and deserialization for `read_pickle`; `ray` is a web framework for
+its dashboard and remote access for the jobs API that ran arbitrary code. The
+alternative — one category per package — forced a choice between what a thing
+is for and what breaks, and the second is what a maintainer needs to rank.
+
 ### Depth is not the same as breadth
 
 Beyond the top few hundred, most packages genuinely belong in neither list: a
@@ -669,9 +688,10 @@ maintainer rather than a description of risk, that is a bug — please report it
 ## Contributing
 
 The most useful contribution isn't code — it's arguing with
-[`exposure.toml`](src/package_doctor/data/exposure.toml). That file is ~710
-judgement calls about which packages sit where an attacker can reach, all made
-by one person, and a wrong entry is worse than a missing one.
+[`exposure.toml`](src/package_doctor/data/exposure.toml). That file is ~1,440
+judgement calls about which packages sit where an attacker can reach, each with
+a one-sentence reason, all made by one person, and a wrong entry is worse than
+a missing one.
 
 If you know a corner of Python well — Django, ML, crypto, packaging — twenty
 minutes reading the relevant category is worth more than a month of new entries.
