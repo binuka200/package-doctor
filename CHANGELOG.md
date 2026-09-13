@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-09-13
+
 ### Added
 
 - **Families as data.** `[reviewed] families` holds the name patterns the
@@ -450,7 +452,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/binuka200/package-doctor/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/binuka200/package-doctor/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/binuka200/package-doctor/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/binuka200/package-doctor/compare/v0.7.0...v0.8.0
