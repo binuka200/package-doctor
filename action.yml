@@ -1,0 +1,125 @@
+# package-doctor as a GitHub Action.
+#
+#   - uses: binuka200/package-doctor@v0.3.0
+#
+# That one line scans the checkout, fails the job when anything lands in
+# "act on these", and writes the report to the job's step summary so nobody
+# has to open a log. Set `upload-sarif: true` (and grant
+# `security-events: write`) to have findings show up as code scanning alerts
+# on the pull request as well.
+#
+# Everything the action does, the CLI does: it is `package-doctor scan` with
+# `--markdown`, `--sarif` and a response cache between runs, so a scan is
+# never more than one `pip install` away from being reproduced locally.
+
+name: package-doctor
+description: >-
+  Finds the Python dependencies that sit at a trust boundary and have no one
+  left to fix them. Fails the job on findings, writes a step summary, and can
+  upload SARIF for code scanning.
+author: Binuka Jayaweera
+branding:
+  icon: activity
+  color: red
+
+inputs:
+  path:
+    description: Project directory to scan (where the lockfile lives).
+    default: "."
+  fail-on:
+    description: "Exit non-zero at this level or worse: act, watch or never."
+    default: act
+  args:
+    description: Extra arguments passed to `package-doctor scan` verbatim.
+    default: ""
+  version:
+    description: >-
+      package-doctor version to install, as a pip specifier. Empty installs the
+      newest release; pin it for reproducible runs.
+    default: ""
+  python-version:
+    description: Python to run the scanner with.
+    default: "3.12"
+  sarif-file:
+    description: Where to write the SARIF report.
+    default: package-doctor.sarif
+  upload-sarif:
+    description: >-
+      Upload the SARIF to GitHub code scanning. Needs `security-events: write`
+      on the job, and a repository where code scanning is available.
+    default: "false"
+  summary:
+    description: Append the report to the job's step summary.
+    default: "true"
+
+outputs:
+  exit-code:
+    description: "0 when nothing failed the chosen level, 1 when something did."
+    value: ${{ steps.scan.outputs.exit-code }}
+  sarif-file:
+    description: Path of the SARIF report that was written.
+    value: ${{ steps.scan.outputs.sarif-file }}
+  json-file:
+    description: Path of the JSON report that was written.
+    value: ${{ steps.scan.outputs.json-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # The scanner caches every upstream response for a day. Carrying that
+    # cache between runs keeps a busy repository from asking PyPI and OSV the
+    # same questions on every push, which is only polite to free services.
+    - id: cache-key
+      shell: bash
+      run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      with:
+        path: ~/.cache/package-doctor
+        key: package-doctor-${{ runner.os }}-${{ steps.cache-key.outputs.date }}
+        restore-keys: package-doctor-${{ runner.os }}-
+
+    - shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then
+          python -m pip install --quiet "package-doctor${{ inputs.version }}"
+        else
+          python -m pip install --quiet package-doctor
+        fi
+        package-doctor --version
+
+    - id: scan
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        set +e
+        summary="$RUNNER_TEMP/package-doctor-summary.md"
+        json="$RUNNER_TEMP/package-doctor.json"
+        package-doctor scan . \
+          --fail-on "${{ inputs.fail-on }}" \
+          --sarif "${{ inputs.sarif-file }}" \
+          --markdown "$summary" \
+          ${{ inputs.args }}
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        # Absolute, whether the input was relative to the project or not.
+        sarif=$(python -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "${{ inputs.sarif-file }}")
+        echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"
+        # A second, report-only pass costs nothing: everything is cached.
+        package-doctor scan . --fail-on never --json -o "$json" >/dev/null 2>&1 || true
+        echo "json-file=$json" >> "$GITHUB_OUTPUT"
+        if [ "${{ inputs.summary }}" = "true" ] && [ -f "$summary" ]; then
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        # A usage error (2) is a broken setup and fails regardless of level.
+        exit "$code"
+
+    - if: ${{ always() && inputs.upload-sarif == 'true' && steps.scan.outputs.sarif-file != '' }}
+      uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca  # v3.38.0
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
+        category: package-doctor

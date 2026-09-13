@@ -133,7 +133,7 @@ def test_explain_never_prints_a_flat_hundred_percent(capsys):
 
 def test_json_shape_is_stable():
     payload = to_dict([make()], ["requirements.txt"], NOW)
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["sources"] == ["requirements.txt"]
     row = payload["findings"][0]
     for key in ("name", "version", "direct", "verdict", "exposure",

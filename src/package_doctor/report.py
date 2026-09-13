@@ -57,7 +57,57 @@ SECTIONS: list[tuple[Verdict, str, str, str]] = [
 
 
 def _version(finding: Finding) -> str:
-    return clean(finding.package.version) if finding.package.version else "-"
+    """The version column. An assumed version carries ``?``, the same mark an
+    inferred exposure carries: something the reader should distrust."""
+    if not finding.package.version:
+        return "-"
+    version = clean(finding.package.version)
+    return f"{version}?" if finding.package.version_assumed else version
+
+
+def _until(finding: Finding, now: dt.datetime | None) -> str:
+    """"until 2026-12-31 (in 3 months)" - the expiry, with how far off it is."""
+    assert finding.accepted is not None
+    until = finding.accepted.until
+    text = f"until {until.isoformat()}"
+    if now is not None:
+        days = (until - now.date()).days
+        if days < 0:
+            text = f"expired {until.isoformat()} ({-days} day{'s' if days != -1 else ''} ago)"
+        elif days == 0:
+            text += " (today)"
+        elif days < 60:
+            text += f" (in {days} day{'s' if days != 1 else ''})"
+        else:
+            months = round(days / 30.44)
+            text += f" (in {months} month{'s' if months != 1 else ''})"
+    return text
+
+
+def _pin_note(findings: list[Finding]) -> tuple[str, str] | None:
+    """The header line about unpinned packages, or None when all are pinned.
+
+    Two different facts share this line, and the reader must be able to tell
+    them apart: matched against an assumed version (marked ``?`` in the
+    table, worth distrusting) versus not matched at all.
+    """
+    total = len(findings)
+    assumed = sum(1 for f in findings if f.package.version_assumed)
+    skipped = sum(1 for f in findings if not f.package.version)
+    if not assumed and not skipped:
+        return None
+    parts = []
+    if assumed:
+        parts.append(
+            f"{assumed} of {total} without a pinned version: advisories matched "
+            f"against the newest release instead, marked ? (use a lockfile to pin them)"
+        )
+    if skipped:
+        parts.append(
+            f"{skipped} of {total} without a pinned version: advisory matching "
+            f"skipped for those (use a lockfile to pin them)"
+        )
+    return "\n".join(parts), "yellow"
 
 
 def _sort_key(finding: Finding) -> tuple:
@@ -111,6 +161,7 @@ def render(
     show_ok: bool = False,
     now: dt.datetime | None = None,
     degraded: dict[str, int] | None = None,
+    notes: Iterable[str] = (),
 ) -> None:
     total = len(findings)
     direct = sum(1 for f in findings if f.package.direct)
@@ -121,20 +172,20 @@ def render(
     header.append(f"   {total} packages · {direct} direct", style="dim")
     console.print(header)
     console.print(Text(f"from {src}", style="dim"))
-    unpinned = sum(1 for f in findings if not f.package.version)
-    if unpinned:
+    pin_note = _pin_note(findings)
+    if pin_note:
         # Advisory matching needs a version. Without one the package can still
         # be judged on maintenance, but "no advisories" must not be implied.
-        console.print(
-            Text(
-                f"{unpinned} of {total} without a pinned version: advisory matching "
-                f"skipped for those (use a lockfile to pin them)",
-                style="yellow",
-            )
-        )
+        console.print(Text(pin_note[0], style=pin_note[1]))
 
+    # Accepted findings leave their verdict section for one of their own. The
+    # verdict is unchanged; only where it is shown and whether it fails the
+    # build. An expired acceptance stays put, and its row says it expired.
+    accepted = [f for f in findings if f.suppressed]
     by_verdict: dict[Verdict, list[Finding]] = {}
     for finding in findings:
+        if finding.suppressed:
+            continue
         by_verdict.setdefault(finding.verdict, []).append(finding)
 
     shown = 0
@@ -177,12 +228,43 @@ def render(
                     f"- package-doctor explain {clean(finding.package.name)}",
                     style="dim",
                 )
+            if finding.accepted is not None and finding.acceptance_expired:
+                # Back in its verdict section because the acceptance ran out,
+                # not because anything about the package changed. Say which.
+                why.append(
+                    f"\nacceptance {_until(finding, now)}: "
+                    f"{clean(finding.accepted.reason)}",
+                    style="yellow",
+                )
 
             exposure_text = Text(finding.exposure.label)
             if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
                 exposure_text.append("?", style="dim")
 
             table.add_row(clean(finding.package.name), _version(finding), exposure_text, why)
+        console.print(table)
+
+    if accepted:
+        console.print()
+        line = Text("ACCEPTED RISK", style="magenta")
+        line.append("   on the record, not failing the build", style="dim")
+        console.print(line)
+        table = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
+        table.add_column("name", style="bold", overflow="fold", max_width=22)
+        table.add_column("version", style="dim", no_wrap=True)
+        table.add_column("verdict", no_wrap=True)
+        table.add_column("why", overflow="fold")
+        labels = {v: hint for v, _, hint, _ in SECTIONS}
+        for finding in sorted(accepted, key=_sort_key):
+            assert finding.accepted is not None
+            why = Text(clean(finding.accepted.reason))
+            why.append(f"\n{_until(finding, now)}", style="dim")
+            table.add_row(
+                clean(finding.package.name),
+                _version(finding),
+                Text(labels.get(finding.verdict, finding.verdict.value), style="dim"),
+                why,
+            )
         console.print(table)
 
     ok = by_verdict.get(Verdict.OK, [])
@@ -207,6 +289,8 @@ def render(
         ("unknown", len(by_verdict.get(Verdict.UNKNOWN, [])), "dim"),
         ("ok", len(ok), "green"),
     ]
+    if accepted:
+        counts.append(("accepted", len(accepted), "magenta"))
     for i, (label, count, colour) in enumerate(counts):
         if i:
             summary.append("   ")
@@ -223,7 +307,118 @@ def render(
     note = describe_degraded(degraded)
     if note:
         console.print(Text(note, style="yellow"))
+    for line in notes:
+        console.print(Text(clean(line), style="dim"))
     console.print()
+
+
+def _md_cell(value: object) -> str:
+    """One Markdown table cell: control characters out (newlines with them),
+    pipes escaped so a claim cannot break out of its column."""
+    return clean(value).replace("|", "\\|")
+
+
+def render_markdown(
+    findings: list[Finding],
+    *,
+    sources: Iterable[str],
+    now: dt.datetime | None = None,
+    degraded: dict[str, int] | None = None,
+    notes: Iterable[str] = (),
+) -> str:
+    """The report as GitHub-flavoured Markdown, for a job's step summary.
+
+    Same sections, same order, same rule that accepted findings are shown
+    and never dropped. Nothing here that the terminal report would not say.
+    """
+    total = len(findings)
+    direct = sum(1 for f in findings if f.package.direct)
+    src = ", ".join(_md_cell(s) for s in sources) or "no dependency files"
+    accepted = [f for f in findings if f.suppressed]
+    by_verdict: dict[Verdict, list[Finding]] = {}
+    for finding in findings:
+        if not finding.suppressed:
+            by_verdict.setdefault(finding.verdict, []).append(finding)
+
+    out: list[str] = []
+    out.append("## Dependency Risk Report")
+    out.append("")
+    out.append(f"{total} packages · {direct} direct · from {src}")
+    out.append("")
+    counts = [
+        ("act on", len(by_verdict.get(Verdict.ACT, []))),
+        ("watch", len(by_verdict.get(Verdict.WATCH, []))),
+        ("low", len(by_verdict.get(Verdict.LOW, []))),
+        ("unknown", len(by_verdict.get(Verdict.UNKNOWN, []))),
+        ("ok", len(by_verdict.get(Verdict.OK, []))),
+    ]
+    if accepted:
+        counts.append(("accepted", len(accepted)))
+    out.append("**" + " · ".join(f"{n} {label}" for label, n in counts) + "**")
+    out.append("")
+    pin_note = _pin_note(findings)
+    if pin_note:
+        for line in pin_note[0].split("\n"):
+            out.append(f"> {_md_cell(line)}")
+        out.append("")
+
+    shown = 0
+    for verdict, title, hint, _style in SECTIONS:
+        group = sorted(by_verdict.get(verdict, []), key=_sort_key)
+        if not group:
+            continue
+        shown += len(group)
+        out.append(f"### {title.title()} — {hint}")
+        out.append("")
+        out.append("| Package | Version | Exposure | Why |")
+        out.append("| --- | --- | --- | --- |")
+        for finding in group:
+            exposure = finding.exposure.label
+            if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
+                exposure += "?"
+            why = [r.claim for r in finding.reasons] or ["-"]
+            if finding.accepted is not None and finding.acceptance_expired:
+                why.append(
+                    f"acceptance {_until(finding, now)}: {finding.accepted.reason}"
+                )
+            # Joined after cleaning: clean() strips newlines with the rest of
+            # the control characters, so a break has to be added afterwards.
+            out.append(
+                f"| `{_md_cell(finding.package.name)}` | {_md_cell(_version(finding))} "
+                f"| {_md_cell(exposure)} | {'<br>'.join(_md_cell(w) for w in why)} |"
+            )
+        out.append("")
+
+    if accepted:
+        out.append("### Accepted Risk — on the record, not failing the build")
+        out.append("")
+        out.append("| Package | Version | Verdict | Reason | Until |")
+        out.append("| --- | --- | --- | --- | --- |")
+        labels = {v: hint for v, _, hint, _ in SECTIONS}
+        for finding in sorted(accepted, key=_sort_key):
+            assert finding.accepted is not None
+            out.append(
+                f"| `{_md_cell(finding.package.name)}` | {_md_cell(_version(finding))} "
+                f"| {_md_cell(labels.get(finding.verdict, finding.verdict.value))} "
+                f"| {_md_cell(finding.accepted.reason)} "
+                f"| {_md_cell(_until(finding, now))} |"
+            )
+        out.append("")
+
+    if not shown:
+        out.append("Nothing to act on.")
+        out.append("")
+    note = describe_degraded(degraded)
+    if note:
+        out.append(f"> ⚠ {_md_cell(note)}")
+        out.append("")
+    for line in notes:
+        out.append(f"> {_md_cell(line)}")
+    if notes:
+        out.append("")
+    out.append("<sub>package-doctor explain &lt;name&gt; for the evidence behind a row</sub>")
+    out.append("")
+    return "\n".join(out)
 
 
 def render_explain(console: Console, finding: Finding, exposure_note: str = "") -> None:
@@ -317,7 +512,35 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     if rem.open_issues is not None:
         row("Open issues", str(rem.open_issues))
 
+    if finding.accepted is not None:
+        section("Accepted risk")
+        row(
+            "Reason",
+            finding.accepted.reason,
+            "yellow" if finding.acceptance_expired else "",
+        )
+        row(
+            "Expired" if finding.acceptance_expired else "Until",
+            finding.accepted.until.isoformat(),
+            "yellow" if finding.acceptance_expired else "",
+        )
+        row("Declared in", finding.accepted.source)
+        if finding.acceptance_expired:
+            console.print(
+                Text("    This acceptance has run out and no longer suppresses "
+                     "the finding.", style="dim")
+            )
+
     section("Security track record")
+    if pkg.version_assumed:
+        row("Your version", f"{pkg.version} (assumed)", "yellow")
+        console.print(
+            Text(
+                "    Nothing pins this package, so advisories were matched against\n"
+                "    the newest release a fresh install would get. Pin it to be sure.",
+                style="dim",
+            )
+        )
     if pkg.version is None:
         # Advisory matching needs a version, and without one this section
         # would silently be about the project's history rather than the
@@ -428,6 +651,10 @@ def to_dict(
         return {
             "name": finding.package.name,
             "version": finding.package.version,
+            # True when "version" was not pinned but assumed from PyPI. Every
+            # advisory match below is then a claim about that assumption.
+            "version_assumed": finding.package.version_assumed,
+            "specifier": finding.package.specifier,
             "direct": finding.package.direct,
             "origins": sorted(finding.package.origins),
             "reachability": {
@@ -464,6 +691,20 @@ def to_dict(
             },
             "reasons": [{"claim": r.claim, "url": r.url} for r in finding.reasons],
             "error": finding.error,
+            "accepted": (
+                {
+                    "reason": finding.accepted.reason,
+                    "until": finding.accepted.until.isoformat(),
+                    "version": finding.accepted.version,
+                    "source": finding.accepted.source,
+                    "expired": finding.acceptance_expired,
+                    # The one consumers should key on: True means this
+                    # finding did not count toward the exit code.
+                    "suppressed": finding.suppressed,
+                }
+                if finding.accepted is not None
+                else None
+            ),
         }
 
     counts: dict[str, int] = {}
@@ -472,11 +713,16 @@ def to_dict(
 
     return {
         "tool": "package-doctor",
-        "schema_version": 1,
+        # 2: "version" may be assumed (see "version_assumed"), and findings
+        # carry "accepted". Counts are still by verdict; "accepted" is the
+        # number of findings an unexpired acceptance kept out of the exit code.
+        "schema_version": 2,
         "generated_at": now.isoformat(),
         "sources": list(sources),
         "counts": counts,
+        "accepted": sum(1 for f in findings if f.suppressed),
         "unpinned": sum(1 for f in findings if not f.package.version),
+        "assumed": sum(1 for f in findings if f.package.version_assumed),
         # host -> requests that failed after retries. Non-empty means some
         # gaps below are the upstream's doing rather than the package's.
         "degraded": dict(degraded or {}),

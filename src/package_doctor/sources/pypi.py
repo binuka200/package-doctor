@@ -7,6 +7,9 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
+
 from .client import Client
 
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
@@ -193,6 +196,38 @@ class PyPISource:
             if best_date is None or date > best_date:
                 best_version, best_date = version, date
         return best_version, best_date
+
+    @staticmethod
+    def newest_matching(data: dict[str, Any], specifier: str | None = None) -> str | None:
+        """The release a fresh ``pip install`` would pick today.
+
+        Highest version, not most recent upload: a backport to an old series
+        can be uploaded after the newest major and pip still ignores it.
+        Yanked releases and pre-releases are skipped, as pip skips them, and
+        a declared range is honoured - ``django<5`` gets the newest 4.x. A
+        range nothing satisfies returns None rather than guessing.
+        """
+        try:
+            wanted = SpecifierSet(specifier) if specifier else None
+        except InvalidSpecifier:
+            wanted = None
+        best: tuple[Version, str] | None = None
+        for raw, files in (data.get("releases") or {}).items():
+            if not isinstance(files, list) or not files:
+                continue
+            if all(isinstance(f, dict) and f.get("yanked") for f in files):
+                continue
+            try:
+                version = Version(str(raw))
+            except InvalidVersion:
+                continue
+            if version.is_prerelease or version.is_devrelease:
+                continue
+            if wanted is not None and not wanted.contains(version, prereleases=False):
+                continue
+            if best is None or version > best[0]:
+                best = (version, str(raw))
+        return best[1] if best else None
 
     @staticmethod
     def has_inactive_classifier(data: dict[str, Any]) -> bool:

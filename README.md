@@ -240,6 +240,28 @@ Run inside the project, it reads the pinned version from the lockfile so the
 advisories are matched against what you actually install. Anywhere else, pass
 it: `package-doctor explain pillow --pin 10.0.0`.
 
+### No lockfile?
+
+Then nothing says which version you run, and the most probable answer is the
+one a fresh `pip install` would pick today: the newest release that satisfies
+the declared range, skipping yanked and pre-release versions. package-doctor
+assumes that version, and says so everywhere the assumption shows:
+
+```
+8 of 8 without a pinned version: advisories matched against the newest release
+instead, marked ? (use a lockfile to pin them)
+
+EXPOSED, MAINTAINED   watch
+httpx  0.28.1?  http/network  1 of 1 past advisories fixed at or before disclosure
+```
+
+The `?` is the same mark an inferred exposure carries: something to distrust.
+In `explain` the version reads `0.28.1 (assumed)`, an advisory match reads
+*newest release 0.28.1 (assumed: nothing pins this package) is affected*, and
+the JSON carries `"version_assumed": true`. `--no-assume-latest` turns the
+fallback off and skips advisory matching for unpinned packages instead. A
+lockfile is still the answer; this is a first run, not a substitute.
+
 Responses are cached for a day. `package-doctor cache path` shows where, and
 `package-doctor cache clear` empties it.
 
@@ -254,7 +276,97 @@ Exits `1` when anything lands in *act on these*, `0` otherwise. Use
 
 ```bash
 package-doctor scan --json -o report.json
+package-doctor scan --sarif package-doctor.sarif     # for code scanning
+package-doctor scan --markdown "$GITHUB_STEP_SUMMARY" # for the job summary
 ```
+
+#### GitHub Actions
+
+```yaml
+- uses: binuka200/package-doctor@v0.3.0
+```
+
+One line scans the checkout, fails the job on anything in *act on these*,
+and writes the report to the job's step summary so nobody opens a log. To
+have findings appear as code scanning alerts on the pull request as well:
+
+```yaml
+permissions:
+  security-events: write
+steps:
+  - uses: actions/checkout@v5
+  - uses: binuka200/package-doctor@v0.3.0
+    with:
+      upload-sarif: true
+      fail-on: act          # or watch, or never
+      args: --direct-only   # anything `scan` takes
+```
+
+The action is `package-doctor scan` with `--sarif` and `--markdown`, plus a
+response cache carried between runs. Inputs, outputs and defaults are in
+[`action.yml`](action.yml).
+
+#### SARIF
+
+`--sarif PATH` writes a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/)
+report that GitHub code scanning, GitLab and most security dashboards ingest.
+Each *act*, *watch* or *low* finding is one result, at levels `error`,
+`warning` and `note`. Its location is the first place your own source
+imports the package, with the other import sites as related locations; a
+package your code never imports points at the line of the dependency file
+that declared it. *Unknown* and *ok* produce nothing, because an alert that
+can never be resolved is how a tool gets muted. Accepted risks (below) are
+carried as SARIF suppressions, so a dashboard shows them as dismissed with
+the reason rather than not at all.
+
+#### pre-commit
+
+```yaml
+- repo: https://github.com/binuka200/package-doctor
+  rev: v0.3.0
+  hooks:
+    - id: package-doctor
+```
+
+Runs only when a dependency file changes, and the day-long response cache
+means the second run of the day is free.
+
+### Accepting a risk
+
+The first true positive with a ticket already filed is where a scanner gets
+removed from CI. So a finding can be accepted, on the record, for a while:
+
+```toml
+# package-doctor.toml, next to the lockfile
+[[accept]]
+package = "legacy-auth"
+reason = "Replacement lands in Q4, see PROJ-123"
+until = 2026-12-31
+version = "2.1.0"   # optional: an upgrade brings the finding back for a look
+```
+
+Three rules make this safe to offer. Every entry has a **reason**, because
+six months on an entry without one cannot be told from a mistake. Every entry
+**expires**, because a permanent suppression is how a known exposure survives
+every review; when the date passes the build fails again and the row says the
+acceptance expired, not that something new appeared. And an accepted finding
+**stays in the report**, in a section of its own, out of the exit code and
+never out of sight:
+
+```
+ACCEPTED RISK   on the record, not failing the build
+  legacy-auth  2.1.0  act on these  Replacement lands in Q4, see PROJ-123
+                                    until 2026-12-31 (in 3 months)
+```
+
+The verdict is not changed by acceptance. It is a fact about the package;
+the acceptance is a fact about what you will do. A malformed entry is a
+usage error rather than a warning, since an entry that silently failed to
+apply would fail a build for no visible reason, and one that silently applied
+too widely would hide risk. Entries that match nothing are reported so the
+file stays a list of live decisions. The same table can live under
+`[tool.package-doctor]` in `pyproject.toml`; `--config PATH` points anywhere
+else.
 
 ### Options
 
@@ -264,6 +376,10 @@ package-doctor scan --json -o report.json
 | `--src PATH` | source directory to check for imports (repeatable) |
 | `--no-reachability` | skip the import scan of your own source |
 | `--show-ok` | also list packages with no concerns |
+| `--sarif PATH` | also write a SARIF 2.1.0 report |
+| `--markdown PATH` | also write the report as Markdown |
+| `--config PATH` | accepted-risk file (default: `package-doctor.toml`) |
+| `--no-assume-latest` | with no pin, skip advisory matching rather than assume the newest release |
 | `--offline-repo` | skip repository lookups (faster, fewer signals) |
 | `--stale-release-days N` | tune the weak release-age signal (default 730) |
 | `--stale-push-days N` | tune the weak commit-age signal (default 545) |

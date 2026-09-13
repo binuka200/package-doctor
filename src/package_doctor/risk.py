@@ -163,9 +163,16 @@ def assess(
         more = (
             f" and {adv.affecting_current - 2} more" if adv.affecting_current > 2 else ""
         )
+        # An assumed version is a guess about what a fresh install would get,
+        # and a claim built on a guess has to say so in the same breath.
+        subject = (
+            f"newest release {package.version} (assumed: nothing pins this package)"
+            if package.version_assumed
+            else f"pinned version {package.version}"
+        )
         current.append(
             Evidence(
-                f"pinned version {package.version} is affected by "
+                f"{subject} is affected by "
                 f"{adv.affecting_current} advisor"
                 f"{'y' if adv.affecting_current == 1 else 'ies'}: {ids}{more}",
                 f"https://osv.dev/list?q={package.name}&ecosystem=PyPI",

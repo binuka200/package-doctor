@@ -1,0 +1,18 @@
+# pre-commit hook definition. In a project's .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/binuka200/package-doctor
+#     rev: v0.3.0
+#     hooks:
+#       - id: package-doctor
+#
+# The hook runs only when a dependency file changed, and the scanner keeps a
+# day-long response cache, so a commit that touches the lockfile costs one
+# scan and every other commit costs nothing.
+- id: package-doctor
+  name: package-doctor
+  description: Fail when a dependency sits at a trust boundary and has no one left to fix it.
+  entry: package-doctor scan
+  language: python
+  pass_filenames: false
+  files: ^(uv\.lock|poetry\.lock|Pipfile(\.lock)?|pyproject\.toml|requirements[^/]*\.txt|requirements/.*\.txt|package-doctor\.toml)$
+  minimum_pre_commit_version: "2.9.2"

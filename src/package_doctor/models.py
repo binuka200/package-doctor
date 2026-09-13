@@ -162,11 +162,39 @@ class Remediation:
         return (now - self.repo_last_push).days
 
 
+@dataclass(frozen=True)
+class Acceptance:
+    """A risk the user has decided to carry for now, on the record.
+
+    Every acceptance names a reason and an expiry. Without a reason a
+    suppression is indistinguishable from a mistake six months later; without
+    an expiry it is permanent, and permanent suppressions are how a known
+    exposure survives every review. An expired acceptance stops suppressing
+    and the report says so.
+    """
+
+    package: str
+    reason: str
+    until: dt.date
+    #: When set, the acceptance applies only while this exact version is
+    #: pinned, so an upgrade brings the finding back for a fresh look.
+    version: str | None = None
+    #: The file it was read from, for the report.
+    source: str = ""
+
+
 @dataclass
 class Package:
     name: str
     version: str | None = None
     direct: bool = True
+    #: The declared version range when nothing pins an exact version, as
+    #: written ("<3,>=2.1"). Used to pick the release a fresh install would get.
+    specifier: str | None = None
+    #: True when ``version`` was not pinned by the project but assumed from
+    #: PyPI: the newest release a fresh install would resolve to. Everything
+    #: matched against it is a claim about that assumption, and is shown as one.
+    version_assumed: bool = False
     #: Which manifest/lockfile this came from, for the "where did this come from" question.
     origins: list[str] = field(default_factory=list)
     #: Places the project's own code imports this package, as "path:line".
@@ -193,3 +221,18 @@ class Finding:
     #: Signals that argued for "no one home", kept separate so `explain` can show the working.
     abandonment_signals: list[Evidence] = field(default_factory=list)
     error: str | None = None
+    #: An acceptance from the project's ``package-doctor.toml`` that names
+    #: this package. Set even once expired, so the report can say that the
+    #: acceptance ran out rather than silently failing the build again.
+    accepted: Acceptance | None = None
+    acceptance_expired: bool = False
+
+    @property
+    def suppressed(self) -> bool:
+        """True when an unexpired acceptance covers this finding.
+
+        The verdict is untouched: acceptance is a statement about what the
+        user will do, not about the package. It only decides whether the
+        finding fails a build and which section of the report it sits in.
+        """
+        return self.accepted is not None and not self.acceptance_expired

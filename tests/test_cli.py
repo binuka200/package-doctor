@@ -115,7 +115,7 @@ def test_json_output_is_valid_and_carries_the_schema(project, monkeypatch, capsy
     cli.main(["scan", str(project), "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert payload["tool"] == "package-doctor"
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["counts"] == {"act": 1}
     row = payload["findings"][0]
     assert row["name"] == "alpha"

@@ -56,6 +56,10 @@ _IGNORED = {"python", "pip", "setuptools", "wheel", "setuptools-scm"}
 class DependencySet:
     #: normalised name -> pinned version (or None when only a range is known)
     versions: dict[str, str | None] = field(default_factory=dict)
+    #: normalised name -> the declared range, for names with no exact pin.
+    #: ``django<5`` installs the newest 4.x, not the newest release, and the
+    #: assumed version has to respect that to be worth anything.
+    specifiers: dict[str, str] = field(default_factory=dict)
     #: normalised names that appear in a manifest, i.e. deliberately chosen
     direct: set[str] = field(default_factory=set)
     #: normalised name -> files it was found in
@@ -84,7 +88,14 @@ class DependencySet:
             self.direct.discard(key)
             self.origins.pop(key, None)
 
-    def add(self, name: str, version: str | None, origin: str, direct: bool) -> None:
+    def add(
+        self,
+        name: str,
+        version: str | None,
+        origin: str,
+        direct: bool,
+        specifier: str | None = None,
+    ) -> None:
         key = normalise(name)
         if key in self.local:
             return
@@ -104,6 +115,8 @@ class DependencySet:
             self.versions[key] = version
         else:
             self.versions.setdefault(key, version)
+        if specifier and key not in self.specifiers:
+            self.specifiers[key] = specifier
         if direct:
             self.direct.add(key)
         self.origins.setdefault(key, set()).add(origin)
@@ -153,7 +166,22 @@ def read_manifest(path: Path, max_bytes: int = MAX_MANIFEST_BYTES) -> str | None
     return raw.decode("utf-8", errors="replace")
 
 
-def _parse_requirement_line(line: str) -> tuple[str, str | None] | None:
+@dataclass(frozen=True)
+class ParsedRequirement:
+    name: str
+    #: An exact pin, when the line has one.
+    pinned: str | None
+    #: The full range as written, when there is one and it is not an exact pin.
+    specifier: str | None
+
+    # The parsers were written against a (name, pinned) pair; keeping that
+    # shape means the specifier can be threaded through without touching
+    # every call site at once.
+    def __getitem__(self, index: int) -> str | None:
+        return (self.name, self.pinned)[index]
+
+
+def _parse_requirement_line(line: str) -> ParsedRequirement | None:
     line = line.strip()
     if not line or line.startswith("#") or line.startswith("-"):
         return None
@@ -169,7 +197,8 @@ def _parse_requirement_line(line: str) -> tuple[str, str | None] | None:
         if spec.operator in ("==", "==="):
             pinned = spec.version
             break
-    return req.name, pinned
+    specifier = str(req.specifier) if pinned is None and len(req.specifier) else None
+    return ParsedRequirement(req.name, pinned, specifier)
 
 
 _INCLUDE = re.compile(r"^(?:-r|--requirement)(?:\s+|=)(?P<target>\S.*?)\s*$")
@@ -219,7 +248,8 @@ def parse_requirements_txt(
             continue
         parsed = _parse_requirement_line(raw)
         if parsed:
-            deps.add(parsed[0], parsed[1], origin, direct=True)
+            deps.add(parsed.name, parsed.pinned, origin, direct=True,
+                     specifier=parsed.specifier)
 
 
 def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
@@ -235,12 +265,14 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
     for item in project.get("dependencies") or []:
         parsed = _parse_requirement_line(str(item))
         if parsed:
-            deps.add(parsed[0], parsed[1], origin, direct=True)
+            deps.add(parsed.name, parsed.pinned, origin, direct=True,
+                     specifier=parsed.specifier)
     for group in (project.get("optional-dependencies") or {}).values():
         for item in group or []:
             parsed = _parse_requirement_line(str(item))
             if parsed:
-                deps.add(parsed[0], parsed[1], origin, direct=True)
+                deps.add(parsed.name, parsed.pinned, origin, direct=True,
+                         specifier=parsed.specifier)
 
     # PEP 735 dependency groups
     for group in (data.get("dependency-groups") or {}).values():
@@ -248,7 +280,8 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
             if isinstance(item, str):
                 parsed = _parse_requirement_line(item)
                 if parsed:
-                    deps.add(parsed[0], parsed[1], origin, direct=True)
+                    deps.add(parsed.name, parsed.pinned, origin, direct=True,
+                             specifier=parsed.specifier)
 
     poetry = ((data.get("tool") or {}).get("poetry")) or {}
     for section in ("dependencies", "dev-dependencies"):

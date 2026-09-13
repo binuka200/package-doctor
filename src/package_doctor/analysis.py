@@ -22,6 +22,7 @@ class Analyzer:
         exposure_map: ExposureMap,
         thresholds: Thresholds | None = None,
         skip_repo: bool = False,
+        assume_latest: bool = True,
     ):
         self.pypi = PyPISource(client)
         self.osv = OSVSource(client)
@@ -30,6 +31,10 @@ class Analyzer:
         self.exposure_map = exposure_map
         self.thresholds = thresholds or Thresholds()
         self.skip_repo = skip_repo
+        #: With no pinned version, match advisories against the release a
+        #: fresh install would get. Labelled as an assumption everywhere it
+        #: shows, and switched off with --no-assume-latest.
+        self.assume_latest = assume_latest
 
     async def _fetch_pypi(self, name: str) -> tuple[dict | None, str | None]:
         """PyPI metadata, or the reason there is none.
@@ -80,6 +85,20 @@ class Analyzer:
         remediation.inactive_classifier = self.pypi.has_inactive_classifier(pypi_data)
         if last_release is None:
             remediation.gaps.append("no dated releases on PyPI")
+
+        if package.version is None and self.assume_latest:
+            # Nothing pins this, so the version a fresh install would resolve
+            # to is the most probable one - and the only one there is to
+            # judge. It is an assumption, recorded as one, and every claim
+            # made against it is worded that way downstream.
+            assumed = self.pypi.newest_matching(pypi_data, package.specifier)
+            if assumed:
+                package.version = assumed
+                package.version_assumed = True
+            elif package.specifier:
+                remediation.gaps.append(
+                    f"no PyPI release satisfies the declared range {package.specifier}"
+                )
 
         remediation.advisories = build_history(
             package.name, vulns, releases, package.version, latest_version=latest_version

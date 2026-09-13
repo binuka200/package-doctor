@@ -13,14 +13,16 @@ from rich.console import Console
 from rich.markup import escape
 
 from . import __version__
+from .accept import CONFIG_NAME, ConfigError, apply_acceptances, load_acceptances
 from .analysis import Analyzer
 from .cache import Cache, default_cache_path
 from .exposure import load_exposure_map
 from .models import Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
 from .parsers.discovery import MAX_MANIFEST_BYTES
-from .report import describe_degraded, render, render_explain, to_dict
+from .report import describe_degraded, render, render_explain, render_markdown, to_dict
 from .risk import Thresholds
+from .sarif import to_sarif
 from .sources.client import Client
 from .sources.pypi import normalise
 from .sourcescan import MAX_FILE_BYTES, build_index, detect_source_roots
@@ -86,12 +88,40 @@ def build_parser() -> argparse.ArgumentParser:
             "--stale-release-days", type=int, default=Thresholds.stale_release_days
         )
         p.add_argument("--stale-push-days", type=int, default=Thresholds.stale_push_days)
+        p.add_argument(
+            "--no-assume-latest",
+            dest="assume_latest",
+            action="store_false",
+            help=(
+                "with no pinned version, skip advisory matching instead of assuming "
+                "the newest release a fresh install would get"
+            ),
+        )
 
     scan = sub.add_parser("scan", help="scan a project's dependencies")
     scan.add_argument("path", nargs="?", default=".", help="project directory (default: .)")
     scan.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
     scan.add_argument(
         "--output", "-o", type=Path, help="write JSON to a file instead of stdout"
+    )
+    scan.add_argument(
+        "--sarif",
+        type=Path,
+        metavar="PATH",
+        help="also write a SARIF 2.1.0 report here, for GitHub code scanning and similar",
+    )
+    scan.add_argument(
+        "--markdown",
+        type=Path,
+        metavar="PATH",
+        help="also write the report as Markdown here, e.g. a CI job's step summary",
+    )
+    scan.add_argument(
+        "--config",
+        type=Path,
+        metavar="PATH",
+        help=f"accepted-risk file (default: {CONFIG_NAME} in the project, "
+             f"or [tool.package-doctor] in pyproject.toml)",
     )
     scan.add_argument("--show-ok", action="store_true", help="also list packages with no concerns")
     scan.add_argument(
@@ -225,6 +255,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
             Package(
                 name=name,
                 version=version,
+                specifier=deps.specifiers.get(name) if version is None else None,
                 direct=name in deps.direct,
                 origins=sorted(deps.origins.get(name, set())),
                 import_sites=[str(s) for s in sites],
@@ -247,6 +278,14 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         )
         return EXIT_USAGE
 
+    # Read before any network work: a malformed acceptance file is a usage
+    # error, and the user should hear about it in a second, not a minute.
+    try:
+        acceptances = load_acceptances(root, args.config)
+    except ConfigError as exc:
+        console.print(f"[red]Cannot read accepted risks:[/red] {escape(str(exc))}")
+        return EXIT_USAGE
+
     now = _now()
     cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
     exposure_map = load_exposure_map()
@@ -254,7 +293,8 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     try:
         async with Client(cache, concurrency=args.concurrency) as client:
             analyzer = Analyzer(
-                client, exposure_map, _thresholds(args), skip_repo=args.offline_repo
+                client, exposure_map, _thresholds(args), skip_repo=args.offline_repo,
+                assume_latest=args.assume_latest,
             )
             if args.as_json or args.output:
                 findings = await analyzer.analyze_all(packages, now)
@@ -274,8 +314,28 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     finally:
         cache.close()
 
+    acceptance_notes = apply_acceptances(findings, acceptances, now)
+
     source_names = [_display(p, root) for p in deps.sources]
     payload = to_dict(findings, source_names, now, degraded=degraded)
+
+    # The side outputs are written first, whatever the exit code turns out to
+    # be: a CI step that fails on findings still needs the SARIF it uploads
+    # and the summary it shows, and those are most useful exactly then.
+    if args.sarif:
+        args.sarif.write_text(
+            json.dumps(to_sarif(findings, root, now), indent=2), encoding="utf-8"
+        )
+        notes.print(f"[dim]Wrote {escape(str(args.sarif))}[/dim]")
+    if args.markdown:
+        args.markdown.write_text(
+            render_markdown(
+                findings, sources=source_names, now=now, degraded=degraded,
+                notes=acceptance_notes,
+            ),
+            encoding="utf-8",
+        )
+        notes.print(f"[dim]Wrote {escape(str(args.markdown))}[/dim]")
 
     if args.output:
         args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -285,11 +345,11 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     else:
         render(
             console, findings, sources=source_names, show_ok=args.show_ok, now=now,
-            degraded=degraded,
+            degraded=degraded, notes=acceptance_notes,
         )
 
     failing = _FAIL_LEVELS[args.fail_on]
-    if any(f.verdict in failing for f in findings):
+    if any(f.verdict in failing and not f.suppressed for f in findings):
         return EXIT_FINDINGS
     return EXIT_OK
 
@@ -303,16 +363,23 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     # Reachability is most useful exactly here, so check it when `explain` is
     # run inside a project rather than making the user go back to `scan`.
     root = Path(args.path).expanduser().resolve()
+    acceptances = None
     if not args.no_reachability and root.is_dir():
         version_from_lock = None
         try:
             deps = collect_dependencies(discover_manifests(root), root=root)
             version_from_lock = deps.versions.get(normalise(args.name))
             known = set(deps.versions)
+            if args.pin is None and not version_from_lock:
+                package.specifier = deps.specifiers.get(normalise(args.name))
         except Exception:
             known = set()
         if args.pin is None and version_from_lock:
             package.version = version_from_lock
+        try:
+            acceptances = load_acceptances(root, None)
+        except ConfigError as exc:
+            console.print(f"[yellow]Accepted risks not read:[/yellow] {escape(str(exc))}")
         sites: list = []
         for src_root in detect_source_roots(root):
             try:
@@ -329,12 +396,15 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     try:
         async with Client(cache, concurrency=args.concurrency) as client:
             analyzer = Analyzer(
-                client, exposure_map, _thresholds(args), skip_repo=args.offline_repo
+                client, exposure_map, _thresholds(args), skip_repo=args.offline_repo,
+                assume_latest=args.assume_latest,
             )
             finding = await analyzer.analyze(package, now)
             degraded = dict(client.degraded)
     finally:
         cache.close()
+    if acceptances is not None:
+        apply_acceptances([finding], acceptances, now)
 
     if args.as_json:
         print(json.dumps(to_dict([finding], [], now, degraded=degraded), indent=2))
@@ -347,7 +417,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     if finding.exposure.categories:
         note = exposure_map.describe(finding.exposure.categories[0])
     render_explain(console, finding, exposure_note=note)
-    return EXIT_FINDINGS if finding.verdict is Verdict.ACT else EXIT_OK
+    return EXIT_FINDINGS if finding.verdict is Verdict.ACT and not finding.suppressed else EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:

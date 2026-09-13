@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- **Accepted risks.** A `package-doctor.toml` next to the lockfile (or a
+  `[tool.package-doctor]` table in `pyproject.toml`) lists findings the team
+  has decided to carry, each with a reason and an expiry date, optionally
+  bound to a version. An accepted finding stops failing the build and moves
+  to its own section of the report; it is never hidden. When the date
+  passes, the build fails again and the row says the acceptance expired.
+  A malformed entry is a usage error, not a warning. `--config PATH` points
+  at a different file.
+- **Unpinned packages are matched against the newest release.** With no
+  lockfile, the version a fresh `pip install` would resolve to - highest
+  non-yanked, non-pre-release version satisfying the declared range - stands
+  in for the pin. It is marked `?` in the table, called an assumption in
+  every claim built on it, and carried as `version_assumed` in JSON.
+  `--no-assume-latest` restores the old behaviour of skipping advisory
+  matching.
+- **SARIF output.** `scan --sarif PATH` writes a SARIF 2.1.0 report: one
+  result per *act*, *watch* or *low* finding, located at the first import
+  site in the project's own source (or the line of the dependency file that
+  declared it), with an accepted risk carried as a SARIF suppression so a
+  dashboard shows it as dismissed with the reason.
+- **Markdown output.** `scan --markdown PATH` writes the report as
+  GitHub-flavoured Markdown, for a job's step summary.
+- **A GitHub Action.** `uses: binuka200/package-doctor@v0.3.0` scans the
+  checkout, fails on *act* findings, writes the step summary, and can upload
+  SARIF to code scanning. Responses are cached between runs.
+- **A pre-commit hook.** Runs the scan when a dependency file changes.
+
+### Changed
+
+- JSON `schema_version` is now 2: findings carry `version_assumed`,
+  `specifier` and `accepted`; the top level carries `accepted` and `assumed`
+  counts. Everything from version 1 is still present with the same meaning.
+- The `--fail-on` exit code ignores findings covered by an unexpired
+  acceptance. Verdicts themselves are unchanged by acceptance.
+
 ## [0.2.0] - 2026-09-13
 
 ### Added
@@ -135,6 +174,7 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/binuka200/package-doctor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/binuka200/package-doctor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/binuka200/package-doctor/releases/tag/v0.1.0
