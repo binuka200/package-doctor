@@ -1,0 +1,59 @@
+title: "[verdict] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every verdict is meant to be arguable from its evidence, so a verdict you
+        think is wrong is worth posting. Paste what the tool showed and say what
+        you expected: the discussion is about whether the evidence supports it.
+
+        If it's already clear a package is in the wrong list of the exposure map,
+        open an [exposure map correction](https://github.com/binuka200/package-doctor/issues/new?template=exposure-map.yml)
+        instead. A security issue in package-doctor itself should be
+        [reported privately](https://github.com/binuka200/package-doctor/security/advisories/new).
+  - type: input
+    id: package
+    attributes:
+      label: Package and version
+      placeholder: e.g. requests-toolbelt 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: What did it say?
+      options:
+        - Act on these (exposed, no one home)
+        - Watch (exposed, maintained)
+        - Low (stale, not exposed)
+        - OK
+        - Unknown / not checked
+        - A check or hook decision (block, warn, ok)
+    validations:
+      required: true
+  - type: textarea
+    id: explain
+    attributes:
+      label: Output of `package-doctor explain`
+      description: Run `package-doctor explain <package> --pin <version>` and paste the output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and why?
+      description: |
+        The part that matters. An advisory, a release, a maintainer statement or
+        a code path that the evidence above gets wrong or leaves out.
+      placeholder: |
+        It says "no commits in 1.7y", but the project moved to a new repository
+        in 2025 and released 1.1.0 there last month: <link>.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: package-doctor version
+      description: Output of `package-doctor --version`.
+      placeholder: package-doctor 0.8.3

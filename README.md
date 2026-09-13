@@ -702,6 +702,11 @@ a missing one.
 If you know a corner of Python well — Django, ML, crypto, packaging — twenty
 minutes reading the relevant category is worth more than a month of new entries.
 
+A verdict you think is wrong is worth the same. Post it in
+[Discussions](https://github.com/binuka200/package-doctor/discussions/categories/verdicts)
+with the output of `package-doctor explain`; questions go in
+[Q&A](https://github.com/binuka200/package-doctor/discussions/categories/q-a).
+
 ```bash
 git clone https://github.com/binuka200/package-doctor
 cd package-doctor
