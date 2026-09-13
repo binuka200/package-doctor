@@ -57,6 +57,10 @@ class Exposure:
     categories: list[str] = field(default_factory=list)
     confidence: Confidence = Confidence.NONE
     note: str | None = None
+    #: What convinced the curator, when the map records it: the advisory, the
+    #: API, or the reason the obvious guess is wrong. Shown so the entry can
+    #: be argued with rather than taken on trust.
+    why: str | None = None
 
     @property
     def is_exposed(self) -> bool:

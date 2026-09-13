@@ -12,6 +12,12 @@
 #   2. it makes an authentication or authorisation decision, OR
 #   3. it constructs queries or commands from caller-supplied values.
 #
+# An entry is a bare name or a table `{ name = "...", why = "..." }`. The
+# second form records what convinced the curator - the advisory, the API, the
+# reason the obvious guess is wrong - and is the one new entries should use.
+# `package-doctor explain` shows it, and a reviewer can argue with a sentence
+# where they could only shrug at a name.
+#
 # "Popular" is not a criterion. "Security-adjacent sounding" is not a criterion:
 # `xxhash` and `mmh3` are hash functions and are deliberately NOT in [category.crypto],
 # because they are not cryptographic. `tiktoken` tokenises text and is not auth.
@@ -20,7 +26,7 @@
 # Curated against the top 3,000 PyPI packages by download count. PRs welcome -
 # include the reasoning, not just the name.
 
-schema_version = 3
+schema_version = 4
 
 # -------------------------------------------------------------------------
 
@@ -37,7 +43,7 @@ packages = [
   "flask-security-too", "google-auth", "google-auth-httplib2", "google-auth-oauthlib",
   "google-cloud-os-login", "grpc-google-iam-v1", "id", "itsdangerous", "joserfc",
   "jwcrypto", "jwt", "krb5", "ldap3", "msal", "msal-extensions", "oauth2client",
-  "oauthlib", "pwdlib", "pycasbin", "pydata-google-auth", "pyjwt", "pymongo-auth-aws",
+  "oauthlib", "pwdlib", "pycasbin", "pydata-google-auth", { name = "pyjwt", why = "verifies bearer tokens; an algorithm-confusion bug here is an authentication bypass" }, "pymongo-auth-aws",
   "pyotp", "pysaml2", "pyspnego", "python-jose", "python-jwt", "python-keycloak",
   "python-ldap", "python-pam", "python3-openid", "python3-saml", "requests-aws-sign",
   "requests-aws4auth", "requests-kerberos", "requests-ntlm", "requests-oauthlib",
@@ -50,7 +56,7 @@ description = "Cryptographic primitives, certificates, secrets and TLS"
 packages = [
   "acme", "argon2-cffi", "argon2-cffi-bindings", "asn1crypto", "aws-encryption-sdk",
   "azure-keyvault-certificates", "azure-keyvault-secrets", "bcrypt", "blake3",
-  "certifi", "coincurve", "cryptg", "cryptography", "ecdsa", "eth-keyfile",
+  "certifi", "coincurve", "cryptg", { name = "cryptography", why = "TLS, X.509 and primitives; every consumer's trust root" }, "ecdsa", "eth-keyfile",
   "google-cloud-kms", "google-cloud-secret-manager", "http-ece", "hvac", "keyring",
   "msoffcrypto-tool", "nacl", "ndg-httpsclient", "oscrypto", "passlib", "pgpy",
   "pip-system-certs", "py-vapid", "pyaes", "pyasn1", "pyasn1-modules", "pycrypto",
@@ -64,10 +70,10 @@ packages = [
 label = "deserialization"
 description = "Turning untrusted bytes into live objects"
 packages = [
-  "apscheduler", "avro", "avro-gen3", "avro-python3", "betterproto", "bson", "cattrs",
+  { name = "apscheduler", why = "job stores pickle job state; an attacker who can write the store runs code" }, "avro", "avro-gen3", "avro-python3", "betterproto", "bson", "cattrs",
   "cbor2", "chardet", "charset-normalizer", "cloudpickle", "dataclass-wizard",
-  "dataclasses-json", "dill", "diskcache", "djangorestframework-dataclasses",
-  "fastavro", "fastjsonschema", "flask-caching", "flatbuffers",
+  "dataclasses-json", "dill", { name = "diskcache", why = "Cache.get() unpickles stored values; a writable cache dir is code execution (GHSA-r8gq-9x9w-jcpg)" }, "djangorestframework-dataclasses",
+  "fastavro", "fastjsonschema", { name = "flask-caching", why = "cache backends unpickle entries; advisories cite unsafe deserialization" }, "flatbuffers",
   "googleapis-common-protos", "grpcio-tools", "hydra-core", "ijson", "isodate",
   "jiter", "jmespath", "joblib", "json-logic", "json-merge-patch", "jsonpatch",
   "jsonpickle", "jsonpointer", "jsonref", "jsonschema", "jsonschema-rs",
@@ -76,9 +82,9 @@ packages = [
   "omegaconf", "openapi-schema-validator", "orjson", "ormsgpack", "oyaml",
   "pickleshare", "protobuf", "protobuf3-to-dict", "py-serializable", "pyaml",
   "pyarrow", "pydantic", "pydantic-core", "pyjson5", "pykwalify", "python-dateutil",
-  "python-frontmatter", "python-rapidjson", "pyyaml", "pyyaml-env-tag", "pyyaml-ft",
+  "python-frontmatter", "python-rapidjson", { name = "pyyaml", why = "yaml.load with the default Loader instantiated arbitrary objects until 5.1; unsafe loaders remain" }, "pyyaml-env-tag", "pyyaml-ft",
   "pyyaml-include", "rapidjson", "referencing", "ruamel-yaml", "ruamel-yaml-clib",
-  "scapy", "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
+  { name = "scapy", why = "parses raw packets from the wire; advisories cite unsafe deserialization of captures" }, "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
   "typedload", "ujson", "yamale",
 ]
 
@@ -116,8 +122,8 @@ packages = [
 label = "html/xml parsing"
 description = "Parsing or sanitising attacker-supplied markup"
 packages = [
-  "beautifulsoup4", "biopython", "bleach", "branca", "bs4", "commonmark", "css-inline",
-  "cssselect2", "cssutils", "dateparser", "defusedxml", "djlint", "docutils",
+  "beautifulsoup4", { name = "biopython", why = "parses sequence files from arbitrary sources; advisory is XXE in the XML parsers" }, "bleach", "branca", "bs4", "commonmark", "css-inline",
+  "cssselect2", "cssutils", "dateparser", { name = "defusedxml", why = "the PSF-recommended defence against XML attacks; exists to sit at the boundary" }, "djlint", "docutils",
   "elementpath", "feedparser", "html-to-markdown", "html2text", "html5lib", "htmldate",
   "junitparser", "justext", "lark", "latex2mathml", "libsass", "lxml",
   "lxml-html-clean", "markdown", "markdown-it-py", "markdown2", "markdownify",
@@ -179,7 +185,7 @@ packages = [
   "apache-airflow", "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash",
   "django", "django-cors-headers", "djangorestframework", "drf-extensions",
   "drf-spectacular", "falcon", "fastapi", "flask", "flask-cors", "flask-restful",
-  "graphene", "graphql-core", "jupyter-server", "mangum", "prefect", "pyramid",
+  "graphene", "graphql-core", { name = "jupyter-server", why = "serves an HTTP API; advisories are CORS bypass and path traversal" }, "mangum", "prefect", "pyramid",
   "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit", "web-py",
 ]
 
@@ -209,7 +215,7 @@ label = "archive extraction"
 description = "Unpacking archives, where path traversal and zip bombs live"
 packages = [
   "backports-zstd", "brotli", "compressed-rtf", "cramjam", "extract-msg", "fastar",
-  "inflate64", "libarchive-c", "patool", "pdm", "py7zr", "pybcj", "pyppmd",
+  "inflate64", "libarchive-c", "patool", { name = "pdm", why = "unpacks wheels and sdists from an index; advisories are path traversal while extracting" }, "py7zr", "pybcj", "pyppmd",
   "python-lzo", "python-oxmsg", "pyzipper", "pyzstd", "rarfile", "tarsafe",
   "zipfile38", "zipp", "zlib-ng", "zstandard", "zstd",
 ]
@@ -224,7 +230,7 @@ packages = [
   "img2pdf", "latexcodec", "mammoth", "mutagen", "odfpy", "olefile",
   "opencv-contrib-python", "opencv-python", "opencv-python-headless", "openpyxl",
   "pandas", "pdf2image", "pdfkit", "pdfminer-six", "pdfplumber", "pdfrw", "piexif",
-  "pikepdf", "pil", "pillow", "pydicom", "pydub", "pydyf", "pymupdf", "pypdf",
+  "pikepdf", "pil", { name = "pillow", why = "decodes image files from uploads; CVE-2023-4863 is on CISA's known-exploited list" }, "pydicom", "pydub", "pydyf", "pymupdf", "pypdf",
   "pypdf2", "pypdfium2", "pytesseract", "python-calamine", "python-docx",
   "python-magic", "python-pptx", "pyxlsb", "rapidocr", "rapidocr-onnxruntime", "rembg",
   "reportlab", "scikit-image", "svglib", "tinytag", "torchcodec", "unstructured",
@@ -235,7 +241,7 @@ packages = [
 label = "remote access"
 description = "Executing commands or scripts, locally or on remote hosts"
 packages = [
-  "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", "lupa",
+  "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", { name = "lupa", why = "runs Lua from caller-supplied source; advisories are sandbox escapes" },
   "netmiko", "paramiko", "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp",
   "sh", "sshtunnel", "subprocess-tee",
 ]
@@ -276,7 +282,8 @@ packages = [
 # "we checked" is distinguishable from "we never looked" - without it, metadata
 # inference fires on names that merely sound security-adjacent.
 #
-# Each entry records why the obvious guess is wrong.
+# Each entry records why the obvious guess is wrong, as data rather than
+# as a comment, so `explain` can show it and a reviewer can argue with it.
 #
 # Reviewed as families rather than one by one, being thin generated API wrappers
 # or typing stubs whose real trust boundary is the transport underneath them
@@ -297,100 +304,99 @@ packages = [
 [reviewed]
 not_exposed = [
 
-  "absl-py",                      # flags and logging
-  "aiohappyeyeballs",             # connection racing helper
-  "aioresponses",                 # test double for aiohttp
-  "aiosignal",                    # callback container
-  "anyio",                        # async concurrency plumbing
-  "argcomplete",                  # shell tab completion
-  "asgi-correlation-id",          # adds a request id to logs
-  "asgi-lifespan",                # drives ASGI startup and shutdown
-  "asttokens",                    # AST source positions
-  "backoff",                      # retry decorator
-  "celery-types",                 # typing stubs
-  "click",                        # CLI argument parsing
-  "concurrent-log-handler",       # rotates local log files
-  "curlify",                      # formats a request object as a curl command
-  "db-dtypes",                    # pandas dtype definitions
-  "dbt-adapters",                 # adapter protocol definitions
-  "dj-database-url",              # expands a connection string into Django settings
-  "django-health-check",          # liveness endpoints
-  "django-js-asset",              # renders a script tag
-  "django-silk",                  # request profiler
-  "emoji",                        # emoji name lookup table
-  "fake-useragent",               # returns user agent strings; parses nothing
-  "fakeredis",                    # in-process test double, not a client
-  "frozenlist",                   # immutable list
-  "gitdb",                        # git object storage
-  "gitpython",                    # git plumbing wrapper
-  "greenlet",                     # coroutine primitives
-  "griffe",                       # extracts Python API signatures; not cryptographic signatures
-  "griffecli",                    # same as griffe
-  "griffelib",                    # same as griffe
-  "grpc-stubs",                   # typing stubs
-  "hashids",                      # obfuscates integers; its own docs say it is not secure
-  "hatchling",                    # build backend
-  "importlib-metadata",           # distribution metadata access
-  "ipykernel",                    # interactive kernel
-  "ipython",                      # interactive shell
-  "junit-xml",                    # writes JUnit XML, does not parse it
-  "jupyter-client",               # kernel transport on a local socket
-  "jupytext",                     # converts notebooks to text formats
-  "kiwisolver",                   # constraint solver; "Cassowary" is an algorithm
-  "lazy-object-proxy",            # object proxy, not a network proxy
-  "libtmux",                      # wraps the tmux CLI; the ORM wording is a metaphor
-  "makefun",                      # creates functions dynamically from signatures
-  "mkdocs",                       # static site generator for trusted local sources
-  "mkdocs-material",              # theme for mkdocs
-  "mkdocs-material-extensions",   # theme extensions for mkdocs
-  "mmh3",                         # MurmurHash: non-cryptographic
-  "mongomock",                    # in-process test double, not a client
-  "multidict",                    # dict subclass used by aiohttp
-  "google-crc32c",                # checksum routine
-  "google-pasta",                 # AST refactoring of your own source
-  "nanoid",                       # random ID generator; URL-friendly, but parses no URLs
-  "nest-asyncio",                 # patches asyncio to allow nested event loops
-  "pytest-runner",                # invokes pytest as a distutils command
-  "smmap",                        # sliding-window memory map used by gitpython
-  "typed-ast",                    # parses your own Python source, not input
-  "uc-micro-py",                  # static unicode data tables
-  "num2words",                    # converts numbers to words; its advisories are a
-                                  # maintainer account compromise, not input handling
-  "networkx",                     # graph data structures, not networking
-  "numpy-financial",              # financial arithmetic
-  "pkginfo",                      # reads local distribution metadata
-  "port-for",                     # picks a free local TCP port
-  "portalocker",                  # file locking
-  "propcache",                    # property caching
-  "psutil",                       # process and system metrics
-  "pycparser",                    # parses C headers at build time, not runtime input
-  "pyproject-hooks",              # build backend invocation
-  "pytest",                       # test runner
-  "python-dotenv",                # reads local .env files
-  "python-json-logger",           # formats log output, does not parse input
-  "pytokens",                     # Python source tokeniser, not auth tokens
-  "repoze-lru",                   # in-memory LRU cache
-  "respx",                        # test double for httpx
-  "rich",                         # terminal rendering
-  "semver",                       # version string comparison
-  "sentry-sdk",                   # telemetry egress
-  "shellingham",                  # detects the surrounding shell, runs nothing
-  "snowballstemmer",              # word stemming algorithms
-  "sphinx-design",                # documentation components
-  "stack-data",                   # traceback formatting
-  "swagger-ui-bundle",            # ships static UI assets
-  "tenacity",                     # retry decorator
-  "testing-postgresql",           # spins up a throwaway database for tests
-  "tiktoken",                     # BPE tokeniser, not authentication tokens
-  "tqdm",                         # progress bars
-  "traitlets",                    # configuration system
-  "trove-classifiers",            # static classifier list
-  "unittest-xml-reporting",       # writes test result XML
-  "uvloop",                       # event loop implementation
-  "vcrpy",                        # records and replays HTTP in tests
-  "venusian",                     # defers decorator actions
-  "virtualenv",                   # environment creation
-  "wrapt",                        # decorators and monkey patching
-  "xxhash",                       # non-cryptographic hash, despite the name
-  "argparse",                     # stdlib since 3.2; the PyPI package is a legacy backport
+  { name = "absl-py", why = "flags and logging" },
+  { name = "aiohappyeyeballs", why = "connection racing helper" },
+  { name = "aioresponses", why = "test double for aiohttp" },
+  { name = "aiosignal", why = "callback container" },
+  { name = "anyio", why = "async concurrency plumbing" },
+  { name = "argcomplete", why = "shell tab completion" },
+  { name = "asgi-correlation-id", why = "adds a request id to logs" },
+  { name = "asgi-lifespan", why = "drives ASGI startup and shutdown" },
+  { name = "asttokens", why = "AST source positions" },
+  { name = "backoff", why = "retry decorator" },
+  { name = "celery-types", why = "typing stubs" },
+  { name = "click", why = "CLI argument parsing" },
+  { name = "concurrent-log-handler", why = "rotates local log files" },
+  { name = "curlify", why = "formats a request object as a curl command" },
+  { name = "db-dtypes", why = "pandas dtype definitions" },
+  { name = "dbt-adapters", why = "adapter protocol definitions" },
+  { name = "dj-database-url", why = "expands a connection string into Django settings" },
+  { name = "django-health-check", why = "liveness endpoints" },
+  { name = "django-js-asset", why = "renders a script tag" },
+  { name = "django-silk", why = "request profiler" },
+  { name = "emoji", why = "emoji name lookup table" },
+  { name = "fake-useragent", why = "returns user agent strings; parses nothing" },
+  { name = "fakeredis", why = "in-process test double, not a client" },
+  { name = "frozenlist", why = "immutable list" },
+  { name = "gitdb", why = "git object storage" },
+  { name = "gitpython", why = "git plumbing wrapper" },
+  { name = "greenlet", why = "coroutine primitives" },
+  { name = "griffe", why = "extracts Python API signatures; not cryptographic signatures" },
+  { name = "griffecli", why = "same as griffe" },
+  { name = "griffelib", why = "same as griffe" },
+  { name = "grpc-stubs", why = "typing stubs" },
+  { name = "hashids", why = "obfuscates integers; its own docs say it is not secure" },
+  { name = "hatchling", why = "build backend" },
+  { name = "importlib-metadata", why = "distribution metadata access" },
+  { name = "ipykernel", why = "interactive kernel" },
+  { name = "ipython", why = "interactive shell" },
+  { name = "junit-xml", why = "writes JUnit XML, does not parse it" },
+  { name = "jupyter-client", why = "kernel transport on a local socket" },
+  { name = "jupytext", why = "converts notebooks to text formats" },
+  { name = "kiwisolver", why = "constraint solver; 'Cassowary' is an algorithm" },
+  { name = "lazy-object-proxy", why = "object proxy, not a network proxy" },
+  { name = "libtmux", why = "wraps the tmux CLI; the ORM wording is a metaphor" },
+  { name = "makefun", why = "creates functions dynamically from signatures" },
+  { name = "mkdocs", why = "static site generator for trusted local sources" },
+  { name = "mkdocs-material", why = "theme for mkdocs" },
+  { name = "mkdocs-material-extensions", why = "theme extensions for mkdocs" },
+  { name = "mmh3", why = "MurmurHash: non-cryptographic" },
+  { name = "mongomock", why = "in-process test double, not a client" },
+  { name = "multidict", why = "dict subclass used by aiohttp" },
+  { name = "google-crc32c", why = "checksum routine" },
+  { name = "google-pasta", why = "AST refactoring of your own source" },
+  { name = "nanoid", why = "random ID generator; URL-friendly, but parses no URLs" },
+  { name = "nest-asyncio", why = "patches asyncio to allow nested event loops" },
+  { name = "pytest-runner", why = "invokes pytest as a distutils command" },
+  { name = "smmap", why = "sliding-window memory map used by gitpython" },
+  { name = "typed-ast", why = "parses your own Python source, not input" },
+  { name = "uc-micro-py", why = "static unicode data tables" },
+  { name = "num2words", why = "converts numbers to words; its advisories are a maintainer account compromise, not input handling" },
+  { name = "networkx", why = "graph data structures, not networking" },
+  { name = "numpy-financial", why = "financial arithmetic" },
+  { name = "pkginfo", why = "reads local distribution metadata" },
+  { name = "port-for", why = "picks a free local TCP port" },
+  { name = "portalocker", why = "file locking" },
+  { name = "propcache", why = "property caching" },
+  { name = "psutil", why = "process and system metrics" },
+  { name = "pycparser", why = "parses C headers at build time, not runtime input" },
+  { name = "pyproject-hooks", why = "build backend invocation" },
+  { name = "pytest", why = "test runner" },
+  { name = "python-dotenv", why = "reads local .env files" },
+  { name = "python-json-logger", why = "formats log output, does not parse input" },
+  { name = "pytokens", why = "Python source tokeniser, not auth tokens" },
+  { name = "repoze-lru", why = "in-memory LRU cache" },
+  { name = "respx", why = "test double for httpx" },
+  { name = "rich", why = "terminal rendering" },
+  { name = "semver", why = "version string comparison" },
+  { name = "sentry-sdk", why = "telemetry egress" },
+  { name = "shellingham", why = "detects the surrounding shell, runs nothing" },
+  { name = "snowballstemmer", why = "word stemming algorithms" },
+  { name = "sphinx-design", why = "documentation components" },
+  { name = "stack-data", why = "traceback formatting" },
+  { name = "swagger-ui-bundle", why = "ships static UI assets" },
+  { name = "tenacity", why = "retry decorator" },
+  { name = "testing-postgresql", why = "spins up a throwaway database for tests" },
+  { name = "tiktoken", why = "BPE tokeniser, not authentication tokens" },
+  { name = "tqdm", why = "progress bars" },
+  { name = "traitlets", why = "configuration system" },
+  { name = "trove-classifiers", why = "static classifier list" },
+  { name = "unittest-xml-reporting", why = "writes test result XML" },
+  { name = "uvloop", why = "event loop implementation" },
+  { name = "vcrpy", why = "records and replays HTTP in tests" },
+  { name = "venusian", why = "defers decorator actions" },
+  { name = "virtualenv", why = "environment creation" },
+  { name = "wrapt", why = "decorators and monkey patching" },
+  { name = "xxhash", why = "non-cryptographic hash, despite the name" },
+  { name = "argparse", why = "stdlib since 3.2; the PyPI package is a legacy backport" },
 ]

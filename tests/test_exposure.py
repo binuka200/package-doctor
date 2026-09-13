@@ -66,14 +66,20 @@ def _norm(n: str) -> str:
     return re.sub(r"[-_.]+", "-", n).lower()
 
 
+def _names(block) -> list[str]:
+    """Names of one list, whether entries are bare names or {name, why} tables."""
+    from package_doctor.exposure import entries
+    return [name for name, _ in entries(block)]
+
+
 def test_no_package_is_both_exposed_and_reviewed_safe():
     """A contradiction here would make the verdict depend on lookup order."""
     raw = _raw_map()
     exposed = {
-        _norm(p) for block in raw["category"].values() for p in block["packages"]
+        _norm(p) for block in raw["category"].values() for p in _names(block["packages"])
     }
-    safe = {_norm(p) for p in raw["stable"]["packages"]}
-    safe |= {_norm(p) for p in raw["reviewed"]["not_exposed"]}
+    safe = {_norm(p) for p in _names(raw["stable"]["packages"])}
+    safe |= {_norm(p) for p in _names(raw["reviewed"]["not_exposed"])}
     assert not (exposed & safe), f"listed as both exposed and safe: {sorted(exposed & safe)}"
 
 
@@ -82,8 +88,8 @@ def test_mature_entries_keep_their_exposure_category():
     trust boundary and complete by design, so they keep the category and lose
     only the age-based reasoning."""
     raw = _raw_map()
-    exposed = {_norm(p) for block in raw["category"].values() for p in block["packages"]}
-    for name in raw["stable"].get("mature", []):
+    exposed = {_norm(p) for block in raw["category"].values() for p in _names(block["packages"])}
+    for name in _names(raw["stable"].get("mature", [])):
         assert _norm(name) in exposed, f"{name} is mature but has no exposure category"
 
 
@@ -108,7 +114,7 @@ def test_command_line_parsers_are_not_trust_boundaries():
 def test_no_duplicate_entries_within_the_map():
     raw = _raw_map()
     for name, block in raw["category"].items():
-        names = [_norm(p) for p in block["packages"]]
+        names = [_norm(p) for p in _names(block["packages"])]
         assert len(names) == len(set(names)), f"duplicates in category.{name}"
 
 

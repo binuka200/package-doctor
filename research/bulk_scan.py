@@ -39,6 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from package_doctor.cache import Cache
+from package_doctor.cwe import cwe_ids
 from package_doctor.exposure import load_exposure_map
 from package_doctor.sources.client import Client
 from package_doctor.sources.ecosystems import EcosystemsSource
@@ -110,6 +111,9 @@ async def scan_one(
             "advisories_late": history.late,
             "median_late_days": history.median_late_days,
             "advisories_undatable": history.unmatched,
+            # Every CWE id the advisories cite. suggest_map.py reads these to
+            # rank unreviewed packages by what went wrong, without refetching.
+            "advisory_cwes": sorted({c for v in vulns for c in cwe_ids(v)}),
         }
     )
 

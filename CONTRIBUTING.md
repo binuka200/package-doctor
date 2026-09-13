@@ -60,16 +60,30 @@ package-doctor scan . --json -o scan.json
 python research/suggest_map.py --scan scan.json
 ```
 
-That ranks the packages the map has no opinion about by how much the silence
-costs, and prints what each one is for. Working the top of that list beats
-reading down a popularity ranking.
+That ranks the packages the map has no opinion about by what their
+advisories say went wrong — a deserialization or injection CWE argues for a
+category far better than an advisory count does — then by how much the
+silence costs, and prints what each one is for. Working the top of that list
+beats reading down a popularity ranking.
+
+### Writing the entry
+
+Use the table form and put the reason in the data, not just the PR:
+
+```toml
+{ name = "foo", why = "load() unpickles whatever you hand it, see GHSA-xxxx" },
+```
+
+`package-doctor explain foo` shows that sentence, and it is what the next
+reviewer argues with. CI fails on a new category entry without a `why`;
+entries that predate the field are listed in `tests/exposure_unexplained.txt`,
+and removing a name from that list when you write its reason is a welcome
+contribution on its own.
 
 ### Opening the PR
 
-One category change per PR where you can, and say **why** in the description —
-ideally quoting the advisory or the API that convinced you. "Adds `foo`" is hard
-to review; "adds `foo`, its `load()` unpickles whatever you hand it, see
-GHSA-xxxx" takes ten seconds.
+One category change per PR where you can. With the reason in the entry, the
+description only needs to say what you read to reach it.
 
 ## Code
 

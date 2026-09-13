@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Evidence per map entry.** An exposure map entry can be a table
+  `{ name = "...", why = "..." }` recording what convinced the curator.
+  `explain` shows it under *Why* and the JSON carries it as `exposure.why`.
+  Every reviewed-and-cleared entry now records its reason as data rather
+  than as a comment. Category entries without one are frozen in
+  `tests/exposure_unexplained.txt`, which only shrinks; CI fails on a new
+  category entry that does not say why.
+- **CWE-guided map suggestions.** `research/suggest_map.py` reads the CWE
+  ids on each unreviewed package's advisories and ranks packages whose
+  advisories cite a trust-boundary weakness (deserialization, injection,
+  traversal, authentication, certificate validation) above ones that are
+  merely unfixed or archived, with the category the advisories argue for.
+  The mapping lives in `package_doctor.cwe`; `bulk_scan.py` records the
+  ids so a dataset carries them.
+
+### Changed
+
+- Exposure map `schema_version` is 4.
+
 ## [0.3.0] - 2026-09-13
 
 ### Added

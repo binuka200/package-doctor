@@ -60,32 +60,66 @@ _KEYWORD_HINTS: tuple[tuple[str, str], ...] = (
     ("sanitiz", "html/xml parsing"),
 )
 
+def entries(block: Any) -> list[tuple[str, str | None]]:
+    """The (name, why) pairs of one list in the map.
+
+    An entry is either a bare name or a table ``{ name = "...", why = "..." }``.
+    The second form is the one that makes the map arguable: a reader can see
+    what convinced the curator without redoing the research, and a reviewer
+    can disagree with a sentence rather than with a name. Both forms load,
+    so the file can grow evidence entry by entry.
+    """
+    out: list[tuple[str, str | None]] = []
+    for item in block or []:
+        if isinstance(item, dict):
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"exposure map entry without a name: {item!r}")
+            why = item.get("why")
+            reason = why.strip() if isinstance(why, str) and why.strip() else None
+            out.append((name.strip(), reason))
+        else:
+            out.append((str(item), None))
+    return out
+
+
 class ExposureMap:
     def __init__(self, data: dict[str, Any]):
         self._by_package: dict[str, list[str]] = {}
         self._labels: dict[str, str] = {}
         self._descriptions: dict[str, str] = {}
+        #: normalised name -> the recorded reason for its entry, when there is one.
+        self._why: dict[str, str] = {}
         for key, block in (data.get("category") or {}).items():
             label = block.get("label", key)
             self._labels[key] = label
             self._descriptions[key] = block.get("description", "")
-            for name in block.get("packages") or []:
-                self._by_package.setdefault(normalise(str(name)), []).append(label)
-        self._stable = {
-            normalise(str(n)) for n in ((data.get("stable") or {}).get("packages") or [])
-        }
+            for name, why in entries(block.get("packages")):
+                self._by_package.setdefault(normalise(name), []).append(label)
+                if why:
+                    self._why[normalise(name)] = why
+        stable_block = data.get("stable") or {}
+        self._stable = set()
+        for name, why in entries(stable_block.get("packages")):
+            self._stable.add(normalise(name))
+            if why:
+                self._why[normalise(name)] = why
         # Reviewed and deliberately not exposed. Distinct from "never looked at":
         # an entry here suppresses metadata inference, so a package cannot be
         # flagged just because its name or classifiers sound security-adjacent.
-        self._reviewed_safe = {
-            normalise(str(n)) for n in ((data.get("reviewed") or {}).get("not_exposed") or [])
-        }
+        self._reviewed_safe = set()
+        for name, why in entries((data.get("reviewed") or {}).get("not_exposed")):
+            self._reviewed_safe.add(normalise(name))
+            if why:
+                self._why[normalise(name)] = why
         # At a trust boundary AND deliberately finished. Keeps the exposure
         # category - these packages genuinely handle untrusted input - while
         # exempting them from age-based reasoning.
-        self._mature = {
-            normalise(str(n)) for n in ((data.get("stable") or {}).get("mature") or [])
-        }
+        self._mature = set()
+        for name, why in entries(stable_block.get("mature")):
+            self._mature.add(normalise(name))
+            if why:
+                self._why[normalise(name)] = why
 
     @property
     def size(self) -> int:
@@ -100,6 +134,15 @@ class ExposureMap:
     def is_reviewed(self, name: str) -> bool:
         key = normalise(name)
         return key in self._by_package or key in self._stable or key in self._reviewed_safe
+
+    def why(self, name: str) -> str | None:
+        """The recorded reason behind a package's entry, if the curator left one."""
+        return self._why.get(normalise(name))
+
+    @property
+    def explained(self) -> int:
+        """Entries that carry a reason. The number to grow."""
+        return len(self._why)
 
     def is_known_stable(self, name: str) -> bool:
         """True for packages where release age carries no information.
@@ -119,15 +162,19 @@ class ExposureMap:
 
     def lookup(self, name: str, pypi_info: dict[str, Any] | None = None) -> Exposure:
         key = normalise(name)
+        why = self._why.get(key)
         curated = self._by_package.get(key)
         if curated:
-            return Exposure(categories=sorted(set(curated)), confidence=Confidence.CURATED)
+            return Exposure(
+                categories=sorted(set(curated)), confidence=Confidence.CURATED, why=why
+            )
 
         if key in self._stable:
             return Exposure(
                 categories=[],
                 confidence=Confidence.CURATED,
                 note="reviewed: stable utility, not at a trust boundary",
+                why=why,
             )
 
         if key in self._reviewed_safe:
@@ -135,6 +182,7 @@ class ExposureMap:
                 categories=[],
                 confidence=Confidence.CURATED,
                 note="reviewed: not at a trust boundary",
+                why=why,
             )
 
         if pypi_info:

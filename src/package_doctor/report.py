@@ -469,6 +469,8 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         row("Means", exposure_note)
     if finding.exposure.note:
         row("Note", finding.exposure.note)
+    if finding.exposure.why:
+        row("Why", finding.exposure.why)
     row("Dependency", "direct" if pkg.direct else "transitive")
     if pkg.origins:
         row("Declared in", ", ".join(sorted(pkg.origins)))
@@ -668,6 +670,7 @@ def to_dict(
                 "categories": finding.exposure.categories,
                 "confidence": finding.exposure.confidence.value,
                 "note": finding.exposure.note,
+                "why": finding.exposure.why,
             },
             "remediation": {
                 "latest_version": rem.latest_version,
