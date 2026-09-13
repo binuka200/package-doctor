@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-13
+
 ### Added
 
 - **`check`: a guardrail for the moment a dependency is added.**
@@ -252,7 +254,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/binuka200/package-doctor/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/binuka200/package-doctor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/binuka200/package-doctor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/binuka200/package-doctor/compare/v0.1.0...v0.2.0
