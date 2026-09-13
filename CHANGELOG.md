@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Overlapping source roots double-counted import sites.** Auto-detection
+  returns each package directory and the project root when it holds a
+  script - `core` and `.` for a layout with `core/__init__.py` and
+  `app.py` - and a file under both was indexed and reported twice, so
+  `explain` listed every site twice and one package claimed 65 sites
+  where there were 33. Overlapping `--src` values did the same. Only the
+  outermost roots are walked now, and sites from several roots are merged
+  by resolved path and line rather than by their rendered string.
+
 ## [0.8.0] - 2026-09-13
 
 ### Added

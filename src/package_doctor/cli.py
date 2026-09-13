@@ -45,7 +45,13 @@ from .risk import Thresholds
 from .sarif import to_sarif
 from .sources.client import Client
 from .sources.pypi import normalise
-from .sourcescan import MAX_FILE_BYTES, build_index, detect_source_roots
+from .sourcescan import (
+    MAX_FILE_BYTES,
+    build_index,
+    detect_source_roots,
+    merge_sites,
+    prune_nested_roots,
+)
 
 #: Refuse to look up more packages than this without being asked.
 #:
@@ -298,18 +304,21 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     # Positive evidence only - see sourcescan for why absence proves nothing.
     index = None
     if not args.no_reachability:
-        roots = args.src or detect_source_roots(root)
+        requested = [Path(p).expanduser().resolve() for p in (args.src or [])]
+        for missing in requested:
+            if not (missing.is_dir() or missing.is_file()):
+                notes.print(
+                    f"[yellow]No such file or directory, skipping:[/yellow] "
+                    f"{escape(str(missing))}"
+                )
+        requested = [p for p in requested if p.is_dir() or p.is_file()]
+        # Only the outermost roots are walked: a file under two of them was
+        # indexed and reported twice.
+        roots = prune_nested_roots(requested) if args.src else detect_source_roots(root)
         known = set(deps.versions)
         merged: dict[str, list] = {}
         scanned = 0
         for src_root in roots:
-            src_root = Path(src_root).expanduser().resolve()
-            if not (src_root.is_dir() or src_root.is_file()):
-                notes.print(
-                    f"[yellow]No such file or directory, skipping:[/yellow] "
-                    f"{escape(str(src_root))}"
-                )
-                continue
             part = build_index(src_root, known_packages=known, display_root=root)
             scanned += part.files_scanned
             if part.files_too_large:
@@ -320,9 +329,9 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
                     f"not checked.[/dim]"
                 )
             for dist, sites in part.sites.items():
-                merged.setdefault(dist, []).extend(sites)
+                merged.setdefault(dist, []).append(sites)
         if scanned:
-            index = merged
+            index = {dist: merge_sites(parts) for dist, parts in merged.items()}
 
     packages = []
     for name, version in sorted(deps.versions.items()):
@@ -458,15 +467,16 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
             acceptances = load_acceptances(root, None)
         except ConfigError as exc:
             console.print(f"[yellow]Accepted risks not read:[/yellow] {escape(str(exc))}")
-        sites: list = []
+        parts: list[list] = []
         for src_root in detect_source_roots(root):
             try:
-                sites.extend(
+                parts.append(
                     build_index(src_root, known_packages=known, display_root=root)
                     .for_package(args.name)
                 )
             except Exception:
                 continue
+        sites = merge_sites(parts)
         package.reachability_checked = True
         package.import_sites = [str(s) for s in sites]
         package.imported_in_tests_only = bool(sites) and all(s.in_test for s in sites)

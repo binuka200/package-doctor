@@ -75,9 +75,17 @@ class ImportSite:
     file: str      # relative to the project root
     line: int
     in_test: bool
+    #: The resolved absolute path, for deduplication across source roots.
+    #: Two roots that both contain a file render it under two relative
+    #: paths, or under one; neither is a safe key. This is.
+    path: str = ""
 
     def __str__(self) -> str:
         return f"{self.file}:{self.line}"
+
+    @property
+    def key(self) -> tuple[str, int]:
+        return (self.path or self.file, self.line)
 
 
 @dataclass
@@ -238,7 +246,7 @@ def build_index(
                 index.unresolved.add(module)
                 continue
 
-            index.add(resolved, ImportSite(module, rel, line, in_test))
+            index.add(resolved, ImportSite(module, rel, line, in_test, str(path.resolve())))
 
     # Keep sites deterministic and readable: first occurrence per file.
     for dist, sites in index.sites.items():
@@ -260,17 +268,65 @@ def _relative(path: Path, *roots: Path) -> str:
     given relative to the working directory, which is where the user typed
     it, and failing that in full.
     """
-    for root in roots:
+    # The project root first, then the working directory, then the root
+    # that was walked: a --src outside the project renders as the user would
+    # type it (`core/models/user.py`) rather than relative to itself
+    # (`models/user.py`), which loses the directory that identifies it.
+    display, *walked = roots
+    for root in (display, Path.cwd(), *walked):
         if root == path:
             continue
         try:
             return path.relative_to(root).as_posix()
         except ValueError:
             continue
+    return str(path)
+
+
+def prune_nested_roots(roots: list[Path]) -> list[Path]:
+    """Drop every root that lies inside another, and repeats.
+
+    Auto-detection returns each package directory and the project root when
+    it holds a script - `core` and `.` for a layout with `core/__init__.py`
+    and `app.py` - and the user can pass overlapping `--src` values too. A
+    file under two roots was walked twice and reported twice, with
+    flask-restful showing 65 import sites where there were 33. Walking only
+    the outermost roots removes the double count and the double work.
+    """
+    resolved: list[Path] = []
+    for root in roots:
+        candidate = Path(root).expanduser().resolve()
+        if candidate not in resolved:
+            resolved.append(candidate)
+    kept: list[Path] = []
+    for candidate in resolved:
+        inside_another = any(
+            other != candidate and _is_within(candidate, other) for other in resolved
+        )
+        if not inside_another:
+            kept.append(candidate)
+    return kept
+
+
+def _is_within(path: Path, root: Path) -> bool:
     try:
-        return path.relative_to(Path.cwd()).as_posix()
+        path.relative_to(root)
     except ValueError:
-        return str(path)
+        return False
+    return root.is_dir()
+
+
+def merge_sites(parts: list[list[ImportSite]]) -> list[ImportSite]:
+    """Combine sites from several roots, one entry per file and line.
+
+    Keyed on the resolved path, not the rendered one; ordering matches a
+    single index so the output does not depend on which root came first.
+    """
+    seen: dict[tuple[str, int], ImportSite] = {}
+    for sites in parts:
+        for site in sites:
+            seen.setdefault(site.key, site)
+    return sorted(seen.values(), key=lambda s: (s.in_test, s.file, s.line))
 
 
 def detect_source_roots(root: Path) -> list[Path]:
@@ -293,4 +349,4 @@ def detect_source_roots(root: Path) -> list[Path]:
             candidates.append(child)
     if any(root.glob("*.py")):
         candidates.append(root)
-    return candidates or [root]
+    return prune_nested_roots(candidates or [root])
