@@ -58,8 +58,11 @@ FAMILIES: dict[str, tuple[bool, list[str]]] = {
     "jwt": (True, ["pyjwt", "python-jose", "authlib", "joserfc", "jwcrypto"]),
     "flask auth extensions": (True, [
         "flask-login", "flask-jwt-extended", "flask-security-too", "flask-httpauth",
-        "flask-ipfilter",
+        "flask-ipfilter", "flask-jwt", "flask-passlib",
     ]),
+    "flask api frameworks": (True, ["flask-restful", "flask-restplus", "flask-restx"]),
+    "wsgi and asgi servers": (True, ["gunicorn", "uvicorn", "uwsgi"]),
+    "celery and its tooling": (True, ["celery", "kombu", "flower"]),
     "task and job queues over a wire protocol": (True, ["gearman3", "python3-gearman", "kombu"]),
     "packaging toolchain": (True, ["pip", "setuptools", "wheel"]),
     # Not exposed: the obvious guess is wrong for the same reason across the family.

@@ -52,6 +52,9 @@ packages = [
   { name = "flask-httpauth", why = "Basic, Digest and token auth for Flask; CVE-2026-34531 invoked the verification callback on a missing or empty token, which is an authentication bypass" },
   { name = "flask-ipfilter", why = "decides which client IPs may reach the app; it reads the remote address the WSGI stack reports, so behind a misconfigured ProxyFix the allowlist is decided by a client-supplied header" },
   { name = "legacycrypt", why = "ctypes binding to crypt(3) used for password hashing; the same shelf as passlib, and unlike passlib it has no repository to read activity from" },
+  { name = "flower", why = "monitoring web UI for Celery that makes its own authentication decision; GHSA-q4qm-xhf9-4p8f is an OAuth authentication bypass" },
+  { name = "flask-jwt", why = "verifies bearer tokens for Flask; no advisories on record and no release since 2015, which is the exposed-and-nobody-home case" },
+  { name = "flask-passlib", why = "thin wrapper over passlib for password hashing; the same shelf" },
 ]
 
 [category.crypto]
@@ -237,6 +240,7 @@ packages = [
   { name = "python-engineio", why = "Engine.IO transport under python-socketio; parses client packets, advisories are denial of service and CSRF" },
   { name = "gearman3", why = "Gearman client and worker; parses the wire protocol and hands job payloads off a broker to the application - opaque bytes, nothing is unpickled, so the boundary is the transport rather than the decoder" },
   { name = "python3-gearman", why = "another Python 3 fork of the Gearman API; the same wire-protocol boundary as gearman3" },
+  { name = "uwsgi", why = "the HTTP server itself; GHSA-h2vm-c85r-5vh5 is directory traversal and the mod_proxy advisories are response smuggling, the same boundary as gunicorn" },
 ]
 
 [category.framework]
@@ -249,6 +253,8 @@ packages = [
   "drf-spectacular", "falcon", "fastapi", "flask", "flask-cors", "flask-restful",
   "graphene", "graphql-core", { name = "jupyter-server", why = "serves an HTTP API; advisories are CORS bypass and path traversal" }, "mangum", "prefect", "pyramid",
   "python-multipart", "quart", "sanic", "strawberry-graphql", "streamlit", "web-py",
+  { name = "flask-restplus", why = "request handling and routing over Flask, the same boundary as flask-restful; unmaintained, succeeded by flask-restx" },
+  { name = "flask-restx", why = "request handling and routing over Flask; the maintained successor to flask-restplus" },
 ]
 
 [category.query]

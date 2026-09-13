@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Nested discovery.** When the project root has no dependency files,
+  `scan` looks up to two directories down - never into tests, docs,
+  examples, fixtures, vendored code or hidden directories - and says which
+  files it used. A root with files sees no change. `scan .` now works for
+  a project whose requirements live in `configs/`.
+- **`setup.cfg`.** `install_requires` and `extras_require` are read.
+  `setup.py` is deliberately not: a computed `install_requires` is
+  invisible to a parser, and a partial answer that looks complete is the
+  failure this tool exists to avoid.
+- **`explain --src`.** The same repeatable option `scan` has, through the
+  same root pruning and merge, so both commands report identical sites.
+- Map entries, each with a reason: `flower` (auth; GHSA-q4qm-xhf9-4p8f is
+  an OAuth bypass) and `flask-jwt` (auth); `uwsgi` (http); `flask-passlib`
+  (crypto); `flask-restplus` and `flask-restx` (web framework). Three new
+  families: Flask API frameworks, WSGI and ASGI servers, Celery and its
+  tooling.
+
 ## [0.8.1] - 2026-09-13
 
 ### Fixed

@@ -366,7 +366,8 @@ package-doctor explain legacy-auth
 
 Run inside the project, it reads the pinned version from the lockfile so the
 advisories are matched against what you actually install. Anywhere else, pass
-it: `package-doctor explain pillow --pin 10.0.0`.
+it: `package-doctor explain pillow --pin 10.0.0`. `explain` takes the same
+`--src PATH` as `scan`, so both report the same import sites.
 
 ### No lockfile?
 
@@ -517,9 +518,18 @@ else.
 | `--no-cache` | bypass the local response cache |
 
 Reads `uv.lock`, `poetry.lock`, `Pipfile.lock`, `pyproject.toml` (PEP 621,
-PEP 735 and Poetry), `Pipfile`, `requirements*.txt`, `requirements/*.txt` and
-one level below that (`requirements/<env>/*.txt`), following `-r` includes
-within the project. `scan PATH` takes a directory or one of those files.
+PEP 735 and Poetry), `Pipfile`, `setup.cfg` (`install_requires` and extras),
+`requirements*.txt`, `requirements/*.txt` and one level below that
+(`requirements/<env>/*.txt`), following `-r` includes within the project.
+`scan PATH` takes a directory or one of those files.
+
+Discovery is shallow on purpose: recursing finds vendored fixtures and
+example projects, and a report about someone else's test data is noise. When
+the root has no dependency files at all, a bounded fallback looks up to two
+directories down, never entering tests, docs, examples, fixtures, vendored
+code or hidden directories, and says which files it used. `setup.py` is not
+read: an `install_requires` computed in Python is invisible to a parser, and
+a partial answer that looks complete is the failure this tool exists to avoid.
 
 Dependencies that come from git, a URL or a local path — a `git+ssh://` line,
 an `-e` editable, a `name @ url` reference, a git source in a lockfile — are

@@ -31,8 +31,8 @@ from .guard import (
     parse_requirement,
 )
 from .models import Finding, Package, Verdict
-from .parsers import collect_dependencies, discover_manifests
-from .parsers.discovery import MAX_MANIFEST_BYTES, is_dependency_file
+from .parsers import collect_dependencies, discover_manifests, discover_nested
+from .parsers.discovery import MAX_MANIFEST_BYTES, NESTED_DEPTH, is_dependency_file
 from .report import (
     describe_degraded,
     describe_not_analysed,
@@ -190,6 +190,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--path", default=".", help="project directory to check for imports (default: .)"
     )
     explain.add_argument(
+        "--src",
+        type=Path,
+        action="append",
+        metavar="PATH",
+        help="source directory or file to check for imports (repeatable; default: auto-detect)",
+    )
+    explain.add_argument(
         "--no-reachability", action="store_true", help="skip the import scan of your own source"
     )
     explain.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
@@ -267,6 +274,17 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         root, paths = target.parent, [target]
     elif target.is_dir():
         root, paths = target, discover_manifests(target)
+        if not paths:
+            # Nothing at the root: look a little way down, skipping the
+            # places where somebody else's dependency files live.
+            paths = discover_nested(target)
+            if paths:
+                shown = ", ".join(_display(p, root) for p in paths[:4])
+                more = f" and {len(paths) - 4} more" if len(paths) > 4 else ""
+                notes.print(
+                    f"[dim]No dependency files at the root; using {shown}{more}, found "
+                    f"up to {NESTED_DEPTH} directories down.[/dim]"
+                )
     else:
         console.print(f"[red]No such file or directory:[/red] {escape(str(target))}")
         return EXIT_USAGE
@@ -275,7 +293,9 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         console.print(f"[yellow]No dependency files found in[/yellow] {escape(str(root))}")
         console.print(
             "[dim]Looked for: uv.lock, poetry.lock, Pipfile.lock, pyproject.toml, "
-            "Pipfile, requirements*.txt[/dim]"
+            "Pipfile, setup.cfg, requirements*.txt - at the root and up to "
+            f"{NESTED_DEPTH} directories down, outside tests, docs, examples and "
+            "vendored code.[/dim]"
         )
         return EXIT_USAGE
 
@@ -454,7 +474,8 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     if not args.no_reachability and root.is_dir():
         version_from_lock = None
         try:
-            deps = collect_dependencies(discover_manifests(root), root=root)
+            manifests = discover_manifests(root) or discover_nested(root)
+            deps = collect_dependencies(manifests, root=root)
             version_from_lock = deps.versions.get(normalise(args.name))
             known = set(deps.versions)
             if args.pin is None and not version_from_lock:
@@ -467,8 +488,19 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
             acceptances = load_acceptances(root, None)
         except ConfigError as exc:
             console.print(f"[yellow]Accepted risks not read:[/yellow] {escape(str(exc))}")
+        if args.src:
+            requested = [Path(p).expanduser().resolve() for p in args.src]
+            for missing in requested:
+                if not (missing.is_dir() or missing.is_file()):
+                    console.print(
+                        f"[yellow]No such file or directory, skipping:[/yellow] "
+                        f"{escape(str(missing))}"
+                    )
+            roots = prune_nested_roots([p for p in requested if p.is_dir() or p.is_file()])
+        else:
+            roots = detect_source_roots(root)
         parts: list[list] = []
-        for src_root in detect_source_roots(root):
+        for src_root in roots:
             try:
                 parts.append(
                     build_index(src_root, known_packages=known, display_root=root)

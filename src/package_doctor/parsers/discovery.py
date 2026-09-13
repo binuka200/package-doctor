@@ -9,6 +9,7 @@ reacts to a finding.
 
 from __future__ import annotations
 
+import configparser
 import json
 import re
 import stat
@@ -25,8 +26,25 @@ if sys.version_info >= (3, 11):
 else:  # pragma: no cover - exercised only on 3.10
     import tomli as tomllib
 
-MANIFESTS = ("pyproject.toml", "Pipfile")
+MANIFESTS = ("pyproject.toml", "Pipfile", "setup.cfg")
 LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock")
+
+#: How far below the root the fallback search looks when the root itself has
+#: no dependency files. Two levels reaches `configs/requirements.txt` and
+#: `app/pyproject.toml`; it does not walk a monorepo.
+NESTED_DEPTH = 2
+
+#: Directories the fallback search never enters. The first group is never
+#: the project's own code; the second is where somebody else's dependency
+#: files live - a fixture with a requirements.txt is the reason discovery
+#: was shallow to begin with.
+NESTED_SKIP = frozenset({
+    ".git", ".hg", ".svn", ".venv", "venv", "env", ".env", "node_modules",
+    "__pycache__", ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "build", "dist", "site-packages", ".eggs", "htmlcov", ".idea", ".vscode",
+    "tests", "test", "testing", "examples", "example", "docs", "doc",
+    "fixtures", "fixture", "vendor", "vendored", "third_party", "third-party",
+})
 REQUIREMENTS_GLOB = "requirements*.txt"
 #: The pip-tools and Django convention: one file per environment in a
 #: directory, usually pulled in from a root requirements.txt with ``-r``.
@@ -151,18 +169,25 @@ def is_dependency_file(path: Path) -> bool:
     )
 
 
+def _files_in(directory: Path) -> list[Path]:
+    """The dependency files directly inside one directory, in a fixed order."""
+    found: list[Path] = []
+    for name in (*LOCKFILES, *MANIFESTS):
+        path = directory / name
+        if path.is_file():
+            found.append(path)
+    found.extend(sorted(p for p in directory.glob(REQUIREMENTS_GLOB) if p.is_file()))
+    return found
+
+
 def discover_manifests(root: Path) -> list[Path]:
     """Locate dependency files at the project root.
 
     Deliberately shallow: recursing finds vendored fixtures and test data, and
-    a scan that reports someone else's test fixtures is noise.
+    a scan that reports someone else's test fixtures is noise. When the root
+    has nothing, `discover_nested` is the bounded fallback.
     """
-    found: list[Path] = []
-    for name in (*LOCKFILES, *MANIFESTS):
-        path = root / name
-        if path.is_file():
-            found.append(path)
-    found.extend(sorted(p for p in root.glob(REQUIREMENTS_GLOB) if p.is_file()))
+    found = _files_in(root)
     reqdir = root / REQUIREMENTS_DIR
     if reqdir.is_dir():
         found.extend(sorted(p for p in reqdir.glob("*.txt") if p.is_file()))
@@ -170,6 +195,33 @@ def discover_manifests(root: Path) -> list[Path]:
         # and requirements/portable/*.txt, and pip-tools layouts often do the
         # same per environment. No deeper than that, on purpose.
         found.extend(sorted(p for p in reqdir.glob("*/*.txt") if p.is_file()))
+    return found
+
+
+def discover_nested(root: Path, depth: int = NESTED_DEPTH) -> list[Path]:
+    """Dependency files up to ``depth`` directories below a root that has none.
+
+    Used only when the root is empty, so a project with files at the root
+    sees no change. Nothing under NESTED_SKIP is entered, and the result is
+    every recognised file in the directories that remain, shallowest first,
+    so `configs/requirements.txt` is found and `tests/fixtures/requirements.txt`
+    is not.
+    """
+    found: list[Path] = []
+    frontier = [root]
+    for _ in range(depth):
+        next_frontier: list[Path] = []
+        for directory in frontier:
+            try:
+                children = sorted(c for c in directory.iterdir() if c.is_dir())
+            except OSError:
+                continue
+            for child in children:
+                if child.name in NESTED_SKIP or child.name.startswith("."):
+                    continue
+                found.extend(_files_in(child))
+                next_frontier.append(child)
+        frontier = next_frontier
     return found
 
 
@@ -430,6 +482,37 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
             deps.add(name, pinned, origin, direct=True, specifier=specifier)
 
 
+def parse_setup_cfg(path: Path, deps: DependencySet, text: str) -> None:
+    """``[options] install_requires`` and ``[options.extras_require]``.
+
+    setup.cfg is declarative, so this cannot be wrong the way a static read
+    of setup.py can: an install_requires computed in Python is invisible to
+    a parser, and a partial answer that looks complete is the failure this
+    tool exists to avoid. So setup.py is not read at all.
+    """
+    origin = path.name
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return
+    own = parser.get("metadata", "name", fallback=None)
+    if own:
+        deps.mark_local(own.strip())
+    lines = [parser.get("options", "install_requires", fallback="")]
+    if parser.has_section("options.extras_require"):
+        lines.extend(value for _, value in parser.items("options.extras_require"))
+    for block in lines:
+        for raw in block.splitlines():
+            unresolvable = _unresolvable_line(raw.strip())
+            if unresolvable:
+                deps.mark_not_analysed(*unresolvable)
+                continue
+            parsed = _parse_requirement_line(raw)
+            if parsed:
+                _record(deps, parsed, origin)
+
+
 def _load_toml(text: str) -> dict | None:
     """Parse TOML, treating anything the parser cannot survive as unparseable.
 
@@ -534,6 +617,7 @@ def parse_pipfile(path: Path, deps: DependencySet, text: str) -> None:
 
 _PARSERS = {
     "pyproject.toml": parse_pyproject,
+    "setup.cfg": parse_setup_cfg,
     "uv.lock": parse_uv_lock,
     "poetry.lock": parse_poetry_lock,
     "Pipfile.lock": parse_pipfile_lock,
