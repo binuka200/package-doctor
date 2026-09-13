@@ -81,8 +81,16 @@ def load_acceptances(root: Path, explicit: Path | None = None) -> Acceptances:
 
 
 def _read(path: Path) -> dict:
+    # Bounded read, not read-then-check: this file can come from a project
+    # package-doctor does not control (a checked-in package-doctor.toml, or a
+    # [tool.package-doctor] table in a pyproject.toml pulled in by a CI job
+    # scanning an external PR). Reading the whole thing before measuring it
+    # defeats the point of the cap - an oversized file is fully buffered in
+    # memory by the time it is rejected. One byte past the limit is enough to
+    # know it is too large without ever reading the rest of it.
     try:
-        raw = path.read_bytes()
+        with path.open("rb") as fh:
+            raw = fh.read(MAX_CONFIG_BYTES + 1)
     except OSError as exc:
         raise ConfigError(f"cannot read {path}: {exc.strerror or exc}") from exc
     if len(raw) > MAX_CONFIG_BYTES:
