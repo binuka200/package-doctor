@@ -26,13 +26,14 @@
 # Curated against the top 3,000 PyPI packages by download count. PRs welcome -
 # include the reasoning, not just the name.
 
-schema_version = 4
+schema_version = 5
 
 # -------------------------------------------------------------------------
 
 [category.auth]
 label = "auth/session"
 description = "Authentication, authorisation, sessions and token handling"
+consequence = "account takeover"
 packages = [
   "adal", "aiobotocore", "alibabacloud-credentials", "alibabacloud-credentials-api",
   "auth0-python", "authcaptureproxy", "authlib", "aws-requests-auth", "azure-identity",
@@ -53,6 +54,7 @@ packages = [
 [category.crypto]
 label = "crypto"
 description = "Cryptographic primitives, certificates, secrets and TLS"
+consequence = "data access"
 packages = [
   "acme", "argon2-cffi", "argon2-cffi-bindings", "asn1crypto", "aws-encryption-sdk",
   "azure-keyvault-certificates", "azure-keyvault-secrets", "bcrypt", "blake3",
@@ -68,33 +70,66 @@ packages = [
 
 [category.deserialization]
 label = "deserialization"
-description = "Turning untrusted bytes into live objects"
+description = "Loading formats whose decoder can instantiate arbitrary objects or run code: pickle and everything built on it, unsafe YAML loaders, config that names classes"
+consequence = "code execution"
 packages = [
-  { name = "apscheduler", why = "job stores pickle job state; an attacker who can write the store runs code" }, "avro", "avro-gen3", "avro-python3", "betterproto", "bson", "cattrs",
-  "cbor2", "chardet", "charset-normalizer", "cloudpickle", "dataclass-wizard",
-  "dataclasses-json", "dill", { name = "diskcache", why = "Cache.get() unpickles stored values; a writable cache dir is code execution (GHSA-r8gq-9x9w-jcpg)" }, "djangorestframework-dataclasses",
-  "fastavro", "fastjsonschema", { name = "flask-caching", why = "cache backends unpickle entries; advisories cite unsafe deserialization" }, "flatbuffers",
-  "googleapis-common-protos", "grpcio-tools", "hydra-core", "ijson", "isodate",
-  "jiter", "jmespath", "joblib", "json-logic", "json-merge-patch", "jsonpatch",
-  "jsonpickle", "jsonpointer", "jsonref", "jsonschema", "jsonschema-rs",
-  "jsonschema-specifications", "marshmallow", "marshmallow-dataclass",
-  "marshmallow-sqlalchemy", "mashumaro", "msgpack", "msgspec", "nltk", "numpy",
-  "omegaconf", "openapi-schema-validator", "orjson", "ormsgpack", "oyaml",
-  "pickleshare", "protobuf", "protobuf3-to-dict", "py-serializable", "pyaml",
-  "pyarrow", "pydantic", "pydantic-core", "pyjson5", "pykwalify", "python-dateutil",
-  "python-frontmatter", "python-rapidjson", { name = "pyyaml", why = "yaml.load with the default Loader instantiated arbitrary objects until 5.1; unsafe loaders remain" }, "pyyaml-env-tag", "pyyaml-ft",
-  "pyyaml-include", "rapidjson", "referencing", "ruamel-yaml", "ruamel-yaml-clib",
-  { name = "scapy", why = "parses raw packets from the wire; advisories cite unsafe deserialization of captures" }, "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
-  "typedload", "ujson", "yamale",
+  { name = "apscheduler", why = "job stores pickle job state; an attacker who can write the store runs code" },
   { name = "celery", why = "consumes broker messages and deserialises task arguments; the pickle serializer is code execution, and GHSA-q4xr-rc97-m4xx is command injection from task arguments" },
-  { name = "rq", why = "jobs are pickled into Redis and unpickled by workers; whoever can write the queue runs code" },
+  { name = "cloudpickle", why = "pickle with extended coverage; loading is arbitrary code execution by design" },
+  { name = "dill", why = "pickle with extended coverage; loading is arbitrary code execution by design" },
+  { name = "diskcache", why = "Cache.get() unpickles stored values; a writable cache dir is code execution (GHSA-r8gq-9x9w-jcpg)" },
   { name = "dramatiq", why = "decodes messages from the broker; its PickleEncoder turns a writable broker into code execution" },
+  { name = "flask-caching", why = "cache backends unpickle entries; advisories cite unsafe deserialization" },
   { name = "huey", why = "tasks are serialised with pickle by default; a writable broker is code execution" },
+  { name = "hydra-core", why = "instantiates the class named by _target_ in a config it is handed" },
+  { name = "joblib", why = "joblib.load is pickle; model files from anywhere are code" },
+  { name = "jsonpickle", why = "reconstructs arbitrary Python classes from JSON, which is code execution (CVE-2020-22083)" },
+  { name = "nltk", why = "downloads and unpickles model data from an index; a pickled model is code" },
+  { name = "numpy", why = "np.load with allow_pickle reconstructs arbitrary objects; the default was True until 1.16.3" },
+  { name = "omegaconf", why = "resolvers evaluate expressions in config values; hydra builds objects from them" },
+  { name = "oyaml", why = "drop-in wrapper over pyyaml; the same loaders" },
+  { name = "pickleshare", why = "a pickle-backed shelf; a writable store is code execution" },
+  { name = "pyaml", why = "pretty printer over pyyaml; loads through it" },
+  { name = "pyarrow", why = "IPC and Parquet readers reconstructed PyExtensionType via pickle (CVE-2023-47248: arbitrary code execution)" },
+  { name = "pyyaml", why = "yaml.load with the default Loader instantiated arbitrary objects until 5.1; unsafe loaders remain" },
+  { name = "pyyaml-env-tag", why = "adds a constructor to pyyaml loaders; the loader class it runs under decides safety" },
+  { name = "pyyaml-ft", why = "fork of pyyaml; the same loaders" },
+  { name = "pyyaml-include", why = "an !include constructor that reads other files named in the document" },
+  { name = "rq", why = "jobs are pickled into Redis and unpickled by workers; whoever can write the queue runs code" },
+  { name = "ruamel-yaml", why = "YAML(typ='unsafe') and the legacy load() construct arbitrary Python objects" },
+  { name = "ruamel-yaml-clib", why = "C parser under ruamel-yaml; memory safety of the same loader" },
+  { name = "scapy", why = "parses raw packets from the wire; advisories cite unsafe deserialization of captures" },
+  { name = "srsly", why = "spaCy's serialisers, including pickle; loading is code execution for that format" },
+  { name = "tablib", why = "imports datasets from many formats, and its YAML import went through yaml.load until it was fixed" },
+  { name = "tblib", why = "unpickles tracebacks through pickling_support; a pickle stream is code" },
+]
+
+[category.parsing]
+label = "data parsing"
+description = "Decoding structured data - JSON, MessagePack, Avro, Protobuf, dates, encodings, schemas - where a hostile input means denial of service or a validation bypass, not code execution"
+consequence = "denial of service"
+packages = [
+  "avro", "avro-gen3", "avro-python3", "betterproto",
+  "bson", "cattrs", "cbor2", "chardet",
+  "charset-normalizer", "dataclass-wizard", "dataclasses-json", "djangorestframework-dataclasses",
+  "fastavro", "fastjsonschema", "flatbuffers", "googleapis-common-protos",
+  "grpcio-tools", "ijson", "isodate", "jiter",
+  "jmespath", "json-logic", "json-merge-patch", "jsonpatch",
+  "jsonpointer", "jsonref", "jsonschema", "jsonschema-rs",
+  "jsonschema-specifications", "marshmallow", "marshmallow-dataclass", "marshmallow-sqlalchemy",
+  "mashumaro", "msgpack", "msgspec", "openapi-schema-validator",
+  "orjson", "ormsgpack", "protobuf", "protobuf3-to-dict",
+  "py-serializable", "pydantic", "pydantic-core", "pyjson5",
+  "pykwalify", "python-dateutil", "python-frontmatter", "python-rapidjson",
+  "rapidjson", "referencing", "simplejson", "strictyaml",
+  "thrift", "toons", "typedload", "ujson",
+  "yamale",
 ]
 
 [category.ml_model]
 label = "model loading"
 description = "Loading model weights or datasets, where pickle formats are arbitrary code execution"
+consequence = "code execution"
 packages = [
   "accelerate", "compressed-tensors", "ctranslate2", "datasets", "diffusers",
   "docling-ibm-models", "gguf", "huggingface-hub", "keras", "langgraph-checkpoint",
@@ -109,6 +144,7 @@ packages = [
 [category.llm_agent]
 label = "llm/agent"
 description = "Loading untrusted documents or acting on model output, where prompt injection is the trust boundary"
+consequence = "prompt injection"
 packages = [
   "langchain", "langchain-core", "langchain-community", "langchain-text-splitters",
   "langchain-openai", "langchain-anthropic", "langchain-mistralai", "langchain-google-genai",
@@ -126,6 +162,7 @@ packages = [
 [category.markup]
 label = "html/xml parsing"
 description = "Parsing or sanitising attacker-supplied markup"
+consequence = "script injection"
 packages = [
   "beautifulsoup4", { name = "biopython", why = "parses sequence files from arbitrary sources; advisory is XXE in the XML parsers" }, "bleach", "branca", "bs4", "commonmark", "css-inline",
   "cssselect2", "cssutils", "dateparser", { name = "defusedxml", why = "the PSF-recommended defence against XML attacks; exists to sit at the boundary" }, "djlint", "docutils",
@@ -144,6 +181,7 @@ packages = [
 [category.templating]
 label = "templating"
 description = "Rendering templates, where injection becomes code execution"
+consequence = "code execution"
 packages = [
   "chameleon", "cheetah3", "genshi", "jinja2", "mako", "pystache",
   { name = "dynaconf", why = "evaluates @jinja and @format markers in settings values; GHSA-pxrr-hq57-q35p is code execution through that template evaluation" },
@@ -152,6 +190,7 @@ packages = [
 [category.url]
 label = "url parsing"
 description = "Parsing or normalising URLs and hostnames, where SSRF starts"
+consequence = "request forgery"
 packages = [
   "courlan", "fqdn", "fsspec", "furl", "giturlparse", "groovy", "hyperlink", "idna",
   "packageurl-python", "publicsuffix2", "purl", "rfc3986", "rfc3987", "s3fs",
@@ -164,6 +203,7 @@ packages = [
 [category.http]
 label = "http/network"
 description = "Moving attacker-influenced bytes across a trust boundary"
+consequence = "request forgery"
 packages = [
   "a2wsgi", "aio-pika", "aiohttp", "aiohttp-cors", "aiohttp-jinja2", "aiohttp-socks",
   "aioquic", "aiormq", "aiosmtplib", "amqp", "asgiref", "autobahn", "cachecontrol",
@@ -195,6 +235,7 @@ packages = [
 [category.framework]
 label = "web framework"
 description = "Request handling, routing and session management"
+consequence = "account takeover"
 packages = [
   "apache-airflow", "ariadne", "bottle", "cadwyn", "cherrypy", "connexion", "dash",
   "django", "django-cors-headers", "djangorestframework", "drf-extensions",
@@ -206,6 +247,7 @@ packages = [
 [category.query]
 label = "query building"
 description = "Building queries or commands from caller-supplied values"
+consequence = "data access"
 packages = [
   "aiomysql", "aiosqlite", "alembic", "asyncpg", "cassandra-driver", "chdb", "chromadb", "qdrant-client", "pinecone-client",
   "weaviate-client", "pgvector", "lancedb", "lmdb", "pymilvus", "faiss-cpu",
@@ -230,6 +272,7 @@ packages = [
 [category.archive]
 label = "archive extraction"
 description = "Unpacking archives, where path traversal and zip bombs live"
+consequence = "file write"
 packages = [
   "backports-zstd", "brotli", "compressed-rtf", "cramjam", "extract-msg", "fastar",
   "inflate64", "libarchive-c", "patool", { name = "pdm", why = "unpacks wheels and sdists from an index; advisories are path traversal while extracting" }, "py7zr", "pybcj", "pyppmd",
@@ -240,6 +283,7 @@ packages = [
 [category.filetype]
 label = "file/media parsing"
 description = "Parsing uploaded documents, images, fonts and media"
+consequence = "memory corruption"
 packages = [
   "audioread", "borb", "cairosvg", "docling", "docling-parse", "docling-slim",
   "docx2txt", "docxtpl", "easyocr", "exifread", "fastexcel", "filetype", "fonttools",
@@ -257,6 +301,7 @@ packages = [
 [category.remote_exec]
 label = "remote access"
 description = "Executing commands or scripts, locally or on remote hosts"
+consequence = "code execution"
 packages = [
   "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", { name = "lupa", why = "runs Lua from caller-supplied source; advisories are sandbox escapes" },
   "netmiko", "paramiko", "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp",

@@ -61,6 +61,10 @@ class Exposure:
     #: API, or the reason the obvious guess is wrong. Shown so the entry can
     #: be argued with rather than taken on trust.
     why: str | None = None
+    #: What a flaw at this boundary tends to cost - "code execution", "denial
+    #: of service" - from the category. A word for the reader and a tiebreak
+    #: for the report's ordering; never a number and never a verdict.
+    consequence: str | None = None
 
     @property
     def is_exposed(self) -> bool:

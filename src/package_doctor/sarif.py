@@ -179,6 +179,7 @@ def to_sarif(findings: list[Finding], root: Path, now: dt.datetime) -> dict[str,
                 "verdict": finding.verdict.value,
                 "exposure": finding.exposure.categories,
                 "exposureConfidence": finding.exposure.confidence.value,
+                "consequence": finding.exposure.consequence,
                 "advisoriesAffectingVersion": (
                     finding.remediation.advisories.ids_affecting_current
                 ),

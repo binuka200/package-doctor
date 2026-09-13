@@ -85,7 +85,6 @@ chromadb
 clickhouse-connect
 clickhouse-driver
 cloud-sql-python-connector
-cloudpickle
 cloudscraper
 cohere
 coincurve
@@ -113,7 +112,6 @@ dbutils
 ddgs
 deep-translator
 diffusers
-dill
 django
 django-allauth
 django-axes
@@ -245,7 +243,6 @@ httpx-sse
 httpx-ws
 huggingface-hub
 hvac
-hydra-core
 hypercorn
 hyperframe
 hyperlink
@@ -264,13 +261,11 @@ jaydebeapi
 jinja2
 jiter
 jmespath
-joblib
 joserfc
 json-logic
 json-merge-patch
 json-rpc
 jsonpatch
-jsonpickle
 jsonpointer
 jsonref
 jsonschema
@@ -368,13 +363,10 @@ ndg-httpsclient
 neo4j
 netmiko
 nh3
-nltk
-numpy
 oauth2client
 oauthlib
 odfpy
 olefile
-omegaconf
 onnx
 onnx-ir
 onnxruntime
@@ -393,7 +385,6 @@ orjson
 ormar
 ormsgpack
 oscrypto
-oyaml
 packageurl-python
 paho-mqtt
 pamqp
@@ -416,7 +407,6 @@ pg8000
 pglast
 pgpy
 pgvector
-pickleshare
 piexif
 pika
 pikepdf
@@ -449,8 +439,6 @@ py-serializable
 py-vapid
 py7zr
 pyaes
-pyaml
-pyarrow
 pyasn1
 pyasn1-modules
 pyautogen
@@ -522,9 +510,6 @@ python3-saml
 pytorch-lightning
 pywebpush
 pyxlsb
-pyyaml-env-tag
-pyyaml-ft
-pyyaml-include
 pyzipper
 pyzmq
 pyzstd
@@ -563,8 +548,6 @@ rfc8785
 rjsmin
 rsa
 rtfde
-ruamel-yaml
-ruamel-yaml-clib
 runs
 s3fs
 s3transfer
@@ -609,7 +592,6 @@ sqlfluff
 sqlglot
 sqlmodel
 sqlparse
-srsly
 sse-starlette
 sshtunnel
 sslyze
@@ -621,10 +603,8 @@ strictyaml
 subprocess-tee
 svglib
 svgwrite
-tablib
 tarsafe
 tavily-python
-tblib
 tensorflow
 teradatasql
 teradatasqlalchemy

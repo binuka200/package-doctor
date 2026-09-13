@@ -12,6 +12,7 @@ unknown; it is never quietly treated as "safe" or as "risky".
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -83,17 +84,55 @@ def entries(block: Any) -> list[tuple[str, str | None]]:
     return out
 
 
+#: What a flaw at each kind of boundary tends to cost, worst first.
+#:
+#: This is a vocabulary, not a score. Each category names one of these, the
+#: report uses the order to break ties between findings with the same
+#: evidence - a stale pickle loader above a stale JSON parser - and
+#: `explain` shows the word. Nothing sums it, weights it, or turns it into
+#: a number, and it never changes a verdict.
+CONSEQUENCE_ORDER: tuple[str, ...] = (
+    "code execution",
+    "memory corruption",
+    "file write",
+    "account takeover",
+    "data access",
+    "script injection",
+    "request forgery",
+    "prompt injection",
+    "denial of service",
+)
+
+
+def consequence_rank(value: str | None) -> int:
+    """Position in CONSEQUENCE_ORDER; unknown or absent sorts last."""
+    try:
+        return CONSEQUENCE_ORDER.index(value) if value else len(CONSEQUENCE_ORDER)
+    except ValueError:
+        return len(CONSEQUENCE_ORDER)
+
+
 class ExposureMap:
     def __init__(self, data: dict[str, Any]):
         self._by_package: dict[str, list[str]] = {}
         self._labels: dict[str, str] = {}
         self._descriptions: dict[str, str] = {}
+        #: label -> consequence word, validated against the vocabulary.
+        self._consequences: dict[str, str] = {}
         #: normalised name -> the recorded reason for its entry, when there is one.
         self._why: dict[str, str] = {}
         for key, block in (data.get("category") or {}).items():
             label = block.get("label", key)
             self._labels[key] = label
             self._descriptions[key] = block.get("description", "")
+            consequence = block.get("consequence")
+            if consequence is not None:
+                if consequence not in CONSEQUENCE_ORDER:
+                    raise ValueError(
+                        f"category.{key}: consequence {consequence!r} is not one of "
+                        f"{', '.join(CONSEQUENCE_ORDER)}"
+                    )
+                self._consequences[label] = consequence
             for name, why in entries(block.get("packages")):
                 self._by_package.setdefault(normalise(name), []).append(label)
                 if why:
@@ -160,13 +199,20 @@ class ExposureMap:
                 return self._descriptions.get(key, "")
         return ""
 
+    def consequence(self, labels: Iterable[str]) -> str | None:
+        """The worst consequence among some category labels, or None."""
+        found = [self._consequences[lbl] for lbl in labels if lbl in self._consequences]
+        return min(found, key=consequence_rank) if found else None
+
     def lookup(self, name: str, pypi_info: dict[str, Any] | None = None) -> Exposure:
         key = normalise(name)
         why = self._why.get(key)
         curated = self._by_package.get(key)
         if curated:
+            labels = sorted(set(curated))
             return Exposure(
-                categories=sorted(set(curated)), confidence=Confidence.CURATED, why=why
+                categories=labels, confidence=Confidence.CURATED, why=why,
+                consequence=self.consequence(labels),
             )
 
         if key in self._stable:
@@ -192,6 +238,7 @@ class ExposureMap:
                     categories=inferred,
                     confidence=Confidence.INFERRED,
                     note="inferred from PyPI metadata, not human-reviewed",
+                    consequence=self.consequence(inferred),
                 )
             return Exposure(categories=[], confidence=Confidence.INFERRED)
 

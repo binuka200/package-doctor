@@ -32,7 +32,7 @@ extraction, deserialization, HTML parsing, query building, cryptography, URL
 parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](src/package_doctor/data/exposure.toml), not from a heuristic.
 
-It holds **712 packages across 14 categories**, curated against the 3,000
+It holds **731 packages across 15 categories**, curated against the 3,000
 most-downloaded packages on PyPI — 86 of the top 100 have been reviewed one way
 or the other, and Django, FastAPI/ML, document-processing and web-scraping stacks
 all scan with zero unclassified packages. Anything outside it falls back to
@@ -424,6 +424,24 @@ argued with. A package belongs in it when it:
 "Popular" is not a criterion. Neither is "sounds security-adjacent" — `xxhash`
 and `mmh3` are deliberately **not** in the crypto category, because they are not
 cryptographic, and `tiktoken` tokenises text rather than issuing auth tokens.
+
+### Deserialization is not the same as parsing
+
+Two kinds of package turn bytes into data, and a flaw in them costs very
+different things. A pickle loader, an unsafe YAML loader, a config system that
+instantiates the class a document names: loading is code execution, by
+design. A JSON, MessagePack, Avro or date parser: the worst a hostile input
+does is exhaust memory or slip past validation. The map keeps them apart —
+`deserialization` for the first, `data parsing` for the second — because a
+stale `cloudpickle` and a stale `ujson` are not the same finding.
+
+Every category names what a flaw at that boundary tends to cost, from a
+fixed vocabulary: *code execution*, *memory corruption*, *file write*,
+*account takeover*, *data access*, *script injection*, *request forgery*,
+*prompt injection*, *denial of service*. `explain` shows the word, the JSON
+carries it as `exposure.consequence`, and within a report section it breaks
+ties between findings with the same evidence, worst first. It is a word, not
+a number: nothing sums it, weights it, or lets it change a verdict.
 
 ### Reviewed-and-safe is not the same as unreviewed
 

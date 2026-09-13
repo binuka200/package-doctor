@@ -42,9 +42,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `moto`, `responses`, `pydantic-settings`, `environs` as reviewed and not
   exposed.
 
+- **A consequence for every category.** Each category names what a flaw at
+  that boundary tends to cost, from a fixed vocabulary (code execution,
+  memory corruption, file write, account takeover, data access, script
+  injection, request forgery, prompt injection, denial of service).
+  `explain` shows it, JSON and SARIF carry it as `consequence`, and within
+  a report section it breaks ties between findings with the same evidence,
+  worst first. It is categorical and never changes a verdict.
+
 ### Changed
 
-- Exposure map `schema_version` is 4.
+- **Deserialization is split.** `deserialization` now holds only the 29
+  packages whose loaders can instantiate arbitrary objects or run code -
+  pickle and its descendants, unsafe YAML loaders, config that names
+  classes, and the queues and caches that pickle their payloads. The other
+  57 - JSON, MessagePack, Avro, Protobuf, schema validators, date and
+  encoding parsers - move to a new `data parsing` category whose
+  consequence is denial of service. A stale `cloudpickle` and a stale
+  `ujson` no longer read as the same finding.
+- Exposure map `schema_version` is 5.
 - `gitpython` moves from reviewed-and-cleared to *remote access*. Its
   advisories are command injection through git options and an untrusted
   search path; anything that clones a repository it was handed is at a

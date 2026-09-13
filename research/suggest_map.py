@@ -57,7 +57,7 @@ from package_doctor.sources.osv import OSVSource
 from package_doctor.sources.pypi import PyPISource, normalise
 
 CATEGORIES = (
-    "auth", "crypto", "deserialization", "ml_model", "llm_agent", "markup",
+    "auth", "crypto", "deserialization", "parsing", "ml_model", "llm_agent", "markup",
     "templating", "url", "http", "framework", "query", "archive", "filetype",
     "remote_exec",
 )

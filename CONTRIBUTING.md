@@ -36,6 +36,14 @@ A package belongs in a `[category.*]` list when it:
   account compromise, not anything the library does with input. It is in
   `[reviewed] not_exposed` for exactly that reason.
 
+**Deserialization means pickle-class.** A package goes in `deserialization`
+when its loader can instantiate arbitrary objects or run code: pickle and
+everything built on it, unsafe YAML loaders, config that names classes. A
+JSON, MessagePack, Avro or date parser goes in `parsing`, where a hostile
+input costs denial of service rather than code execution. Each category
+names its consequence from the vocabulary in `exposure.py`; a new category
+must pick one.
+
 **Read the advisories before deciding.** Several entries look harmless from
 their one-line description and turn out to be textbook: `diskcache` is "a disk
 cache" whose advisories say *unsafe pickle deserialization*; `apscheduler` is

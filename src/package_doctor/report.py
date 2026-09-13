@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from .exposure import consequence_rank
 from .models import Confidence, Finding, Verdict
 
 
@@ -134,6 +135,10 @@ def _sort_key(finding: Finding) -> tuple:
         # Exploit probability orders the rest; an advisory count does not.
         -(top[1] if top else 0.0),
         -adv.affecting_current,
+        # With the same evidence, what a flaw would cost decides: a stale
+        # pickle loader above a stale JSON parser. A word from a fixed
+        # vocabulary, never a score.
+        consequence_rank(finding.exposure.consequence),
         -len(finding.abandonment_signals),
         0 if pkg.direct else 1,
         pkg.name,
@@ -469,6 +474,8 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         row("Means", exposure_note)
     if finding.exposure.note:
         row("Note", finding.exposure.note)
+    if finding.exposure.consequence:
+        row("Consequence", finding.exposure.consequence)
     if finding.exposure.why:
         row("Why", finding.exposure.why)
     row("Dependency", "direct" if pkg.direct else "transitive")
@@ -671,6 +678,7 @@ def to_dict(
                 "confidence": finding.exposure.confidence.value,
                 "note": finding.exposure.note,
                 "why": finding.exposure.why,
+                "consequence": finding.exposure.consequence,
             },
             "remediation": {
                 "latest_version": rem.latest_version,
