@@ -100,19 +100,55 @@ def test_the_first_range_seen_stands(tmp_path):
 
 # --- the analyzer applies it ------------------------------------------------
 
-def analyzer(monkeypatch, pypi, assume=True):
-    from tests.test_analysis import build
+def analyzer(pypi, assume=True):
+    """An Analyzer with every source stubbed, and only the version choice real.
 
-    a = build(monkeypatch, pypi=pypi)
+    Built here rather than imported from test_analysis: test modules are not
+    importable by name under a plain ``pytest`` invocation, which is what CI
+    runs, even though ``python -m pytest`` happens to allow it.
+    """
+    from package_doctor.analysis import Analyzer
+    from package_doctor.exposure import load_exposure_map
+    from package_doctor.models import Exploitability
+    from package_doctor.risk import Thresholds
+    from package_doctor.sources.ecosystems import RepoInfo
+
+    a = Analyzer.__new__(Analyzer)
+    a.exposure_map = load_exposure_map()
+    a.thresholds = Thresholds()
+    a.skip_repo = False
     a.assume_latest = assume
-    a.pypi.newest_matching = staticmethod(PyPISource.newest_matching)
-    a.pypi.last_release = staticmethod(lambda d: ("5.0.0", NOW))
+
+    class P:
+        async def fetch(self, name):
+            return pypi
+        release_dates = staticmethod(lambda d: {})
+        last_release = staticmethod(lambda d: ("5.0.0", NOW))
+        has_inactive_classifier = staticmethod(lambda d: False)
+        newest_matching = staticmethod(PyPISource.newest_matching)
+
+    class Osv:
+        async def fetch(self, name):
+            return []
+
+    class R:
+        async def fetch_repo(self, slug):
+            return RepoInfo(found=False)
+
+    class E:
+        async def assess(self, cves):
+            return Exploitability()
+
+        async def kev_catalogue(self):
+            return frozenset()
+
+    a.pypi, a.osv, a.repos, a.exploit = P(), Osv(), R(), E()
     return a
 
 
 @pytest.mark.asyncio
-async def test_an_unpinned_package_gets_the_newest_matching_release(monkeypatch):
-    a = analyzer(monkeypatch, releases("4.2.0", "5.0.0"))
+async def test_an_unpinned_package_gets_the_newest_matching_release():
+    a = analyzer(releases("4.2.0", "5.0.0"))
     pkg = Package(name="pyjwt", version=None, specifier="<5")
     finding = await a.analyze(pkg, NOW)
     assert finding.package.version == "4.2.0"
@@ -120,22 +156,22 @@ async def test_an_unpinned_package_gets_the_newest_matching_release(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_a_pinned_package_is_never_touched(monkeypatch):
-    a = analyzer(monkeypatch, releases("4.2.0", "5.0.0"))
+async def test_a_pinned_package_is_never_touched():
+    a = analyzer(releases("4.2.0", "5.0.0"))
     finding = await a.analyze(Package(name="pyjwt", version="1.0"), NOW)
     assert finding.package.version == "1.0" and not finding.package.version_assumed
 
 
 @pytest.mark.asyncio
-async def test_no_assume_latest_leaves_it_unpinned(monkeypatch):
-    a = analyzer(monkeypatch, releases("4.2.0"), assume=False)
+async def test_no_assume_latest_leaves_it_unpinned():
+    a = analyzer(releases("4.2.0"), assume=False)
     finding = await a.analyze(Package(name="pyjwt", version=None), NOW)
     assert finding.package.version is None
 
 
 @pytest.mark.asyncio
-async def test_a_range_nothing_satisfies_is_a_gap(monkeypatch):
-    a = analyzer(monkeypatch, releases("1.0"))
+async def test_a_range_nothing_satisfies_is_a_gap():
+    a = analyzer(releases("1.0"))
     finding = await a.analyze(Package(name="pyjwt", version=None, specifier=">=9"), NOW)
     assert finding.package.version is None
     assert any("no PyPI release satisfies the declared range >=9" in g
