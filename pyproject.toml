@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "package-doctor"
-version = "0.5.0"
+version = "0.6.0"
 description = "Finds dependencies that sit at a trust boundary and have no one left to fix them."
 readme = "README.md"
 requires-python = ">=3.10"
