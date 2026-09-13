@@ -13,3 +13,12 @@ htmlcov/
 # Research output only. Anchored so it cannot match src/package_doctor/data/,
 # which hatchling would otherwise drop from the wheel.
 /data/
+
+# LaTeX build artefacts under paper/
+paper/**/*.aux
+paper/**/*.bbl
+paper/**/*.blg
+paper/**/*.log
+paper/**/*.out
+paper/**/build.log
+paper/**/page-*.png
