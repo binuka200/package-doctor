@@ -215,7 +215,8 @@ def assess(
         if adv.timely:
             reasons.append(
                 Evidence(
-                    f"{adv.timely} of {adv.total} past advisories fixed at or before disclosure"
+                    f"healthy record: {adv.timely} of {adv.total} past advisories fixed "
+                    f"at or before disclosure"
                 )
             )
         reasons.extend(signals)

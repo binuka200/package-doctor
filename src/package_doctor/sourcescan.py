@@ -252,13 +252,25 @@ def build_index(
 
 
 def _relative(path: Path, *roots: Path) -> str:
-    """The path relative to the first root that contains it, forward slashes."""
+    """The path relative to the first root that contains it, forward slashes.
+
+    A root that *is* the path - a single-file ``--src`` - is skipped: relative
+    to itself a file is ".", which rendered ``--src app.py`` as ``.:7`` when
+    the file sat outside the scanned project. Outside every root the path is
+    given relative to the working directory, which is where the user typed
+    it, and failing that in full.
+    """
     for root in roots:
+        if root == path:
+            continue
         try:
             return path.relative_to(root).as_posix()
         except ValueError:
             continue
-    return str(path)  # pragma: no cover - --src outside every root
+    try:
+        return path.relative_to(Path.cwd()).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def detect_source_roots(root: Path) -> list[Path]:

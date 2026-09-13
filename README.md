@@ -52,6 +52,15 @@ so you can distrust it.
 Both must fire. `six` going quiet is not a finding, because `six` is not at a
 trust boundary. `legacy-auth` going quiet is the whole point.
 
+### The watch tier is an inventory, not a warning
+
+*Watch* means at a trust boundary, and someone is home. It is where the next
+advisory that matters will land, so it is worth knowing, but there is nothing
+to do about it today, and a clean record is shown as one: *healthy record: 5
+of 5 past advisories fixed at or before disclosure*. In a service with many
+boundary packages this tier is large, and that is information about the
+service rather than a queue of work.
+
 ## Which advisory first
 
 "Affected by 35 advisories" is not a decision. A list that long gets skimmed and
@@ -156,8 +165,17 @@ So it is never sufficient here. Signals are split in two:
 **Weak** (two must agree before the tool says anything):
 
 - no release in 2 years
-- no commits in 18 months
+- no commits on the default branch in 18 months
 - a history of fixing advisories only after public disclosure
+
+The commit date is the default branch's last commit, read from GitHub's
+commit feed, not the repository's `pushed_at`. That field advances on a push
+to any branch or tag — a Dependabot branch, a rebased pull request — and for
+`flask-restful` it read fourteen months newer than the code. It is kept as
+the fallback and shown in `explain` as the push date, labelled as such. A
+repository that has been renamed is followed to its new address; one whose
+metadata cannot be read shows *missing signal* in the report rather than
+looking complete.
 
 ### On "time to fix"
 
@@ -232,7 +250,7 @@ BLOCK     reqeusts
 BLOCK     pillow 10.0.0
           exposed, and CVE-2023-4863 on CISA's known-exploited list, and your pinned version is affected
 WARN      requests 2.34.2?
-          at a trust boundary (http/network): 7 of 8 past advisories fixed at or before disclosure
+          at a trust boundary (http/network): healthy record: 7 of 8 past advisories fixed at or before disclosure
 OK        six 1.17.0?
           reviewed as not at a trust boundary
 ```
@@ -332,9 +350,9 @@ EXPOSED + NO ONE HOME    act on these
                                            2 advisories with no published fix
   old-parser    1.7.4   html/xml parsing   marked Development Status :: 7 - Inactive
 
-EXPOSED, MAINTAINED      watch
-  requests      2.33.1  http/network, url parsing   7 of 8 past advisories
-                                                    fixed at or before disclosure
+EXPOSED, MAINTAINED      nothing to do today: someone is home
+  requests      2.33.1  http/network, url parsing   healthy record: 7 of 8 past
+                                                    advisories fixed at or before disclosure
 
 STALE, NOT EXPOSED       low priority
   six           1.17.0  no boundary        reviewed as a finished utility
@@ -361,8 +379,8 @@ assumes that version, and says so everywhere the assumption shows:
 8 of 8 without a pinned version: advisories matched against the newest release
 instead, marked ? (use a lockfile to pin them)
 
-EXPOSED, MAINTAINED   watch
-httpx  0.28.1?  http/network  1 of 1 past advisories fixed at or before disclosure
+EXPOSED, MAINTAINED   nothing to do today: someone is home
+httpx  0.28.1?  http/network  healthy record: 1 of 1 past advisories fixed at or before disclosure
 ```
 
 The `?` is the same mark an inferred exposure carries: something to distrust.

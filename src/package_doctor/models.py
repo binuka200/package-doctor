@@ -149,7 +149,12 @@ class Remediation:
 
     repo_url: str | None = None
     repo_archived: bool | None = None
+    #: GitHub's repository-level push time. Any branch, any tag, so it can
+    #: only overstate activity; kept for the record and as the fallback.
     repo_last_push: dt.datetime | None = None
+    #: The default branch's last commit, when it was fetched. The honest
+    #: date, and the one the staleness signal uses when it is known.
+    repo_last_commit: dt.datetime | None = None
     inactive_classifier: bool = False
     last_release: dt.datetime | None = None
     #: The earliest upload on PyPI. A package that appeared last week under a
@@ -168,9 +173,12 @@ class Remediation:
         return (now - self.last_release).days
 
     def days_since_push(self, now: dt.datetime) -> int | None:
-        if self.repo_last_push is None:
+        """Days since the code last changed: the default branch's last commit
+        when known, else the repository-level push time."""
+        stamp = self.repo_last_commit or self.repo_last_push
+        if stamp is None:
             return None
-        return (now - self.repo_last_push).days
+        return (now - stamp).days
 
 
 @dataclass(frozen=True)

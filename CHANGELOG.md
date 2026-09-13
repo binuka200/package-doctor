@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Map entries from a second outside review, each with a reason:
+  `flask-httpauth` (CVE-2026-34531 is an authentication bypass) and
+  `flask-ipfilter` (auth); `netaddr` (url: before 1.0 it accepted
+  inet_aton forms, so `010.0.0.1` parsed as 8.0.0.1 - no CVE, 1.0 simply
+  stopped); `flask-expects-json` (data parsing); `flask-mysql` (query);
+  `legacycrypt` (crypto); `gearman3` and `python3-gearman` (http - the
+  wire protocol is the boundary; nothing is unpickled); and
+  `configparser`, `json-log-formatter`, `log-with-context`, `rollbar`,
+  `blinker` as reviewed and not exposed. Two new families guard the
+  Flask auth extensions and the wire-protocol job queues.
+
+### Changed
+
+- **The commit date is the default branch's, not the repository's push
+  time.** GitHub's `pushed_at` advances on a push to any branch or tag and
+  read fourteen months newer than the code for `flask-restful`. The last
+  commit on the default branch is now read from GitHub's commit feed
+  whenever the push time is inside the stale window, and is what the
+  staleness signal uses; the push time is kept as the fallback and shown
+  in `explain` labelled as such.
+- **The watch tier reads as what it is.** Its hint is now *nothing to do
+  today: someone is home*, and a clean advisory record is worded
+  *healthy record: N of M fixed at or before disclosure* rather than
+  presented as the reason for a warning.
+
+### Fixed
+
+- `--src FILE` with a file outside the scanned project rendered import
+  sites as `.:LINE`. The path is now given relative to the project, the
+  working directory, or in full.
+- A `name @ https://…tar.gz` requirement was classified by its suffix as a
+  local path named by the whole line. Lines the requirement parser accepts
+  are now its to handle; only lines it rejects are classified as git, URL
+  or path.
+- A bare wheel or sdist URL was named by normalising the whole filename
+  (`foo-1-0-py3-none-any-whl`). It is now named by its distribution.
+- A renamed repository read as "repository metadata unavailable". GitHub's
+  redirect is followed to the new address.
+- A failed repository lookup showed only in `explain`. The report table
+  and Markdown now carry *missing signal: …* on the row, so a row is not
+  mistaken for complete.
+
 ## [0.7.0] - 2026-09-13
 
 ### Fixed

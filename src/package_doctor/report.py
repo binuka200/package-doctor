@@ -51,7 +51,7 @@ _ESCAPE_SEQUENCE = re.compile(
 
 SECTIONS: list[tuple[Verdict, str, str, str]] = [
     (Verdict.ACT, "EXPOSED + NO ONE HOME", "act on these", "bold red"),
-    (Verdict.WATCH, "EXPOSED, MAINTAINED", "watch", "yellow"),
+    (Verdict.WATCH, "EXPOSED, MAINTAINED", "nothing to do today: someone is home", "yellow"),
     (Verdict.LOW, "STALE, NOT EXPOSED", "low priority", "cyan"),
     (Verdict.UNKNOWN, "NO SIGNAL", "unknown, not a finding", "dim"),
 ]
@@ -143,6 +143,20 @@ def _sort_key(finding: Finding) -> tuple:
         0 if pkg.direct else 1,
         pkg.name,
     )
+
+
+def _lookup_gaps(finding: Finding) -> list[str]:
+    """Gaps that mean a lookup failed, as opposed to data that does not exist.
+
+    "No source repository declared" is a fact about the package and is not
+    shown in the table. "Repository metadata unavailable" means a signal was
+    expected and did not arrive, and a row without it looks complete when it
+    is not.
+    """
+    return [
+        g for g in finding.remediation.gaps
+        if any(word in g for word in ("unavailable", "failed", "too large"))
+    ]
 
 
 def describe_not_analysed(not_analysed: dict[str, str] | None) -> str | None:
@@ -257,6 +271,12 @@ def render(
                     f"{clean(finding.accepted.reason)}",
                     style="yellow",
                 )
+            missing = _lookup_gaps(finding)
+            if missing:
+                # A lookup that failed is a signal the row does not have. It
+                # used to show only in `explain`; a reader of the table alone
+                # took the row as complete.
+                why.append(f"\nmissing signal: {clean('; '.join(missing))}", style="dim")
 
             exposure_text = Text(finding.exposure.label)
             if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
@@ -402,6 +422,8 @@ def render_markdown(
                 why.append(
                     f"acceptance {_until(finding, now)}: {finding.accepted.reason}"
                 )
+            if _lookup_gaps(finding):
+                why.append("missing signal: " + "; ".join(_lookup_gaps(finding)))
             # Joined after cleaning: clean() strips newlines with the rest of
             # the control characters, so a break has to be added afterwards.
             out.append(
@@ -530,8 +552,14 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
         else ("active" if rem.repo_archived is False else "unknown"),
         "red" if rem.repo_archived else "",
     )
+    if rem.repo_last_commit:
+        row("Last commit", f"{rem.repo_last_commit.date().isoformat()} (default branch)")
     if rem.repo_last_push:
-        row("Last commit", rem.repo_last_push.date().isoformat())
+        row(
+            "Last push",
+            f"{rem.repo_last_push.date().isoformat()} (any branch or tag)"
+            + ("" if rem.repo_last_commit else " - default branch not checked"),
+        )
     if rem.inactive_classifier:
         row("PyPI status", "Development Status :: 7 - Inactive", "red")
     if rem.open_issues is not None:
@@ -703,6 +731,9 @@ def to_dict(
                 "repository": rem.repo_url,
                 "repo_archived": rem.repo_archived,
                 "repo_last_push": rem.repo_last_push.isoformat() if rem.repo_last_push else None,
+                "repo_last_commit": (
+                    rem.repo_last_commit.isoformat() if rem.repo_last_commit else None
+                ),
                 "inactive_classifier": rem.inactive_classifier,
                 "open_issues": rem.open_issues,
                 "advisories": asdict(rem.advisories),

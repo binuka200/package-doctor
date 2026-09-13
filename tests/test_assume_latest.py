@@ -135,6 +135,12 @@ def analyzer(pypi, assume=True):
         async def fetch_repo(self, slug):
             return RepoInfo(found=False)
 
+        async def last_commit(self, slug, branch):
+            return None
+
+        async def resolve_rename(self, slug):
+            return None
+
     class E:
         async def assess(self, cves):
             return Exploitability()

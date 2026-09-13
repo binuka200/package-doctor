@@ -197,6 +197,7 @@ class Client:
         url: str,
         payload: Any | None = None,
         max_bytes: int = MAX_RESPONSE_BYTES,
+        headers: dict[str, str] | None = None,
     ) -> tuple[httpx.Response | None, bytes | None]:
         """One logical request: `_read_capped` with retries.
 
@@ -209,7 +210,9 @@ class Client:
         last: httpx.Response | None = None
         for attempt in range(MAX_ATTEMPTS):
             try:
-                resp, body = await self._read_capped(method, url, payload, max_bytes=max_bytes)
+                resp, body = await self._read_capped(
+                    method, url, payload, max_bytes=max_bytes, headers=headers
+                )
             except httpx.TransportError:
                 resp, body = None, None
             except httpx.HTTPError:
@@ -231,6 +234,7 @@ class Client:
         url: str,
         payload: Any | None = None,
         max_bytes: int = MAX_RESPONSE_BYTES,
+        headers: dict[str, str] | None = None,
     ) -> tuple[httpx.Response | None, bytes | None]:
         """Read a response, raising ResponseTooLarge if it exceeds the cap.
 
@@ -242,6 +246,8 @@ class Client:
         kwargs: dict[str, Any] = {}
         if payload is not None:
             kwargs["json"] = payload
+        if headers:
+            kwargs["headers"] = headers
         async with self._client.stream(method, url, **kwargs) as resp:
             if resp.status_code != 200:
                 return resp, None
@@ -256,6 +262,64 @@ class Client:
                     raise ResponseTooLarge(url, max_bytes)
                 chunks.append(chunk)
             return resp, b"".join(chunks)
+
+    async def get_text(
+        self,
+        url: str,
+        cache_key: str | None = None,
+        reduce: Callable[[str], Any] | None = None,
+        max_bytes: int = MAX_RESPONSE_BYTES,
+        headers: dict[str, str] | None = None,
+    ) -> Any | None:
+        """Fetch a text body - a feed, a page - with the same cache and cap as JSON.
+
+        ``reduce`` turns the text into the small value the caller keeps, and
+        that value is what the cache holds: a 17 KB commit feed is cached as
+        one timestamp.
+        """
+        key = cache_key or f"GET {url}"
+        recognised, body = self._unwrap(self.cache.get(key))
+        if recognised:
+            return body
+        async with self._sem:
+            try:
+                resp, raw = await self._fetch("GET", url, max_bytes=max_bytes, headers=headers)
+            except ResponseTooLarge as exc:
+                self._remember_too_large(key, exc)
+                raise
+        if resp is None:
+            return None
+        if resp.status_code == 404:
+            self.cache.set(key, self._wrap(None, missing=True))
+            return None
+        if resp.status_code != 200 or raw is None:
+            return None
+        text = raw.decode("utf-8", errors="replace")
+        data = reduce(text) if reduce is not None else text
+        self.cache.set(key, self._wrap(data))
+        return data
+
+    async def redirect_target(self, url: str, cache_key: str | None = None) -> str | None:
+        """Where a URL redirects to, without following it, or None.
+
+        GitHub answers a renamed repository's old address with a redirect to
+        the new one; that is the only key-free way to learn where it went.
+        """
+        key = cache_key or f"HEAD {url}"
+        recognised, body = self._unwrap(self.cache.get(key))
+        if recognised:
+            return body if isinstance(body, str) else None
+        async with self._sem:
+            try:
+                resp = await self._client.head(url, follow_redirects=False)
+            except httpx.HTTPError:
+                self.degraded[urlparse(url).hostname or url] += 1
+                return None
+        target = None
+        if resp.status_code in (301, 302, 307, 308):
+            target = resp.headers.get("location") or None
+        self.cache.set(key, self._wrap(target))
+        return target
 
     async def post_json(
         self,

@@ -56,6 +56,11 @@ FAMILIES: dict[str, tuple[bool, list[str]]] = {
     ]),
     "pdf": (True, ["pypdf", "pypdf2", "pdfminer-six", "pymupdf", "pikepdf", "pdfplumber"]),
     "jwt": (True, ["pyjwt", "python-jose", "authlib", "joserfc", "jwcrypto"]),
+    "flask auth extensions": (True, [
+        "flask-login", "flask-jwt-extended", "flask-security-too", "flask-httpauth",
+        "flask-ipfilter",
+    ]),
+    "task and job queues over a wire protocol": (True, ["gearman3", "python3-gearman", "kombu"]),
     "packaging toolchain": (True, ["pip", "setuptools", "wheel"]),
     # Not exposed: the obvious guess is wrong for the same reason across the family.
     "test doubles": (False, [

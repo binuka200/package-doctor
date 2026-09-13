@@ -49,6 +49,9 @@ packages = [
   "python-ldap", "python-pam", "python3-openid", "python3-saml", "requests-aws-sign",
   "requests-aws4auth", "requests-kerberos", "requests-ntlm", "requests-oauthlib",
   "scramp", "social-auth-app-django", "social-auth-core", "webauthn", "winkerberos",
+  { name = "flask-httpauth", why = "Basic, Digest and token auth for Flask; CVE-2026-34531 invoked the verification callback on a missing or empty token, which is an authentication bypass" },
+  { name = "flask-ipfilter", why = "decides which client IPs may reach the app; it reads the remote address the WSGI stack reports, so behind a misconfigured ProxyFix the allowlist is decided by a client-supplied header" },
+  { name = "legacycrypt", why = "ctypes binding to crypt(3) used for password hashing; the same shelf as passlib, and unlike passlib it has no repository to read activity from" },
 ]
 
 [category.crypto]
@@ -124,6 +127,7 @@ packages = [
   "rapidjson", "referencing", "simplejson", "strictyaml",
   "thrift", "toons", "typedload", "ujson",
   "yamale",
+  { name = "flask-expects-json", why = "JSON-schema validation of request bodies via a route decorator; a bypass here means unvalidated input reaches the handler" },
 ]
 
 [category.ml_model]
@@ -198,6 +202,7 @@ packages = [
   "uritools", "url-normalize", "urllib3", "w3lib", "yarl",
   { name = "gcsfs", why = "fsspec filesystem over Google Cloud Storage; paths and URLs come from callers, the same boundary as s3fs" },
   { name = "adlfs", why = "fsspec filesystem over Azure storage; paths and URLs come from callers, the same boundary as s3fs" },
+  { name = "netaddr", why = "parses IP addresses and CIDR ranges that feed allowlists; before 1.0 it accepted inet_aton forms, so IPAddress('010.0.0.1') was 8.0.0.1 and '127.1' was 127.0.0.1 - no CVE was filed, 1.0 simply stopped accepting them" },
 ]
 
 [category.http]
@@ -230,6 +235,8 @@ packages = [
   { name = "aiodns", why = "asyncio wrapper over pycares; the same DNS response parsing boundary" },
   { name = "python-socketio", why = "Socket.IO server; decodes client packets, and GHSA-g8c6-8fjj-2r4m is code execution from unpickling messages off the manager queue" },
   { name = "python-engineio", why = "Engine.IO transport under python-socketio; parses client packets, advisories are denial of service and CSRF" },
+  { name = "gearman3", why = "Gearman client and worker; parses the wire protocol and hands job payloads off a broker to the application - opaque bytes, nothing is unpickled, so the boundary is the transport rather than the decoder" },
+  { name = "python3-gearman", why = "another Python 3 fork of the Gearman API; the same wire-protocol boundary as gearman3" },
 ]
 
 [category.framework]
@@ -267,6 +274,7 @@ packages = [
   { name = "pyodbc", why = "DB API driver over ODBC; sends SQL built from caller-supplied values, the same boundary as psycopg2" },
   { name = "cx-oracle", why = "Oracle DB API driver; sends SQL built from caller-supplied values, the same boundary as psycopg2" },
   { name = "oracledb", why = "successor to cx-oracle; sends SQL built from caller-supplied values, the same boundary as psycopg2" },
+  { name = "flask-mysql", why = "hands out raw MySQL cursors to request handlers; the same boundary as pymysql" },
 ]
 
 [category.archive]
@@ -477,4 +485,9 @@ not_exposed = [
   { name = "pydantic-settings", why = "reads environment variables and local secrets files the operator controls; GHSA-4xgf-cpjx-pc3j is symlink following inside that directory" },
   { name = "environs", why = "parses environment variables set by the operator" },
   { name = "setuptools-scm", why = "reads version metadata from the local git checkout; nothing arrives from outside" },
+  { name = "configparser", why = "stdlib since 3.2; the PyPI package is a backport for earlier Pythons" },
+  { name = "json-log-formatter", why = "formats log output, does not parse input" },
+  { name = "log-with-context", why = "attaches context to log records" },
+  { name = "rollbar", why = "telemetry egress" },
+  { name = "blinker", why = "in-process signal dispatch" },
 ]

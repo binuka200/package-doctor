@@ -106,9 +106,7 @@ def test_requirements_lines_that_name_no_index_package_are_classified():
     assert _unresolvable_line("-e git+https://github.com/org/other.git") == ("other", "git")
     assert _unresolvable_line("--editable=./libs/local") == ("./libs/local", "path")
     assert _unresolvable_line("-e .") == (".", "path")
-    assert _unresolvable_line("https://files/x/thing-1.0.tar.gz  # pinned") == (
-        "thing-1.0.tar.gz", "url"
-    )
+    assert _unresolvable_line("https://files/x/thing-1.0.tar.gz  # pinned") == ("thing", "url")
     assert _unresolvable_line("requests==2.0") is None
     assert _unresolvable_line("-r base.txt") is None
     assert _unresolvable_line("# just a comment") is None

@@ -221,10 +221,35 @@ def source_kind(target: str) -> str | None:
     return None
 
 
+_ARCHIVE_SUFFIXES = (".whl", ".tar.gz", ".tgz", ".tar.bz2", ".zip")
+
+
+def _distribution_name(filename: str) -> str | None:
+    """``foo`` from ``foo-1.0-py3-none-any.whl`` or ``foo-1.0.tar.gz``.
+
+    A wheel's first dash-separated field is the distribution; an sdist is
+    ``name-version`` and the version starts with a digit. Anything else is
+    not an archive and gets None.
+    """
+    lowered = filename.lower()
+    for suffix in _ARCHIVE_SUFFIXES:
+        if lowered.endswith(suffix):
+            stem = filename[: -len(suffix)]
+            if suffix == ".whl":
+                return stem.split("-", 1)[0] or None
+            match = re.match(r"^(.+?)-\d", stem)
+            return (match.group(1) if match else stem) or None
+    return None
+
+
 def _name_from_target(target: str, kind: str) -> str:
     """The best name a git URL, a URL or a path offers for the report."""
     if "#egg=" in target:
         return target.split("#egg=", 1)[1].split("&", 1)[0]
+    filename = target.split("#", 1)[0].split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    distribution = _distribution_name(filename)
+    if distribution:
+        return distribution
     if kind == "path":
         return target
     # Last path segment, then drop a trailing @revision. The revision split
@@ -246,6 +271,17 @@ def _unresolvable_line(line: str) -> tuple[str, str] | None:
             text = text[len(flag) + 1:].strip()
             break
     if not text or text.startswith("-"):
+        return None
+    # Anything the requirement parser accepts is its to handle - a plain
+    # name, or `name @ url`, which carries its URL. Only a line it rejects
+    # is a bare URL, VCS reference or path. Classifying by suffix first
+    # turned `requests @ https://x/requests-2.0.tar.gz` into a "path" named
+    # by the whole line.
+    try:
+        Requirement(text)
+    except InvalidRequirement:
+        pass
+    else:
         return None
     kind = source_kind(text)
     if kind is None:

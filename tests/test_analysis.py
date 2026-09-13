@@ -32,6 +32,8 @@ def build(monkeypatch, pypi=None, vulns=(), repo=None):
 
     class R:
         async def fetch_repo(self, slug): return repo or RepoInfo(found=False)
+        async def last_commit(self, slug, branch): return None
+        async def resolve_rename(self, slug): return None
 
     class E:
         async def assess(self, cves): 

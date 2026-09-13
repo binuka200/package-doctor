@@ -115,11 +115,31 @@ class Analyzer:
         slug = extract_github_repo(info)
         if slug and not self.skip_repo:
             repo = await self.repos.fetch_repo(slug)
+            if not repo.found:
+                # The declared address may be years old; GitHub redirects a
+                # renamed repository, and the metadata lives at the new name.
+                moved = await self.repos.resolve_rename(slug)
+                if moved:
+                    repo = await self.repos.fetch_repo(moved)
             remediation.repo_url = repo.url
             if repo.found:
                 remediation.repo_archived = repo.archived
                 remediation.repo_last_push = repo.pushed_at
                 remediation.open_issues = repo.open_issues
+                # pushed_at moves on a push to any branch, so it can only make
+                # a repository look more alive than its default branch is. The
+                # feed is only worth a request when pushed_at is inside the
+                # stale window: outside it the signal already fires, and the
+                # default branch cannot be newer than the last push.
+                push_age = (now - repo.pushed_at).days if repo.pushed_at else None
+                if (
+                    repo.default_branch
+                    and push_age is not None
+                    and push_age <= self.thresholds.stale_push_days
+                ):
+                    remediation.repo_last_commit = await self.repos.last_commit(
+                        repo.slug or slug, repo.default_branch
+                    )
             else:
                 remediation.gaps.append("repository metadata unavailable")
         elif slug:
