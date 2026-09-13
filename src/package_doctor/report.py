@@ -145,6 +145,22 @@ def _sort_key(finding: Finding) -> tuple:
     )
 
 
+def describe_not_analysed(not_analysed: dict[str, str] | None) -> str | None:
+    """One line naming the dependencies no registry check can speak to."""
+    if not not_analysed:
+        return None
+    kinds = {"git": "git", "url": "a URL", "path": "a local path"}
+    listed = ", ".join(
+        f"{name} ({kinds.get(kind, kind)})" for name, kind in sorted(not_analysed.items())
+    )
+    n = len(not_analysed)
+    return (
+        f"Not analysed: {n} dependenc{'y comes' if n == 1 else 'ies come'} from git, a URL "
+        f"or a local path, which no registry check can speak to: {listed}. If any is "
+        f"first-party code at a trust boundary, it needs its own review."
+    )
+
+
 def describe_degraded(degraded: dict[str, int] | None) -> str | None:
     """One line saying which upstream failed, or None when none did."""
     if not degraded:
@@ -654,6 +670,7 @@ def to_dict(
     sources: Iterable[str],
     now: dt.datetime,
     degraded: dict[str, int] | None = None,
+    not_analysed: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     def serialise(finding: Finding) -> dict[str, Any]:
         rem = finding.remediation
@@ -737,5 +754,11 @@ def to_dict(
         # host -> requests that failed after retries. Non-empty means some
         # gaps below are the upstream's doing rather than the package's.
         "degraded": dict(degraded or {}),
+        # Declared, but from git, a URL or a local path: never looked up, and
+        # listed so that a first-party package at a boundary is not silently
+        # the one thing the report says nothing about.
+        "not_analysed": [
+            {"name": name, "source": kind} for name, kind in sorted((not_analysed or {}).items())
+        ],
         "findings": [serialise(f) for f in findings],
     }

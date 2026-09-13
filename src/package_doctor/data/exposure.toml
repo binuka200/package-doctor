@@ -278,6 +278,9 @@ packages = [
   "inflate64", "libarchive-c", "patool", { name = "pdm", why = "unpacks wheels and sdists from an index; advisories are path traversal while extracting" }, "py7zr", "pybcj", "pyppmd",
   "python-lzo", "python-oxmsg", "pyzipper", "pyzstd", "rarfile", "tarsafe",
   "zipfile38", "zipp", "zlib-ng", "zstandard", "zstd",
+  { name = "pip", why = "downloads and unpacks sdists and wheels from an index; CVE-2025-8869 is a symlink path traversal while extracting an sdist" },
+  { name = "setuptools", why = "PackageIndex fetches and unpacks distributions; CVE-2024-6345 is code injection from a crafted URL and CVE-2025-47273 path traversal while extracting" },
+  { name = "wheel", why = "reads and writes wheel archives; CVE-2022-40898 is a denial of service parsing a crafted filename" },
 ]
 
 [category.filetype]
@@ -473,4 +476,5 @@ not_exposed = [
   { name = "responses", why = "test double for requests; intercepts calls, parses nothing from outside" },
   { name = "pydantic-settings", why = "reads environment variables and local secrets files the operator controls; GHSA-4xgf-cpjx-pc3j is symlink following inside that directory" },
   { name = "environs", why = "parses environment variables set by the operator" },
+  { name = "setuptools-scm", why = "reads version metadata from the local git checkout; nothing arrives from outside" },
 ]

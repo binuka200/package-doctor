@@ -483,7 +483,7 @@ else.
 | Flag | Meaning |
 | --- | --- |
 | `--direct-only` | skip transitive dependencies |
-| `--src PATH` | source directory to check for imports (repeatable) |
+| `--src PATH` | source directory or file to check for imports (repeatable) |
 | `--no-reachability` | skip the import scan of your own source |
 | `--show-ok` | also list packages with no concerns |
 | `--sarif PATH` | also write a SARIF 2.1.0 report |
@@ -501,7 +501,13 @@ else.
 Reads `uv.lock`, `poetry.lock`, `Pipfile.lock`, `pyproject.toml` (PEP 621,
 PEP 735 and Poetry), `Pipfile`, `requirements*.txt`, `requirements/*.txt` and
 one level below that (`requirements/<env>/*.txt`), following `-r` includes
-within the project.
+within the project. `scan PATH` takes a directory or one of those files.
+
+Dependencies that come from git, a URL or a local path — a `git+ssh://` line,
+an `-e` editable, a `name @ url` reference, a git source in a lockfile — are
+never looked up, because no registry can speak to them. They are listed under
+*Not analysed* rather than dropped: a first-party package at a trust boundary
+is the last thing a report should be quiet about.
 
 ## Data sources
 

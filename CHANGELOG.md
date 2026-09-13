@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wildcard pins were analysed as the newest release of all.**
+  `certifi==2024.6.*` was recorded as the pin `2024.6.*`, then discarded
+  for containing a wildcard, leaving neither a pin nor a range - so the
+  newest release of all was analysed and CVE-2024-39689 disappeared from
+  the report. A wildcard pin is now kept as the range it is, in every
+  parser, and the newest matching release is analysed.
+- **setuptools, pip and wheel were dropped without a word.** They were on
+  a hardcoded ignore list and never reached the count, the report or the
+  JSON. They are analysed like any other package now, and all three are
+  in the exposure map with their advisories (CVE-2024-6345, CVE-2025-8869,
+  CVE-2022-40898). Only the interpreter itself is still skipped.
+- **Dependencies from git, a URL or a local path vanished.** A `git+ssh://`
+  line in a requirements file, an `-e` editable, a PEP 508 direct
+  reference, a poetry `{ git = ... }` or a git source in a lockfile was
+  either skipped silently or looked up on PyPI and reported as "not
+  found". They are now recorded and named: the report carries a
+  *Not analysed* line, the JSON a `not_analysed` list, and the Markdown a
+  note - because a first-party package at a trust boundary is the last
+  thing a report should be quiet about.
+- `scan` accepts a dependency file as well as a directory, treating the
+  file's directory as the project.
+- `--src` accepts a single file, as its help text always said.
+
 ## [0.6.0] - 2026-09-13
 
 ### Added

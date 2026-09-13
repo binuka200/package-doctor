@@ -90,10 +90,13 @@ def test_names_are_normalised_across_files(tmp_path):
     assert list(deps.versions) == ["flask-login"]
 
 
-def test_toolchain_packages_are_ignored(tmp_path):
+def test_toolchain_packages_are_analysed_like_any_other(tmp_path):
+    """pip and setuptools used to be dropped here without a word. A pinned
+    old setuptools carries CVE-2024-6345, and a report that silently left
+    it out was wrong exactly where it looked complete."""
     write(tmp_path, "requirements.txt", "pip==24.0\nsetuptools==70.0\nrequests==2.31.0\n")
     deps = collect_dependencies(discover_manifests(tmp_path))
-    assert set(deps.versions) == {"requests"}
+    assert set(deps.versions) == {"pip", "setuptools", "requests"}
 
 
 def test_malformed_files_do_not_crash(tmp_path):

@@ -47,9 +47,14 @@ MAX_MANIFEST_BYTES = 32 * 1024 * 1024
 #: PEP 503 normalised-name grammar. Anything outside it is not a package name.
 _VALID_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
-#: Packages that ship with CPython or the packaging toolchain; scanning them
-#: tells the user nothing they can act on.
-_IGNORED = {"python", "pip", "setuptools", "wheel", "setuptools-scm"}
+#: Not a package: Pipfile and some lockfiles record the interpreter itself
+#: under this name. Everything else that appears in a dependency file is
+#: analysed - including pip, setuptools and wheel, which used to be dropped
+#: here without a word and have advisory histories of their own.
+_IGNORED = {"python"}
+
+#: Where a dependency comes from when it is not an index, for the report.
+_VCS_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
 
 
 @dataclass
@@ -76,9 +81,20 @@ class DependencySet:
     #: history to judge and no maintainer other than the user, so they are
     #: reported as skipped rather than assessed.
     local: set[str] = field(default_factory=set)
+    #: dependencies that come from git, a URL or a local path rather than an
+    #: index: name -> "git" | "url" | "path". No registry check can speak to
+    #: them, and a scan that dropped them silently would be quietest exactly
+    #: where a project keeps its own first-party code.
+    not_analysed: dict[str, str] = field(default_factory=dict)
     #: resolved paths already read, so a file reached both by discovery and by
     #: an include is parsed once
     _seen: set[Path] = field(default_factory=set, repr=False)
+
+    def mark_not_analysed(self, name: str, source: str) -> None:
+        key = normalise(name) if _VALID_NAME.match(normalise(name)) else name
+        if not key or key in self.local:
+            return
+        self.not_analysed.setdefault(key, source)
 
     def mark_local(self, name: str) -> None:
         key = normalise(name)
@@ -123,6 +139,16 @@ class DependencySet:
 
     def __len__(self) -> int:
         return len(self.versions)
+
+
+def is_dependency_file(path: Path) -> bool:
+    """Whether a file is one of the dependency files this tool reads."""
+    if path.name in _PARSERS:
+        return True
+    return path.match(REQUIREMENTS_GLOB) or (
+        path.suffix == ".txt"
+        and REQUIREMENTS_DIR in (path.parent.name, path.parent.parent.name)
+    )
 
 
 def discover_manifests(root: Path) -> list[Path]:
@@ -173,6 +199,8 @@ class ParsedRequirement:
     pinned: str | None
     #: The full range as written, when there is one and it is not an exact pin.
     specifier: str | None
+    #: A PEP 508 direct reference (`name @ git+ssh://...`): not on any index.
+    url: str | None = None
 
     # The parsers were written against a (name, pinned) pair; keeping that
     # shape means the specifier can be threaded through without touching
@@ -181,24 +209,76 @@ class ParsedRequirement:
         return (self.name, self.pinned)[index]
 
 
+def source_kind(target: str) -> str | None:
+    """"git", "url" or "path" for a requirement that is not an index name."""
+    lowered = target.lower()
+    if lowered.startswith(_VCS_PREFIXES):
+        return "git"
+    if lowered.startswith(("http://", "https://", "file:")):
+        return "url"
+    if target.startswith((".", "/", "~", "\\")) or lowered.endswith((".whl", ".tar.gz", ".zip")):
+        return "path"
+    return None
+
+
+def _name_from_target(target: str, kind: str) -> str:
+    """The best name a git URL, a URL or a path offers for the report."""
+    if "#egg=" in target:
+        return target.split("#egg=", 1)[1].split("&", 1)[0]
+    if kind == "path":
+        return target
+    # Last path segment, then drop a trailing @revision. The revision split
+    # comes second on purpose: `git+ssh://git@github.com/org/repo.git` has an
+    # `@` in the host, and splitting on it first left "git" as the name.
+    stem = target.split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1].split("@", 1)[0]
+    if stem.endswith(".git"):
+        stem = stem[:-4]
+    return stem or target
+
+
+def _unresolvable_line(line: str) -> tuple[str, str] | None:
+    """(name, kind) for a requirements line that no index can answer for."""
+    text = line.split(" #", 1)[0].split("\t#", 1)[0].strip()
+    for flag in ("-e", "--editable"):
+        if text == flag:
+            return None
+        if text.startswith(flag + " ") or text.startswith(flag + "="):
+            text = text[len(flag) + 1:].strip()
+            break
+    if not text or text.startswith("-"):
+        return None
+    kind = source_kind(text)
+    if kind is None:
+        return None
+    return _name_from_target(text, kind), kind
+
+
 def _parse_requirement_line(line: str) -> ParsedRequirement | None:
     line = line.strip()
     if not line or line.startswith("#") or line.startswith("-"):
         return None
     line = line.split(" #", 1)[0].split("\t#", 1)[0].strip()
-    if not line or line.startswith(("http://", "https://", "git+", ".", "/")):
+    if not line:
         return None
+    # A bare URL, VCS reference or path does not parse as a requirement and
+    # is classified by _unresolvable_line instead. A `name @ url` line does
+    # parse, and carries its URL, so it must reach the parser: checking the
+    # whole line for a URL suffix first dropped `fourth @ https://x/f.whl`.
     try:
         req = Requirement(line)
     except InvalidRequirement:
         return None
     pinned = None
     for spec in req.specifier:
-        if spec.operator in ("==", "==="):
+        # `==2024.6.*` is a range, not a pin: it used to be recorded as the
+        # pin "2024.6.*", then discarded for containing a wildcard, leaving
+        # neither - and the newest release of all was analysed instead of the
+        # newest 2024.6. A live advisory disappeared that way.
+        if spec.operator in ("==", "===") and "*" not in spec.version:
             pinned = spec.version
             break
     specifier = str(req.specifier) if pinned is None and len(req.specifier) else None
-    return ParsedRequirement(req.name, pinned, specifier)
+    return ParsedRequirement(req.name, pinned, specifier, req.url)
 
 
 _INCLUDE = re.compile(r"^(?:-r|--requirement)(?:\s+|=)(?P<target>\S.*?)\s*$")
@@ -246,10 +326,20 @@ def parse_requirements_txt(
             deps.sources.append(target)
             parse_requirements_txt(target, deps, body, root, depth + 1)
             continue
+        unresolvable = _unresolvable_line(raw.strip())
+        if unresolvable:
+            deps.mark_not_analysed(*unresolvable)
+            continue
         parsed = _parse_requirement_line(raw)
         if parsed:
-            deps.add(parsed.name, parsed.pinned, origin, direct=True,
-                     specifier=parsed.specifier)
+            _record(deps, parsed, origin)
+
+
+def _record(deps: DependencySet, parsed: ParsedRequirement, origin: str) -> None:
+    if parsed.url:
+        deps.mark_not_analysed(parsed.name, source_kind(parsed.url) or "url")
+        return
+    deps.add(parsed.name, parsed.pinned, origin, direct=True, specifier=parsed.specifier)
 
 
 def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
@@ -265,14 +355,12 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
     for item in project.get("dependencies") or []:
         parsed = _parse_requirement_line(str(item))
         if parsed:
-            deps.add(parsed.name, parsed.pinned, origin, direct=True,
-                     specifier=parsed.specifier)
+            _record(deps, parsed, origin)
     for group in (project.get("optional-dependencies") or {}).values():
         for item in group or []:
             parsed = _parse_requirement_line(str(item))
             if parsed:
-                deps.add(parsed.name, parsed.pinned, origin, direct=True,
-                         specifier=parsed.specifier)
+                _record(deps, parsed, origin)
 
     # PEP 735 dependency groups
     for group in (data.get("dependency-groups") or {}).values():
@@ -280,22 +368,30 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
             if isinstance(item, str):
                 parsed = _parse_requirement_line(item)
                 if parsed:
-                    deps.add(parsed.name, parsed.pinned, origin, direct=True,
-                             specifier=parsed.specifier)
+                    _record(deps, parsed, origin)
 
     poetry = ((data.get("tool") or {}).get("poetry")) or {}
-    for section in ("dependencies", "dev-dependencies"):
-        for name, spec in (poetry.get(section) or {}).items():
+    sections = [poetry.get(s) or {} for s in ("dependencies", "dev-dependencies")]
+    sections += [g.get("dependencies") or {} for g in (poetry.get("group") or {}).values()]
+    for section in sections:
+        for name, spec in section.items():
+            if isinstance(spec, dict):
+                for key, kind in (("git", "git"), ("url", "url"), ("path", "path")):
+                    if key in spec:
+                        deps.mark_not_analysed(str(name), kind)
+                        break
+                else:
+                    deps.add(name, None, origin, direct=True)
+                continue
             version = spec if isinstance(spec, str) else None
-            pinned = (
-                version.lstrip("^~= ")
-                if isinstance(version, str) and version[:1] == "="
-                else None
-            )
-            deps.add(name, pinned, origin, direct=True)
-    for group in (poetry.get("group") or {}).values():
-        for name in (group.get("dependencies") or {}):
-            deps.add(name, None, origin, direct=True)
+            pinned = specifier = None
+            if isinstance(version, str) and version[:1] == "=":
+                exact = version.lstrip("^~= ")
+                if "*" in exact:
+                    specifier = f"=={exact}"
+                else:
+                    pinned = exact
+            deps.add(name, pinned, origin, direct=True, specifier=specifier)
 
 
 def _load_toml(text: str) -> dict | None:
@@ -329,6 +425,9 @@ def parse_uv_lock(path: Path, deps: DependencySet, text: str) -> None:
         if isinstance(source, dict) and any(k in source for k in _UV_LOCAL_SOURCES):
             deps.mark_local(str(name))
             continue
+        if isinstance(source, dict) and ("git" in source or "url" in source):
+            deps.mark_not_analysed(str(name), "git" if "git" in source else "url")
+            continue
         deps.add(str(name), pkg.get("version"), origin, direct=False)
 
 
@@ -344,6 +443,9 @@ def parse_poetry_lock(path: Path, deps: DependencySet, text: str) -> None:
         source = pkg.get("source")
         if isinstance(source, dict) and source.get("type") in ("directory", "file"):
             deps.mark_local(str(name))
+            continue
+        if isinstance(source, dict) and source.get("type") in ("git", "url"):
+            deps.mark_not_analysed(str(name), str(source["type"]))
             continue
         deps.add(str(name), pkg.get("version"), origin, direct=False)
 
@@ -362,13 +464,19 @@ def parse_pipfile_lock(path: Path, deps: DependencySet, text: str) -> None:
         return
     for section in ("default", "develop"):
         for name, spec in (data.get(section) or {}).items():
-            version = None
+            version = specifier = None
             if isinstance(spec, dict):
+                if "git" in spec or "file" in spec or "path" in spec:
+                    kind = "git" if "git" in spec else ("path" if "path" in spec else "url")
+                    deps.mark_not_analysed(str(name), kind)
+                    continue
                 raw = spec.get("version")
                 if isinstance(raw, str):
                     m = _PIPFILE_VERSION.match(raw.strip())
                     version = m.group("v") if m else None
-            deps.add(str(name), version, origin, direct=False)
+                    if version and "*" in version:
+                        specifier, version = f"=={version}", None
+            deps.add(str(name), version, origin, direct=False, specifier=specifier)
 
 
 def parse_pipfile(path: Path, deps: DependencySet, text: str) -> None:
@@ -377,8 +485,15 @@ def parse_pipfile(path: Path, deps: DependencySet, text: str) -> None:
     if data is None:
         return
     for section in ("packages", "dev-packages"):
-        for name in (data.get(section) or {}):
-            deps.add(str(name), None, origin, direct=True)
+        for name, spec in (data.get(section) or {}).items():
+            if isinstance(spec, dict) and ("git" in spec or "path" in spec or "file" in spec):
+                kind = "git" if "git" in spec else ("path" if "path" in spec else "url")
+                deps.mark_not_analysed(str(name), kind)
+                continue
+            specifier = None
+            if isinstance(spec, str) and spec.strip() not in ("", "*"):
+                specifier = spec.strip()
+            deps.add(str(name), None, origin, direct=True, specifier=specifier)
 
 
 _PARSERS = {

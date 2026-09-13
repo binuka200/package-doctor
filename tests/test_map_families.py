@@ -56,6 +56,7 @@ FAMILIES: dict[str, tuple[bool, list[str]]] = {
     ]),
     "pdf": (True, ["pypdf", "pypdf2", "pdfminer-six", "pymupdf", "pikepdf", "pdfplumber"]),
     "jwt": (True, ["pyjwt", "python-jose", "authlib", "joserfc", "jwcrypto"]),
+    "packaging toolchain": (True, ["pip", "setuptools", "wheel"]),
     # Not exposed: the obvious guess is wrong for the same reason across the family.
     "test doubles": (False, [
         "fakeredis", "mongomock", "moto", "responses", "respx", "vcrpy", "aioresponses",

@@ -182,13 +182,17 @@ def build_index(
     ``root``, and naming files relative to that produced ``models.py:11`` in a
     project with an ``analytics/models.py`` and a ``zerver/models.py``.
     """
-    display_root = display_root or root
+    # A single file is a valid root: `--src app.py` checks that file, and
+    # its paths are reported relative to the directory it sits in.
+    single = root.is_file()
+    display_root = display_root or (root.parent if single else root)
     index = ImportIndex()
     stdlib = _stdlib_names()
     env_map = _env_module_map()
     known = known_packages or set()
 
-    for path in iter_source_files(root)[:max_files]:
+    candidates = [root] if single else iter_source_files(root)
+    for path in candidates[:max_files]:
         try:
             # Only regular files are read. A FIFO named evil.py blocks open()
             # until something writes to it, and a symlink to /dev/zero reads

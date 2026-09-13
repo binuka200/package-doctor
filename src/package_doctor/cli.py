@@ -32,8 +32,15 @@ from .guard import (
 )
 from .models import Finding, Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
-from .parsers.discovery import MAX_MANIFEST_BYTES
-from .report import describe_degraded, render, render_explain, render_markdown, to_dict
+from .parsers.discovery import MAX_MANIFEST_BYTES, is_dependency_file
+from .report import (
+    describe_degraded,
+    describe_not_analysed,
+    render,
+    render_explain,
+    render_markdown,
+    to_dict,
+)
 from .risk import Thresholds
 from .sarif import to_sarif
 from .sources.client import Client
@@ -239,12 +246,25 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     # about skipped files and packages go to stderr in that mode, so a
     # pipeline reading the JSON never sees a stray line ahead of it.
     notes = Console(stderr=True) if args.as_json and not args.output else console
-    root = Path(args.path).expanduser().resolve()
-    if not root.is_dir():
-        console.print(f"[red]Not a directory:[/red] {escape(str(root))}")
+    target = Path(args.path).expanduser().resolve()
+    if target.is_file():
+        # A dependency file named directly: its directory is the project.
+        if not is_dependency_file(target):
+            console.print(
+                f"[red]Not a dependency file I know how to read:[/red] {escape(str(target))}"
+            )
+            console.print(
+                "[dim]Expected uv.lock, poetry.lock, Pipfile.lock, pyproject.toml, "
+                "Pipfile or requirements*.txt[/dim]"
+            )
+            return EXIT_USAGE
+        root, paths = target.parent, [target]
+    elif target.is_dir():
+        root, paths = target, discover_manifests(target)
+    else:
+        console.print(f"[red]No such file or directory:[/red] {escape(str(target))}")
         return EXIT_USAGE
 
-    paths = discover_manifests(root)
     if not paths:
         console.print(f"[yellow]No dependency files found in[/yellow] {escape(str(root))}")
         console.print(
@@ -267,6 +287,9 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
             f"[dim]Skipped {shown}{more}: this project's own package"
             f"{'s' if len(deps.local) > 1 else ''}, not a dependency.[/dim]"
         )
+    not_analysed = describe_not_analysed(deps.not_analysed)
+    if not_analysed:
+        notes.print(f"[yellow]{escape(not_analysed)}[/yellow]")
     if not deps:
         notes.print("[yellow]No dependencies found.[/yellow]")
         return EXIT_OK
@@ -281,9 +304,10 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         scanned = 0
         for src_root in roots:
             src_root = Path(src_root).expanduser().resolve()
-            if not src_root.is_dir():
+            if not (src_root.is_dir() or src_root.is_file()):
                 notes.print(
-                    f"[yellow]Not a directory, skipping:[/yellow] {escape(str(src_root))}"
+                    f"[yellow]No such file or directory, skipping:[/yellow] "
+                    f"{escape(str(src_root))}"
                 )
                 continue
             part = build_index(src_root, known_packages=known, display_root=root)
@@ -369,7 +393,9 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     acceptance_notes = apply_acceptances(findings, acceptances, now)
 
     source_names = [_display(p, root) for p in deps.sources]
-    payload = to_dict(findings, source_names, now, degraded=degraded)
+    payload = to_dict(
+        findings, source_names, now, degraded=degraded, not_analysed=deps.not_analysed
+    )
 
     # The side outputs are written first, whatever the exit code turns out to
     # be: a CI step that fails on findings still needs the SARIF it uploads
@@ -383,7 +409,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         args.markdown.write_text(
             render_markdown(
                 findings, sources=source_names, now=now, degraded=degraded,
-                notes=acceptance_notes,
+                notes=[*([not_analysed] if not_analysed else []), *acceptance_notes],
             ),
             encoding="utf-8",
         )
