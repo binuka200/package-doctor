@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`check`: a guardrail for the moment a dependency is added.**
+  `package-doctor check NAME[==VERSION]...` prints one decision per
+  package - block, warn, ok or unchecked - with the reasons, and exits `1`
+  on a block. Three provenance facts can block on their own: not on PyPI,
+  first published within `--new-days` (default 30), or one edit from a
+  far more common name. The scanner's verdict does the rest: *act* blocks,
+  *watch* warns. A failed lookup is *unchecked* and allowed.
+- **A Claude Code hook.** `package-doctor hook claude-code` reads a
+  PreToolUse event, finds what the shell command would install (pip, uv,
+  poetry, pipenv, pdm, pipx, `python -m pip`, chained commands), and blocks
+  with the reasons shown to the model, warns as context without granting
+  any permission, or stays silent. It fails open.
+- `first_release` on each finding, and a shipped list of the 1,500
+  most-downloaded package names for the near-miss check.
+
 ## [0.4.0] - 2026-09-13
 
 ### Added

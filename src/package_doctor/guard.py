@@ -1,0 +1,305 @@
+"""The guardrail: one decision per package, at the moment it is being added.
+
+A scan finds problems after they are in the lockfile. A coding agent adds a
+dependency in the time it takes to complete an import statement, and never
+reads the PyPI page, so the useful moment is before ``pip install`` runs.
+This module turns a finding into a decision an installer, a hook or an
+agent can act on: *block*, *warn*, *ok*, or *unchecked*.
+
+Agents fail in a way people rarely do: they invent names. Three facts cover
+that, and they are facts rather than inferences, so they can block:
+
+* **not on PyPI** - an install would fail, or fetch whatever someone
+  registered under the invented name since;
+* **registered recently** - a package that appeared days ago under exactly
+  the name that was just guessed is the documented slopsquatting pattern;
+* **one edit from a popular name** - the shape of a typo, or of a squat.
+
+These are about provenance, not exposure. They live here rather than in the
+exposure map or the risk rules, and they never touch a verdict.
+
+The rest follows the verdict the scanner already reached. *Act* blocks;
+*watch* warns; anything weaker passes. And when the upstream services could
+not answer, the package is *unchecked* and allowed: a guardrail that fails
+closed on somebody else's outage is the first thing a team removes.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import re
+import shlex
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+
+from packaging.requirements import InvalidRequirement, Requirement
+
+from .models import Finding, Verdict
+from .sources.pypi import normalise
+
+POPULAR_FILE = Path(__file__).parent / "data" / "popular.txt"
+
+#: A package first uploaded within this many days is blocked by default.
+NEW_DAYS = 30
+
+BLOCK, WARN, OK, UNCHECKED = "block", "warn", "ok", "unchecked"
+LEVEL_ORDER = (BLOCK, WARN, OK, UNCHECKED)
+
+
+@dataclass(frozen=True)
+class Provenance:
+    found: bool | None = None
+    first_release: dt.datetime | None = None
+    days_since_first_release: int | None = None
+    #: A far more common package one edit away, when this one is not itself common.
+    near_miss: str | None = None
+
+
+@dataclass
+class Decision:
+    level: str
+    reasons: list[str] = field(default_factory=list)
+    provenance: Provenance = Provenance()
+
+    @property
+    def blocked(self) -> bool:
+        return self.level == BLOCK
+
+
+# --- popular names and near misses -----------------------------------------
+
+@lru_cache(maxsize=1)
+def load_popular(path: Path | None = None) -> tuple[str, ...]:
+    """Most-downloaded package names, most popular first."""
+    target = path or POPULAR_FILE
+    try:
+        lines = target.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ()
+    return tuple(normalise(line.strip()) for line in lines
+                 if line.strip() and not line.startswith("#"))
+
+
+def one_edit_apart(a: str, b: str) -> bool:
+    """Damerau-Levenshtein distance of exactly one: an insertion, a deletion,
+    a substitution, or two adjacent characters swapped."""
+    if a == b:
+        return False
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+    if la == lb:
+        diffs = [i for i in range(la) if a[i] != b[i]]
+        if len(diffs) == 1:
+            return True
+        return (len(diffs) == 2 and diffs[1] == diffs[0] + 1
+                and a[diffs[0]] == b[diffs[1]] and a[diffs[1]] == b[diffs[0]])
+    short, long = (a, b) if la < lb else (b, a)
+    i = 0
+    while i < len(short) and short[i] == long[i]:
+        i += 1
+    return short[i:] == long[i + 1:]
+
+
+def near_miss(name: str, popular: Sequence[str]) -> str | None:
+    """The popular package this name is one edit away from, if this name is
+    not itself popular. Short names are skipped: at four characters or fewer
+    almost everything is one edit from something."""
+    key = normalise(name)
+    if len(key) <= 4 or key in popular:
+        return None
+    for candidate in popular:
+        if one_edit_apart(key, candidate):
+            return candidate
+    return None
+
+
+# --- what an install command asks for -------------------------------------
+
+#: Options that consume the next token, so it is not read as a package.
+_TAKES_VALUE = {
+    "-r", "--requirement", "-c", "--constraint", "-i", "--index-url", "--extra-index-url",
+    "-t", "--target", "--python", "-p", "--prefix", "--root", "-f", "--find-links",
+    "--group", "-G", "--optional", "--index", "--default-index", "--cache-dir",
+    "--config-settings", "-C", "--build-constraint", "--platform", "--only-binary",
+    "--no-binary", "--implementation", "--abi", "--progress-bar", "--log", "--proxy",
+    "--retries", "--timeout", "--exists-action", "--trusted-host", "--cert",
+    "--client-cert", "--report", "--src", "-e", "--editable", "--branch", "--tag", "--rev",
+}
+
+#: (verb tokens) that mean "install these names". Matched as a contiguous
+#: run of tokens anywhere in a segment, so `python -m pip install` works.
+_INSTALLERS: tuple[tuple[str, ...], ...] = (
+    ("pip", "install"), ("pip3", "install"), ("uv", "pip", "install"), ("uv", "add"),
+    ("poetry", "add"), ("pipenv", "install"), ("pdm", "add"), ("pipx", "install"),
+    ("pipx", "inject"),
+)
+_SEPARATORS = {"&&", "||", ";", "|", "&"}
+_PIP_LIKE = re.compile(r"^(python[0-9.]*|py)$")
+
+
+def _segments(command: str) -> list[list[str]]:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return []
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token in _SEPARATORS:
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    return [seg for seg in segments if seg]
+
+
+def _looks_local(arg: str) -> bool:
+    lowered = arg.lower()
+    return (
+        arg.startswith((".", "/", "~", "http://", "https://", "git+", "file:", "ssh://"))
+        or lowered.endswith((".whl", ".tar.gz", ".zip", ".txt", ".toml", ".egg"))
+        or "/" in arg
+        or "\\" in arg
+    )
+
+
+def parse_install_command(command: str) -> list[str]:
+    """Requirement strings an install command would add, in order.
+
+    Handles the pip, uv, poetry, pipenv, pdm and pipx spellings, ``python -m
+    pip``, chained commands, and quoted specifiers. Options and their values
+    are skipped, and so are paths, URLs and local files, which no registry
+    check can say anything about. ``pipx inject app pkg`` skips the app.
+    """
+    found: list[str] = []
+    for seg in _segments(command):
+        # `python -m pip install` -> drop the interpreter prefix.
+        if len(seg) >= 3 and _PIP_LIKE.match(seg[0]) and seg[1] == "-m":
+            seg = seg[2:]
+        start = None
+        for verb in _INSTALLERS:
+            for i in range(len(seg) - len(verb) + 1):
+                if tuple(seg[i : i + len(verb)]) == verb:
+                    start = i + len(verb)
+                    break
+            if start is not None:
+                if verb == ("pipx", "inject"):
+                    # The first positional is the app, not a package to check.
+                    skipped_app = False
+                    rest = []
+                    for tok in seg[start:]:
+                        if not tok.startswith("-") and not skipped_app:
+                            skipped_app = True
+                            continue
+                        rest.append(tok)
+                    seg = rest
+                    start = 0
+                break
+        if start is None:
+            continue
+        skip_next = False
+        for tok in seg[start:]:
+            if skip_next:
+                skip_next = False
+                continue
+            if tok.startswith("-"):
+                if tok in _TAKES_VALUE:
+                    skip_next = True
+                continue
+            if _looks_local(tok):
+                continue
+            try:
+                req = Requirement(tok)
+            except InvalidRequirement:
+                continue
+            found.append(tok)
+            del req
+    return found
+
+
+def parse_requirement(text: str) -> tuple[str, str | None, str | None]:
+    """(name, pinned version, specifier) from one requirement string."""
+    req = Requirement(text)
+    pinned = None
+    for spec in req.specifier:
+        if spec.operator in ("==", "==="):
+            pinned = spec.version
+            break
+    specifier = str(req.specifier) if pinned is None and len(req.specifier) else None
+    return req.name, pinned, specifier
+
+
+# --- the decision -----------------------------------------------------------
+
+def decide(
+    finding: Finding,
+    *,
+    now: dt.datetime,
+    popular: Sequence[str] = (),
+    new_days: int = NEW_DAYS,
+    degraded: bool = False,
+) -> Decision:
+    rem = finding.remediation
+    name = finding.package.name
+    miss = near_miss(name, popular)
+
+    if finding.error == "not found on PyPI":
+        reasons = ["not on PyPI: an install would fail, or fetch whatever someone has "
+                   "registered under this name since"]
+        if miss:
+            reasons.append(f"one edit from {miss}; did you mean that?")
+        return Decision(BLOCK, reasons, Provenance(found=False, near_miss=miss))
+
+    if finding.error or (degraded and rem.last_release is None):
+        # The lookup itself failed. That is not evidence about the package,
+        # and blocking on it would make an outage elsewhere stop all work.
+        return Decision(
+            UNCHECKED,
+            [f"could not be checked ({finding.error or 'upstream trouble'}); "
+             "allowed rather than blocked - rerun when the services answer"],
+            Provenance(found=None, near_miss=miss),
+        )
+
+    age = (now - rem.first_release).days if rem.first_release else None
+    provenance = Provenance(True, rem.first_release, age, miss)
+    reasons: list[str] = []
+    level = OK
+
+    if age is not None and age <= new_days:
+        level = BLOCK
+        reasons.append(
+            f"first published {age} day{'s' if age != 1 else ''} ago: too new to have "
+            f"a track record, and a name registered this recently is worth a human look"
+        )
+    if miss:
+        reasons.append(
+            f"one edit from {miss}, a far more common package; make sure this is the "
+            f"one you meant"
+        )
+        if level == OK:
+            level = WARN
+
+    verdict = finding.verdict
+    claims = [r.claim for r in finding.reasons]
+    if verdict is Verdict.ACT:
+        level = BLOCK
+        reasons.append("exposed, and " + ("; ".join(claims[:3]) or "no one left to fix it"))
+    elif verdict is Verdict.WATCH:
+        if level == OK:
+            level = WARN
+        reasons.append(
+            f"at a trust boundary ({finding.exposure.label})"
+            + (f": {claims[0]}" if claims else "")
+        )
+    elif not reasons:
+        if verdict is Verdict.LOW and claims:
+            reasons.append(f"not at a known boundary; {claims[0]}")
+        elif verdict is Verdict.UNKNOWN:
+            reasons.append("no exposure signal and no maintenance signal")
+        else:
+            reasons.append(
+                "reviewed as not at a trust boundary" if finding.exposure.note
+                else "no concerns found"
+            )
+    return Decision(level, reasons, provenance)

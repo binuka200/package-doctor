@@ -5,7 +5,8 @@
 [![Python](https://img.shields.io/pypi/pyversions/package-doctor.svg)](https://pypi.org/project/package-doctor/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Finds the dependencies that sit at a trust boundary and have no one left to fix them.**
+**Finds the dependencies that sit at a trust boundary and have no one left to fix them.
+Then stops your coding agent from adding another.**
 
 In late August 2026, Anthropic's coordinated disclosure programme reported 2,300
 vulnerabilities across 392 open source projects. 421 had been patched upstream.
@@ -19,6 +20,13 @@ So the question worth asking about a dependency is not *"is it healthy?"* It is:
 
 > **If a vulnerability lands in this package tomorrow, am I exposed, and is
 > anyone home to fix it?**
+
+Two ways to ask it. `package-doctor scan` answers for everything in your
+lockfile. `package-doctor check` answers for one package at the moment it is
+about to be installed — and as a [Claude Code hook](#a-guardrail-for-coding-agents)
+it asks before an agent's `pip install` runs, blocking an invented name, a
+package registered last week, or an abandoned library at a trust boundary,
+with the reason put in front of the model so it picks something else.
 
 ## The two-axis model
 
@@ -206,6 +214,78 @@ thing users cannot act on and maintainers cannot argue with.
 ```bash
 pip install package-doctor
 ```
+
+## A guardrail for coding agents
+
+A scan finds problems after they are in the lockfile. A coding agent adds a
+dependency in the time it takes to complete an import statement and never
+reads the PyPI page, so the useful moment is before `pip install` runs.
+
+```bash
+package-doctor check reqeusts pillow==10.0.0 requests six
+```
+
+```
+BLOCK     reqeusts
+          not on PyPI: an install would fail, or fetch whatever someone has registered under this name since
+          one edit from requests; did you mean that?
+BLOCK     pillow 10.0.0
+          exposed, and CVE-2023-4863 on CISA's known-exploited list, and your pinned version is affected
+WARN      requests 2.34.2?
+          at a trust boundary (http/network): 7 of 8 past advisories fixed at or before disclosure
+OK        six 1.17.0?
+          reviewed as not at a trust boundary
+```
+
+One decision per package: **block**, **warn**, **ok**, or **unchecked**.
+Exit `1` on a block (`--fail-on warn` to be stricter), `--json` for tools.
+
+Agents fail in a way people rarely do: they invent names. So three facts can
+block on their own, and they are facts rather than inferences: the package
+is **not on PyPI**; it was **first published within 30 days** (`--new-days`);
+or it is **one edit from a far more common name** and not itself common,
+which is the shape of a typo or of a squat. These are about provenance, not
+exposure, and they never touch a verdict. Otherwise the scanner's verdict
+decides: *act* blocks, *watch* warns, the rest pass. And when the upstream
+services cannot answer, the package is *unchecked* and allowed — a guardrail
+that fails closed on somebody else's outage is the first thing a team removes.
+
+### Claude Code hook
+
+Add to `.claude/settings.json` in the project, or `~/.claude/settings.json`
+for every project:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Every shell command the agent proposes passes through the hook. Commands that
+install nothing are ignored in a millisecond. For `pip install`, `uv add`,
+`poetry add`, `pipenv install`, `pdm add` and `pipx install`, each package is
+checked, and:
+
+- a **block** stops the call and puts the reasons in front of the model —
+  which is what makes an agent choose a different package instead of retrying
+  the same one;
+- a **warning** is attached as context for the model, and the call goes
+  through your normal permission flow — the hook never grants a permission
+  you did not;
+- anything else is silent.
+
+If the lookup itself fails, the install is allowed and the model is told it
+went unchecked. `--warn-blocks` makes warnings block too. Responses are
+cached, so the second check of a package costs nothing.
 
 ## Use
 

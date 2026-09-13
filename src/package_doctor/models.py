@@ -152,6 +152,9 @@ class Remediation:
     repo_last_push: dt.datetime | None = None
     inactive_classifier: bool = False
     last_release: dt.datetime | None = None
+    #: The earliest upload on PyPI. A package that appeared last week under a
+    #: name an agent just invented is the pattern the guardrail exists for.
+    first_release: dt.datetime | None = None
     latest_version: str | None = None
     open_issues: int | None = None
     advisories: AdvisoryHistory = field(default_factory=AdvisoryHistory)

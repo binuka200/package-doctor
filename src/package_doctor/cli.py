@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 
+from packaging.requirements import InvalidRequirement
 from rich.console import Console
 from rich.markup import escape
 
@@ -17,7 +18,18 @@ from .accept import CONFIG_NAME, ConfigError, apply_acceptances, load_acceptance
 from .analysis import Analyzer
 from .cache import Cache, default_cache_path
 from .exposure import load_exposure_map
-from .models import Package, Verdict
+from .guard import (
+    BLOCK,
+    NEW_DAYS,
+    UNCHECKED,
+    WARN,
+    Decision,
+    decide,
+    load_popular,
+    parse_install_command,
+    parse_requirement,
+)
+from .models import Finding, Package, Verdict
 from .parsers import collect_dependencies, discover_manifests
 from .parsers.discovery import MAX_MANIFEST_BYTES
 from .report import describe_degraded, render, render_explain, render_markdown, to_dict
@@ -168,6 +180,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
     explain.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
     common(explain)
+
+    check = sub.add_parser(
+        "check",
+        help="decide whether packages are safe to add: block, warn or ok, one line each",
+    )
+    check.add_argument(
+        "requirements", nargs="+", metavar="PACKAGE",
+        help="a name, or a requirement like pillow==10.0.0 (unpinned means the newest release)",
+    )
+    check.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
+    check.add_argument(
+        "--fail-on",
+        choices=["block", "warn", "never"],
+        default="block",
+        help="exit non-zero at this level or worse (default: block)",
+    )
+    check.add_argument(
+        "--new-days",
+        type=int,
+        default=NEW_DAYS,
+        metavar="N",
+        help=f"block a package first published within N days (default {NEW_DAYS})",
+    )
+    common(check)
+
+    hook = sub.add_parser(
+        "hook",
+        help="run as a coding-agent hook: read the tool call from stdin, check what it installs",
+    )
+    hook.add_argument("agent", choices=["claude-code"], help="which agent's hook protocol")
+    hook.add_argument(
+        "--new-days", type=int, default=NEW_DAYS, metavar="N",
+        help=f"block a package first published within N days (default {NEW_DAYS})",
+    )
+    hook.add_argument(
+        "--warn-blocks", action="store_true",
+        help="also block on warn-level results (default: warnings are passed to the agent)",
+    )
+    common(hook)
 
     cache_cmd = sub.add_parser("cache", help="inspect or clear the local cache")
     cache_cmd.add_argument("action", choices=["path", "clear"])
@@ -420,6 +471,183 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     return EXIT_FINDINGS if finding.verdict is Verdict.ACT and not finding.suppressed else EXIT_OK
 
 
+CheckRow = tuple[Package, Finding, Decision]
+
+
+async def run_check(
+    requirements: list[str], *, args: argparse.Namespace
+) -> tuple[list[CheckRow], dict[str, int]]:
+    """Look up each requirement and decide. Shared by `check` and the hook."""
+    packages = []
+    for text in requirements:
+        name, pinned, specifier = parse_requirement(text)
+        packages.append(Package(name=name, version=pinned, specifier=specifier, direct=True))
+
+    now = _now()
+    cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
+    try:
+        async with Client(cache, concurrency=args.concurrency) as client:
+            analyzer = Analyzer(
+                client, load_exposure_map(), _thresholds(args), skip_repo=args.offline_repo,
+                assume_latest=args.assume_latest,
+            )
+            findings = await analyzer.analyze_all(packages, now)
+            degraded = dict(client.degraded)
+    finally:
+        cache.close()
+
+    popular = load_popular()
+    rows = []
+    for package, finding in zip(packages, findings, strict=True):
+        decision = decide(
+            finding, now=now, popular=popular, new_days=args.new_days,
+            degraded=bool(degraded),
+        )
+        rows.append((package, finding, decision))
+    return rows, degraded
+
+
+def check_payload(rows: list[CheckRow], degraded: dict[str, int], now: dt.datetime) -> dict:
+    return {
+        "tool": "package-doctor",
+        "check_schema_version": 1,
+        "generated_at": now.isoformat(),
+        "degraded": degraded,
+        "checks": [
+            {
+                "name": p.name,
+                "version": p.version,
+                "version_assumed": p.version_assumed,
+                "verdict": f.verdict.value,
+                "level": d.level,
+                "reasons": d.reasons,
+                "exposure": f.exposure.categories,
+                "consequence": f.exposure.consequence,
+                "provenance": {
+                    "found": d.provenance.found,
+                    "first_release": (
+                        d.provenance.first_release.isoformat()
+                        if d.provenance.first_release else None
+                    ),
+                    "days_since_first_release": d.provenance.days_since_first_release,
+                    "near_miss": d.provenance.near_miss,
+                },
+            }
+            for p, f, d in rows
+        ],
+    }
+
+
+_CHECK_STYLE = {BLOCK: "bold red", WARN: "yellow", "ok": "green", UNCHECKED: "dim"}
+
+
+def _check_exit(rows: list[CheckRow], fail_on: str) -> int:
+    failing = {"block": {BLOCK}, "warn": {BLOCK, WARN}, "never": set()}[fail_on]
+    return EXIT_FINDINGS if any(d.level in failing for _, _, d in rows) else EXIT_OK
+
+
+async def _run_check(args: argparse.Namespace, console: Console) -> int:
+    try:
+        for text in args.requirements:
+            parse_requirement(text)
+    except InvalidRequirement as exc:
+        console.print(f"[red]Not a requirement:[/red] {escape(str(exc))}")
+        return EXIT_USAGE
+
+    rows, degraded = await run_check(args.requirements, args=args)
+    now = _now()
+    if args.as_json:
+        print(json.dumps(check_payload(rows, degraded, now), indent=2))
+        return _check_exit(rows, args.fail_on)
+
+    from rich.text import Text
+
+    for package, _finding, decision in rows:
+        line = Text()
+        line.append(f"{decision.level.upper():<10}", style=_CHECK_STYLE[decision.level])
+        version = package.version or ""
+        if package.version_assumed:
+            version += "?"
+        line.append(f"{package.name} {version}".rstrip(), style="bold")
+        line.append("\n")
+        for reason in decision.reasons:
+            line.append(f"          {reason}\n", style="dim" if decision.level == "ok" else "")
+        console.print(line, end="")
+    note = describe_degraded(degraded)
+    if note:
+        console.print(Text(note, style="yellow"))
+    return _check_exit(rows, args.fail_on)
+
+
+def _hook_lines(rows: list[CheckRow]) -> list[str]:
+    out = []
+    for package, _, decision in rows:
+        version = f" {package.version}" if package.version else ""
+        if package.version_assumed:
+            version += " (newest release; nothing pinned it)"
+        out.append(f"{decision.level.upper()} {package.name}{version}: "
+                   + "; ".join(decision.reasons))
+    return out
+
+
+async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
+    """Claude Code PreToolUse hook.
+
+    Reads the tool call from stdin. Exit 2 with the reasons on stderr blocks
+    the call and puts the reasons in front of the model, which is what makes
+    an agent pick a different package rather than retry the same one. Exit 0
+    leaves the normal permission flow untouched: a warning is attached as
+    context, never as an automatic "allow", so the hook can never widen what
+    the agent was already permitted to run.
+
+    Everything that is not a decision about a package - malformed input, a
+    tool that is not Bash, a command that installs nothing, an exception in
+    the lookup - exits 0 silently. A guardrail that stops work when it
+    cannot answer is the first thing a team removes.
+    """
+    try:
+        event = json.loads(stdin) if stdin.strip() else {}
+    except json.JSONDecodeError:
+        return EXIT_OK
+    if not isinstance(event, dict) or event.get("tool_name") != "Bash":
+        return EXIT_OK
+    command = (event.get("tool_input") or {}).get("command")
+    if not isinstance(command, str):
+        return EXIT_OK
+    requirements = parse_install_command(command)
+    if not requirements:
+        return EXIT_OK
+
+    try:
+        rows, _degraded = await run_check(requirements, args=args)
+    except Exception as exc:  # fail open, and say so where the user can see it
+        print(json.dumps({
+            "systemMessage": f"package-doctor could not check this install ({exc}); "
+                             f"it was allowed unchecked.",
+        }))
+        return EXIT_OK
+
+    lines = _hook_lines(rows)
+    blocking = {BLOCK, WARN} if args.warn_blocks else {BLOCK}
+    if any(d.level in blocking for _, _, d in rows):
+        sys.stderr.write(
+            "package-doctor blocked this install:\n  " + "\n  ".join(lines)
+            + "\nPick a maintained alternative, pin a fixed version, or ask the user "
+              "to add an acceptance to package-doctor.toml and rerun.\n"
+        )
+        return 2
+    if any(d.level in (WARN, UNCHECKED) for _, _, d in rows):
+        context = "package-doctor: " + " | ".join(lines)
+        print(json.dumps({
+            "systemMessage": context,
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": context,
+            },
+        }))
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -444,6 +672,10 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_run_scan(args, console))
         if args.command == "explain":
             return asyncio.run(_run_explain(args, console))
+        if args.command == "check":
+            return asyncio.run(_run_check(args, console))
+        if args.command == "hook":
+            return asyncio.run(_run_hook(args, sys.stdin.read()))
     except KeyboardInterrupt:
         console.print("[dim]Interrupted.[/dim]")
         return 130
