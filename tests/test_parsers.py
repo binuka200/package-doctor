@@ -63,6 +63,71 @@ version = "3.3.2"
     assert "charset-normalizer" not in deps.direct
 
 
+def test_a_lockfile_forked_by_python_version_scans_the_newest(tmp_path):
+    # GitGuardian/ggshield: uv lists the Python 3.9 fork first, and the first
+    # entry used to win - four act verdicts that a 3.10+ install does not have.
+    write(tmp_path, "uv.lock", """
+[[package]]
+name = "urllib3"
+version = "2.6.3"
+resolution-markers = ["python_full_version < '3.10'"]
+
+[[package]]
+name = "urllib3"
+version = "2.7.0"
+resolution-markers = ["python_full_version >= '3.10'"]
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.versions["urllib3"] == "2.7.0"
+    assert deps.other_versions["urllib3"] == {"2.6.3"}
+
+
+def test_the_newest_wins_whichever_order_the_versions_arrive_in(tmp_path):
+    write(tmp_path, "poetry.lock", """
+[[package]]
+name = "cryptography"
+version = "46.0.7"
+
+[[package]]
+name = "cryptography"
+version = "45.0.7"
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.versions["cryptography"] == "46.0.7"
+    assert deps.other_versions["cryptography"] == {"45.0.7"}
+
+
+@pytest.mark.parametrize("pinned", ["2.99.0", "2.0.0"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_lockfile_beats_a_different_pin_in_another_file(tmp_path, pinned, reverse):
+    # Newer: the-paperless-project/paperless's requirements.txt and Pipfile.lock
+    # disagree on 49 pins and the Dockerfile installs the lock. Older:
+    # cohere-python pins requests==2.0.0 beside a poetry.lock at 2.34.2.
+    write(tmp_path, "requirements.txt", f"requests=={pinned}\n")
+    write(tmp_path, "poetry.lock", '[[package]]\nname = "requests"\nversion = "2.34.2"\n')
+    paths = discover_manifests(tmp_path)
+    deps = collect_dependencies(paths[::-1] if reverse else paths, root=tmp_path)
+    assert deps.versions["requests"] == "2.34.2"
+    assert deps.other_versions["requests"] == {pinned}
+
+
+def test_one_version_spelled_two_ways_is_not_a_fork(tmp_path):
+    write(tmp_path, "requirements.txt", "six==1.16\n")
+    write(tmp_path, "requirements-dev.txt", "six==1.16.0\n")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert "six" not in deps.other_versions
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be", "utf-8-sig"])
+def test_requirements_saved_by_windows_tools_are_read(tmp_path, encoding):
+    # `pip freeze > requirements.txt` in PowerShell writes UTF-16 with a byte
+    # order mark; microsoft/Table-Pretraining ships one and it read as empty.
+    body = "# frozen\r\nrequests==2.26.0\r\nurllib3==1.26.6\r\n"
+    (tmp_path / "requirements.txt").write_bytes(body.encode(encoding))
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.versions == {"requests": "2.26.0", "urllib3": "1.26.6"}
+
+
 def test_poetry_lock(tmp_path):
     write(tmp_path, "poetry.lock", """
 [[package]]

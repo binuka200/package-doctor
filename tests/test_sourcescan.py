@@ -107,6 +107,15 @@ def test_a_file_that_will_not_parse_does_not_stop_the_scan(tmp_path):
     assert index.files_failed == 1
 
 
+def test_the_scanned_projects_own_warnings_are_not_printed(tmp_path, recwarn):
+    # microsoft/Table-Pretraining has "\s" in plain strings; compiling it put
+    # `<unknown>:106: SyntaxWarning` lines into the scan output.
+    write(tmp_path, "app.py", 'import requests\nx = "\\s"\n')
+    index = build_index(tmp_path, known_packages={"requests"})
+    assert index.for_package("requests")
+    assert not [w for w in recwarn if issubclass(w.category, (SyntaxWarning, DeprecationWarning))]
+
+
 def test_source_roots_include_test_dirs_without_init(tmp_path):
     (tmp_path / "mypkg").mkdir()
     (tmp_path / "mypkg" / "__init__.py").write_text("")

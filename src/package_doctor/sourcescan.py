@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import stat
 import sys
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -154,8 +155,15 @@ def extract_imports(source: str) -> list[tuple[str, int]]:
     Relative imports are skipped: `from . import thing` is the project's own
     code, never a dependency.
     """
+    # The file is the scanned project's code, not ours, and compiling it
+    # reports its lint: an invalid escape like "\s" is a SyntaxWarning on 3.12+
+    # and a DeprecationWarning before that. Scanning microsoft/Table-Pretraining
+    # printed five `<unknown>:106: SyntaxWarning` lines into the report.
     try:
-        tree = ast.parse(source)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tree = ast.parse(source)
     except (SyntaxError, ValueError):
         raise
 

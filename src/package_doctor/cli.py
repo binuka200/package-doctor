@@ -31,8 +31,13 @@ from .guard import (
     parse_requirement,
 )
 from .models import Finding, Package, Verdict
-from .parsers import collect_dependencies, discover_manifests, discover_nested
-from .parsers.discovery import MAX_MANIFEST_BYTES, NESTED_DEPTH, is_dependency_file
+from .parsers import collect_dependencies
+from .parsers.discovery import (
+    MAX_MANIFEST_BYTES,
+    NESTED_DEPTH,
+    discover_project,
+    is_dependency_file,
+)
 from .report import (
     describe_degraded,
     describe_not_analysed,
@@ -273,18 +278,22 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
             return EXIT_USAGE
         root, paths = target.parent, [target]
     elif target.is_dir():
-        root, paths = target, discover_manifests(target)
-        if not paths:
-            # Nothing at the root: look a little way down, skipping the
-            # places where somebody else's dependency files live.
-            paths = discover_nested(target)
-            if paths:
-                shown = ", ".join(_display(p, root) for p in paths[:4])
-                more = f" and {len(paths) - 4} more" if len(paths) > 4 else ""
-                notes.print(
-                    f"[dim]No dependency files at the root; using {shown}{more}, found "
-                    f"up to {NESTED_DEPTH} directories down.[/dim]"
-                )
+        # Nothing declared at the root: look a little way down, skipping the
+        # places where somebody else's dependency files live.
+        root = target
+        paths, nested = discover_project(target)
+        if nested:
+            shown = ", ".join(_display(p, root) for p in nested[:4])
+            more = f" and {len(nested) - 4} more" if len(nested) > 4 else ""
+            lead = (
+                "No dependency files at the root; using"
+                if paths == nested
+                else "Nothing at the root declares a dependency; also using"
+            )
+            notes.print(
+                f"[dim]{lead} {shown}{more}, found up to {NESTED_DEPTH} "
+                f"directories down.[/dim]"
+            )
     else:
         console.print(f"[red]No such file or directory:[/red] {escape(str(target))}")
         return EXIT_USAGE
@@ -293,7 +302,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         console.print(f"[yellow]No dependency files found in[/yellow] {escape(str(root))}")
         console.print(
             "[dim]Looked for: uv.lock, poetry.lock, Pipfile.lock, pyproject.toml, "
-            "Pipfile, setup.cfg, requirements*.txt - at the root and up to "
+            "Pipfile, setup.cfg, setup.py, requirements*.txt - at the root and up to "
             f"{NESTED_DEPTH} directories down, outside tests, docs, examples and "
             "vendored code.[/dim]"
         )
@@ -316,6 +325,27 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     not_analysed = describe_not_analysed(deps.not_analysed)
     if not_analysed:
         notes.print(f"[yellow]{escape(not_analysed)}[/yellow]")
+    for unread, reason in deps.unread:
+        notes.print(
+            f"[yellow]Not fully read:[/yellow] {escape(_display(unread, root))} - "
+            f"{escape(reason)}, so its dependencies are not in this scan. setup.py is "
+            f"parsed, never run."
+        )
+    if deps.other_versions:
+        # One version is scanned; the others still install somewhere, or are
+        # pinned somewhere, so they are named here instead of disappearing.
+        forks = sorted(deps.other_versions.items())
+        shown = "; ".join(
+            f"{name} {deps.versions[name]} (also {', '.join(sorted(others))})"
+            for name, others in forks[:4]
+        )
+        more = f"; and {len(forks) - 4} more" if len(forks) > 4 else ""
+        notes.print(
+            f"[yellow]Pinned at more than one version:[/yellow] {escape(shown + more)}. "
+            f"Scanned the lockfile's version, else the newest; the others are locked "
+            f"for some Python versions or extras, or pinned in another file. Check "
+            f"one with explain --pin."
+        )
     if not deps:
         notes.print("[yellow]No dependencies found.[/yellow]")
         return EXIT_OK
@@ -474,7 +504,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     if not args.no_reachability and root.is_dir():
         version_from_lock = None
         try:
-            manifests = discover_manifests(root) or discover_nested(root)
+            manifests, _ = discover_project(root)
             deps = collect_dependencies(manifests, root=root)
             version_from_lock = deps.versions.get(normalise(args.name))
             known = set(deps.versions)

@@ -221,7 +221,8 @@ def test_is_dependency_file():
     assert is_dependency_file(Path("/p/requirements-dev.txt"))
     assert is_dependency_file(Path("/p/requirements/base.txt"))
     assert is_dependency_file(Path("/p/setup.cfg"))
-    assert not is_dependency_file(Path("/p/setup.py"))
+    assert is_dependency_file(Path("/p/setup.py"))
+    assert not is_dependency_file(Path("/p/setup_helpers.py"))
 
 
 # --- 5. --src accepts a file ----------------------------------------------

@@ -3,10 +3,11 @@
 `scan .` used to exit with "No dependency files found" for a project whose
 requirements live in configs/. The fallback that fixes it is bounded on
 purpose: two levels down, never into tests, docs, examples or vendored
-code, and only when the root itself has nothing. setup.cfg is read
-because it is declarative; setup.py is not, because a computed
-install_requires is invisible to a parser and a partial answer that looks
-complete is the failure this tool exists to avoid.
+code, and only when nothing at the root declares a dependency. setup.cfg is read
+because it is declarative. setup.py is parsed and never run: literal lists
+are read, and a computed install_requires - invisible to a parser - is
+reported as not fully read, because a partial answer that looks complete is
+the failure this tool exists to avoid.
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from package_doctor import cli
 from package_doctor.models import Confidence, Exposure, Finding, Remediation, Verdict
 from package_doctor.parsers import collect_dependencies, discover_manifests, discover_nested
-from package_doctor.parsers.discovery import NESTED_DEPTH, is_dependency_file
+from package_doctor.parsers.discovery import NESTED_DEPTH, discover_project, is_dependency_file
 
 
 def write(root: Path, name: str, text: str = "flask==3.1.3\n") -> Path:
@@ -66,6 +69,39 @@ def test_a_root_with_files_never_falls_back(tmp_path, monkeypatch, capsys):
     assert "configs" not in out
 
 
+@pytest.mark.parametrize("root_file, body", [
+    # Mailu: the root pyproject.toml is towncrier settings; the pins are in core/base.
+    ("pyproject.toml", '[tool.towncrier]\npackage = "towncrier"\n'),
+    ("pyproject.toml", '[project]\nname = "app"\ndependencies = []\n'),
+    ("setup.py", "from setuptools import setup\nsetup(name='app')\n"),
+])
+def test_a_root_whose_files_declare_nothing_still_falls_back(tmp_path, root_file, body):
+    write(tmp_path, root_file, body)
+    write(tmp_path, "core/base/requirements-prod.txt")
+    paths, nested = discover_project(tmp_path)
+    assert rel(tmp_path, nested) == ["core/base/requirements-prod.txt"]
+    deps = collect_dependencies(paths, root=tmp_path)
+    assert deps.versions == {"flask": "3.1.3"}
+
+
+def test_a_root_declaring_only_a_git_dependency_does_not_fall_back(tmp_path):
+    write(tmp_path, "requirements.txt", "internal @ git+https://example.com/org/internal.git\n")
+    write(tmp_path, "configs/requirements.txt", "evil==1\n")
+    paths, nested = discover_project(tmp_path)
+    assert nested == []
+    assert rel(tmp_path, paths) == ["requirements.txt"]
+
+
+def test_scan_says_it_looked_past_a_root_that_declares_nothing(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "pyproject.toml", '[tool.towncrier]\npackage = "towncrier"\n')
+    write(tmp_path, "core/base/requirements-prod.txt")
+    stub(monkeypatch)
+    assert cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"]) == cli.EXIT_OK
+    out = " ".join(capsys.readouterr().out.split())
+    assert ("Nothing at the root declares a dependency; also using "
+            "core/base/requirements-prod.txt") in out
+
+
 def stub(monkeypatch, seen: dict | None = None):
     class Stub:
         def __init__(self, *a, **kw):
@@ -100,7 +136,7 @@ def test_nothing_anywhere_is_a_usage_error_that_says_where_it_looked(tmp_path, m
     write(tmp_path, "tests/requirements.txt")
     stub(monkeypatch)
     assert cli.main(["scan", str(tmp_path), "--no-cache"]) == cli.EXIT_USAGE
-    out = capsys.readouterr().out
+    out = " ".join(capsys.readouterr().out.split())
     assert "No dependency files found" in out
     assert "up to 2 directories down" in out and "tests, docs, examples" in out
 
@@ -147,10 +183,98 @@ def test_a_malformed_setup_cfg_is_ignored(tmp_path):
     assert deps.versions == {}
 
 
-def test_setup_py_is_deliberately_not_read(tmp_path):
-    write(tmp_path, "setup.py", "from setuptools import setup\nsetup(install_requires=['flask'])\n")
-    assert discover_manifests(tmp_path) == []
-    assert discover_nested(tmp_path) == []
+# --- setup.py ----------------------------------------------------------------
+
+SETUP_PY = """
+from setuptools import find_packages, setup
+
+NAME = "myproj"
+REQUIRES = [
+    "requests>=2.28",
+    "pillow==10.0.0",
+    "internal @ git+ssh://git@github.com/org/internal.git",
+]
+
+setup(
+    name=NAME,
+    packages=find_packages(),
+    install_requires=REQUIRES,
+    extras_require={"dev": ["pytest"], "docs": "sphinx>=7"},
+)
+"""
+
+
+def test_setup_py_literal_install_requires_and_extras_are_read(tmp_path):
+    write(tmp_path, "setup.py", SETUP_PY)
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"requests": None, "pillow": "10.0.0", "pytest": None, "sphinx": None}
+    assert deps.specifiers == {"requests": ">=2.28", "sphinx": ">=7"}
+    assert deps.not_analysed == {"internal": "git"}
+    assert "myproj" in deps.local
+    assert deps.unread == []
+    assert is_dependency_file(tmp_path / "setup.py")
+
+
+def test_setup_py_is_parsed_never_run(tmp_path):
+    marker = tmp_path / "ran"
+    write(tmp_path, "setup.py",
+          f"import pathlib\npathlib.Path({str(marker)!r}).write_text('x')\n"
+          "from setuptools import setup\nsetup(install_requires=['flask==3.1.3'])\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"flask": "3.1.3"}
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("body", [
+    # ozmartian/vidcutter
+    "import sys\nREQS = ['typing'] if sys.version_info < (3, 5) else []\n"
+    "setup(install_requires=REQS)\n",
+    "setup(install_requires=open('requirements.txt').read().splitlines())\n",
+    "REQS = ['flask']\nREQS.append('gunicorn')\nsetup(install_requires=REQS)\n",
+    "REQS = ['flask']\nREQS += ['gunicorn']\nsetup(install_requires=REQS)\n",
+    "from reqs import REQS\nsetup(install_requires=REQS)\n",
+])
+def test_a_computed_install_requires_is_reported_not_read_as_empty(tmp_path, body):
+    write(tmp_path, "setup.py", "from setuptools import setup\n" + body)
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {}
+    assert deps.unread == [(tmp_path / "setup.py", "install_requires is computed in Python")]
+
+
+def test_a_computed_extras_require_does_not_hide_a_literal_install_requires(tmp_path):
+    write(tmp_path, "setup.py",
+          "from setuptools import setup\nBASE = ['flask']\n"
+          "setup(install_requires=BASE, extras_require={'all': BASE + ['gunicorn']})\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"flask": None}
+    assert [reason for _, reason in deps.unread] == ["extras_require is computed in Python"]
+
+
+def test_a_setup_py_shim_with_nothing_to_read_is_complete(tmp_path):
+    write(tmp_path, "setup.py", "from setuptools import setup\n\nsetup()\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {}
+    assert deps.unread == []
+
+
+@pytest.mark.parametrize("body, reason", [
+    ("setup(install_requires=[\n", "it does not parse as Python"),
+    ("print('no call here')\n", "it has no setup() call to read"),
+    ("from setuptools import setup\nsetup(**CONFIG)\n", "setup() is passed **arguments"),
+])
+def test_a_setup_py_that_cannot_be_read_says_why(tmp_path, body, reason):
+    write(tmp_path, "setup.py", body)
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert [r for _, r in deps.unread] == [reason]
+
+
+def test_scan_says_when_setup_py_was_not_fully_read(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "setup.py",
+          "from setuptools import setup\nsetup(install_requires=open('r.txt').read().split())\n")
+    stub(monkeypatch)
+    cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Not fully read: setup.py - install_requires is computed in Python" in out
 
 
 # --- --src on explain --------------------------------------------------------

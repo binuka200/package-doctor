@@ -9,15 +9,19 @@ reacts to a finding.
 
 from __future__ import annotations
 
+import ast
+import codecs
 import configparser
 import json
 import re
 import stat
 import sys
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import InvalidVersion, Version
 
 from ..sources.pypi import normalise
 
@@ -26,7 +30,7 @@ if sys.version_info >= (3, 11):
 else:  # pragma: no cover - exercised only on 3.10
     import tomli as tomllib
 
-MANIFESTS = ("pyproject.toml", "Pipfile", "setup.cfg")
+MANIFESTS = ("pyproject.toml", "Pipfile", "setup.cfg", "setup.py")
 LOCKFILES = ("uv.lock", "poetry.lock", "Pipfile.lock")
 
 #: How far below the root the fallback search looks when the root itself has
@@ -79,6 +83,17 @@ _VCS_PREFIXES = ("git+", "hg+", "svn+", "bzr+")
 class DependencySet:
     #: normalised name -> pinned version (or None when only a range is known)
     versions: dict[str, str | None] = field(default_factory=dict)
+    #: normalised name -> the other exact versions found for it. A uv.lock that
+    #: forks by Python version or by extra records one package several times;
+    #: the newest is the one in ``versions``, because that is what a default
+    #: install on a current interpreter gets. The first entry used to win, and
+    #: uv lists the oldest first, so GitGuardian/ggshield was scanned as its
+    #: Python 3.9 environment. When a lockfile and another file disagree, the
+    #: lockfile's version is kept whichever is newer, because it is the one that
+    #: installs. The rest are kept so they can be named rather than dropped.
+    other_versions: dict[str, set[str]] = field(default_factory=dict)
+    #: normalised names whose version in ``versions`` came from a lockfile
+    _from_lock: set[str] = field(default_factory=set, repr=False)
     #: normalised name -> the declared range, for names with no exact pin.
     #: ``django<5`` installs the newest 4.x, not the newest release, and the
     #: assumed version has to respect that to be worth anything.
@@ -93,6 +108,10 @@ class DependencySet:
     #: that points outside the project - so the user can be told, because a
     #: skipped lockfile must not look like an empty one
     refused: list[Path] = field(default_factory=list)
+    #: files read only in part, with why - a setup.py whose install_requires
+    #: is computed in Python. An empty result from a file a parser could not
+    #: see into must not look like a clean one, so it is reported.
+    unread: list[tuple[Path, str]] = field(default_factory=list)
     #: normalised names of packages that come from the project itself rather
     #: than from an index: the project's own distribution, workspace members,
     #: and anything a lockfile records with a local source. They have no PyPI
@@ -119,6 +138,8 @@ class DependencySet:
         if key:
             self.local.add(key)
             self.versions.pop(key, None)
+            self.other_versions.pop(key, None)
+            self._from_lock.discard(key)
             self.direct.discard(key)
             self.origins.pop(key, None)
 
@@ -145,15 +166,48 @@ class DependencySet:
             # it reached OSV as a literal string and matched nothing, which
             # read as "no advisories" for a package that had them.
             version = None
-        if version and not self.versions.get(key):
+        from_lock = Path(origin).name in LOCKFILES
+        current = self.versions.get(key)
+        if version and current and version != current:
+            self._record_second_version(key, version, current, from_lock)
+        elif version and not current:
             self.versions[key] = version
         else:
             self.versions.setdefault(key, version)
+        if from_lock and version and self.versions.get(key) == version:
+            self._from_lock.add(key)
         if specifier and key not in self.specifiers:
             self.specifiers[key] = specifier
         if direct:
             self.direct.add(key)
         self.origins.setdefault(key, set()).add(origin)
+
+    def _record_second_version(
+        self, key: str, version: str, current: str, from_lock: bool
+    ) -> None:
+        try:
+            new, old = Version(version), Version(current)
+        except InvalidVersion:
+            new = old = None
+        if new is not None and new == old:
+            # `1.16` and `1.16.0` are one version spelled twice, not a fork.
+            return
+        if from_lock != (key in self._from_lock):
+            # A lockfile is what installs. the-paperless-project/paperless ships
+            # a Pipfile.lock and a requirements.txt that disagree on 49 pins, and
+            # its Dockerfile runs `pipenv install --deploy`; cohere-python pins
+            # requests==2.0.0 in requirements.txt beside a poetry.lock at 2.34.2.
+            take = from_lock
+        elif new is None:
+            # Not comparable, so there is no "newest" to prefer: keep the first.
+            return
+        else:
+            take = new > old
+        winner, loser = (version, current) if take else (current, version)
+        self.versions[key] = winner
+        others = self.other_versions.setdefault(key, set())
+        others.discard(winner)
+        others.add(loser)
 
     def __len__(self) -> int:
         return len(self.versions)
@@ -201,8 +255,9 @@ def discover_manifests(root: Path) -> list[Path]:
 def discover_nested(root: Path, depth: int = NESTED_DEPTH) -> list[Path]:
     """Dependency files up to ``depth`` directories below a root that has none.
 
-    Used only when the root is empty, so a project with files at the root
-    sees no change. Nothing under NESTED_SKIP is entered, and the result is
+    Used only when nothing at the root declares a dependency (see
+    discover_project), so a project whose root does sees no change. Nothing
+    under NESTED_SKIP is entered, and the result is
     every recognised file in the directories that remain, shallowest first,
     so `configs/requirements.txt` is found and `tests/fixtures/requirements.txt`
     is not.
@@ -225,6 +280,25 @@ def discover_nested(root: Path, depth: int = NESTED_DEPTH) -> list[Path]:
     return found
 
 
+def discover_project(root: Path) -> tuple[list[Path], list[Path]]:
+    """Every dependency file to read for a project directory, and which of
+    them the fallback search found.
+
+    The fallback runs when the root has no dependency files, and also when the
+    ones it has declare nothing. Mailu's root pyproject.toml holds only
+    towncrier settings; its pins are in core/base/requirements-prod.txt, and
+    the scan used to stop at the root and report "No dependencies found". The
+    root's files stay in the list, so its own package name is still skipped.
+    """
+    found = discover_manifests(root)
+    if found:
+        deps = collect_dependencies(found, root=root)
+        if deps.versions or deps.not_analysed or deps.unread or deps.refused:
+            return found, []
+    nested = discover_nested(root)
+    return found + nested, nested
+
+
 def read_manifest(path: Path, max_bytes: int = MAX_MANIFEST_BYTES) -> str | None:
     """Read a dependency file, or return None if it should not be read.
 
@@ -241,6 +315,30 @@ def read_manifest(path: Path, max_bytes: int = MAX_MANIFEST_BYTES) -> str | None
         return None
     if len(raw) > max_bytes:
         return None
+    return _decode(raw)
+
+
+def _decode(raw: bytes) -> str:
+    """The text of a dependency file, whatever encoding Windows saved it in.
+
+    ``pip freeze > requirements.txt`` in PowerShell writes UTF-16. Read as
+    UTF-8 that is a NUL between every character, no line parses, and the scan
+    said "No dependencies found" for microsoft/Table-Pretraining, which pins 31.
+    A UTF-8 byte order mark, from Notepad, would otherwise stick to the first
+    name on the first line.
+    """
+    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return raw.decode("utf-16", errors="replace")
+    if raw.startswith(codecs.BOM_UTF8):
+        return raw[len(codecs.BOM_UTF8):].decode("utf-8", errors="replace")
+    # UTF-16 without a mark: ASCII text leaves every other byte zero. Nine in
+    # ten tolerates a comment in another script; real UTF-8 has no NULs at all.
+    head = raw[:1024]
+    if len(head) >= 4:
+        for offset, codec in ((1, "utf-16-le"), (0, "utf-16-be")):
+            column = head[offset::2]
+            if column.count(0) >= 0.9 * len(column):
+                return raw.decode(codec, errors="replace")
     return raw.decode("utf-8", errors="replace")
 
 
@@ -485,12 +583,8 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
 def parse_setup_cfg(path: Path, deps: DependencySet, text: str) -> None:
     """``[options] install_requires`` and ``[options.extras_require]``.
 
-    setup.cfg is declarative, so this cannot be wrong the way a static read
-    of setup.py can: an install_requires computed in Python is invisible to
-    a parser, and a partial answer that looks complete is the failure this
-    tool exists to avoid. So setup.py is not read at all.
+    setup.cfg is declarative, so everything it declares is visible here.
     """
-    origin = path.name
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read_string(text)
@@ -499,18 +593,145 @@ def parse_setup_cfg(path: Path, deps: DependencySet, text: str) -> None:
     own = parser.get("metadata", "name", fallback=None)
     if own:
         deps.mark_local(own.strip())
-    lines = [parser.get("options", "install_requires", fallback="")]
+    lines = parser.get("options", "install_requires", fallback="").splitlines()
     if parser.has_section("options.extras_require"):
-        lines.extend(value for _, value in parser.items("options.extras_require"))
-    for block in lines:
-        for raw in block.splitlines():
-            unresolvable = _unresolvable_line(raw.strip())
-            if unresolvable:
-                deps.mark_not_analysed(*unresolvable)
-                continue
-            parsed = _parse_requirement_line(raw)
-            if parsed:
-                _record(deps, parsed, origin)
+        for _, value in parser.items("options.extras_require"):
+            lines.extend(value.splitlines())
+    _record_lines(deps, lines, path.name)
+
+
+def _record_lines(deps: DependencySet, lines: list[str], origin: str) -> None:
+    for raw in lines:
+        unresolvable = _unresolvable_line(raw.strip())
+        if unresolvable:
+            deps.mark_not_analysed(*unresolvable)
+            continue
+        parsed = _parse_requirement_line(raw)
+        if parsed:
+            _record(deps, parsed, origin)
+
+
+#: What _static_value returns for anything that is not a literal.
+_COMPUTED = object()
+
+
+def parse_setup_py(path: Path, deps: DependencySet, text: str) -> None:
+    """``install_requires`` and ``extras_require`` from ``setup()``, never run.
+
+    setup.py is a program, and a scanner that imported one would execute
+    whatever a checkout contained, so it is only parsed. A list written out
+    literally is read, including one bound to a module-level name first -
+    lucidrains/routing-transformer and microsoft/Table-Pretraining declare
+    their dependencies nowhere else. A list computed in Python (read from a
+    file, picked by a condition, appended to) is invisible to a parser, and a
+    partial answer that looks complete is the failure this tool exists to
+    avoid: it goes in ``deps.unread`` and the scan says so.
+    """
+    try:
+        with warnings.catch_warnings():
+            # The project's lint, not ours; see sourcescan.extract_imports.
+            warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tree = ast.parse(text)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        deps.unread.append((path, "it does not parse as Python"))
+        return
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _called_name(node.func) == "setup"
+    ]
+    if not calls:
+        deps.unread.append((path, "it has no setup() call to read"))
+        return
+    names = _names_bound_once(tree)
+    for call in calls:
+        keywords = {kw.arg: kw.value for kw in call.keywords}
+        if None in keywords and "install_requires" not in keywords:
+            deps.unread.append((path, "setup() is passed **arguments"))
+        own = _static_value(keywords.get("name"), names)
+        if isinstance(own, str):
+            deps.mark_local(own)
+        lines: list[str] = []
+        if "install_requires" in keywords:
+            found = _requirement_strings(_static_value(keywords["install_requires"], names))
+            if found is None:
+                deps.unread.append((path, "install_requires is computed in Python"))
+            else:
+                lines.extend(found)
+        if "extras_require" in keywords:
+            extras = _static_value(keywords["extras_require"], names)
+            groups = (
+                [_requirement_strings(v) for v in extras.values()]
+                if isinstance(extras, dict) else [None]
+            )
+            if any(g is None for g in groups):
+                deps.unread.append((path, "extras_require is computed in Python"))
+            else:
+                lines.extend(line for g in groups for line in g)
+        _record_lines(deps, lines, path.name)
+
+
+def _called_name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _names_bound_once(tree: ast.Module) -> dict[str, ast.expr]:
+    """Module-level names assigned exactly once and never changed afterwards.
+
+    ``REQUIRES = [...]`` then ``install_requires=REQUIRES`` is the commonest
+    shape there is. A name that is reassigned, augmented, subscripted into or
+    has a method called on it (``REQUIRES.append(...)``) may not hold what its
+    literal says, so it does not count.
+    """
+    stores: dict[str, int] = {}
+    changed: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            stores[node.id] = stores.get(node.id, 0) + 1
+        elif (
+            isinstance(node, (ast.Attribute, ast.Subscript))
+            and isinstance(node.value, ast.Name)
+            and (isinstance(node, ast.Attribute) or not isinstance(node.ctx, ast.Load))
+        ):
+            # REQUIRES.append(...) or REQUIRES[0] = ...; reading REQUIRES[0] changes nothing.
+            changed.add(node.value.id)
+    bound: dict[str, ast.expr] = {}
+    for stmt in tree.body:
+        if (
+            isinstance(stmt, ast.Assign)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Name)
+        ):
+            name = stmt.targets[0].id
+            if stores.get(name) == 1 and name not in changed:
+                bound[name] = stmt.value
+    return bound
+
+
+def _static_value(node: ast.expr | None, names: dict[str, ast.expr]) -> object:
+    """The value of a literal, or of a name bound once to one; else _COMPUTED."""
+    if isinstance(node, ast.Name):
+        node = names.get(node.id)
+    if node is None:
+        return _COMPUTED
+    try:
+        # literal_eval accepts only literals: no names, calls or operators.
+        return ast.literal_eval(node)
+    except (ValueError, TypeError, SyntaxError, RecursionError, MemoryError):
+        return _COMPUTED
+
+
+def _requirement_strings(value: object) -> list[str] | None:
+    """Requirement lines from a static value; setuptools takes a list or a string."""
+    if isinstance(value, str):
+        return value.splitlines()
+    if isinstance(value, (list, tuple)) and all(isinstance(v, str) for v in value):
+        return [line for v in value for line in v.splitlines()]
+    return None
 
 
 def _load_toml(text: str) -> dict | None:
@@ -618,6 +839,7 @@ def parse_pipfile(path: Path, deps: DependencySet, text: str) -> None:
 _PARSERS = {
     "pyproject.toml": parse_pyproject,
     "setup.cfg": parse_setup_cfg,
+    "setup.py": parse_setup_py,
     "uv.lock": parse_uv_lock,
     "poetry.lock": parse_poetry_lock,
     "Pipfile.lock": parse_pipfile_lock,

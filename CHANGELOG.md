@@ -53,6 +53,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Accept-Language). `svgwrite`, `xlsxwriter` and `xlwt` write and parse
   nothing and move to reviewed-not-exposed.
 
+### Fixed
+
+- **A package locked at more than one version is scanned at the newest.**
+  uv.lock forks a package by Python version or extra, and the first entry
+  used to win - which uv lists oldest. GitGuardian/ggshield was scanned as its
+  Python 3.9 environment, with act verdicts on `cryptography`, `marshmallow`,
+  `requests` and `urllib3` that a 3.10+ install does not have. The older
+  versions are now named in a scan note rather than dropped.
+- **UTF-16 and BOM-prefixed dependency files are read.** `pip freeze >
+  requirements.txt` in PowerShell writes UTF-16; decoded as UTF-8 nothing
+  parsed, and microsoft/Table-Pretraining's 31 pins reported as "No
+  dependencies found".
+- **setup.py is read, and never run.** `install_requires` and
+  `extras_require` written as literals - or as a list bound to a name first -
+  are taken from the syntax tree. Three of forty randomly sampled
+  repositories declared their dependencies nowhere else and scanned as "No
+  dependencies found". A list computed in Python is invisible to a parser, so
+  the scan names the file as *not fully read* instead of coming back clean.
+- **`research/evaluate_repos.py` no longer crashes** on cache rows with no
+  response body, which OSV lookups for unknown packages leave behind.
+- **A lockfile's version beats a different pin in another file.** The
+  newest-wins rule above applied across files too, so a requirements.txt
+  newer than the lock would have been scanned instead of what installs.
+  the-paperless-project/paperless ships a Pipfile.lock and a requirements.txt
+  that disagree on 49 pins, and installs from the lock.
+- **A root whose files declare nothing no longer stops discovery.** Mailu's
+  root pyproject.toml holds only towncrier settings, so the nested search
+  never ran and its pins in core/base/requirements-prod.txt went unscanned:
+  "No dependencies found". The same fallback now runs, and says so.
+
 ## [0.8.2] - 2026-09-13
 
 ### Added

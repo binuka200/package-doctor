@@ -519,18 +519,24 @@ else.
 | `--no-cache` | bypass the local response cache |
 
 Reads `uv.lock`, `poetry.lock`, `Pipfile.lock`, `pyproject.toml` (PEP 621,
-PEP 735 and Poetry), `Pipfile`, `setup.cfg` (`install_requires` and extras),
-`requirements*.txt`, `requirements/*.txt` and one level below that
+PEP 735 and Poetry), `Pipfile`, `setup.cfg` (`install_requires` and extras), `setup.py` (the
+same, when written as literals), `requirements*.txt`, `requirements/*.txt` and one level below that
 (`requirements/<env>/*.txt`), following `-r` includes within the project.
-`scan PATH` takes a directory or one of those files.
+`scan PATH` takes a directory or one of those files. When two files pin a
+package differently, the lockfile's version is scanned, because that is what
+installs; within one lockfile, the newest. The others are named in a note.
 
 Discovery is shallow on purpose: recursing finds vendored fixtures and
 example projects, and a report about someone else's test data is noise. When
-the root has no dependency files at all, a bounded fallback looks up to two
+nothing at the root declares a dependency — no files, or only a
+`pyproject.toml` holding tool settings — a bounded fallback looks up to two
 directories down, never entering tests, docs, examples, fixtures, vendored
-code or hidden directories, and says which files it used. `setup.py` is not
-read: an `install_requires` computed in Python is invisible to a parser, and
-a partial answer that looks complete is the failure this tool exists to avoid.
+code or hidden directories, and says which files it used. `setup.py` is
+parsed, never run: `install_requires` and `extras_require` written as
+literals are read, including a list bound to a name first. One computed in
+Python — read from a file, chosen by a condition, appended to — is invisible
+to a parser, and a partial answer that looks complete is the failure this tool
+exists to avoid, so the scan reports the file as *not fully read*.
 
 Dependencies that come from git, a URL or a local path — a `git+ssh://` line,
 an `-e` editable, a `name @ url` reference, a git source in a lockfile — are

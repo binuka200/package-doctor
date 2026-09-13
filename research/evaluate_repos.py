@@ -102,7 +102,10 @@ def alias_map(cache_db: Path) -> dict[str, str]:
         return out
     db = sqlite3.connect(str(cache_db))
     for (_, body) in db.execute("SELECT key, body FROM entries WHERE key LIKE 'osv:%'"):
-        for v in json.loads(body)["body"].get("vulns", []):
+        # Rows for a package OSV has never heard of, or one too large to keep,
+        # are cached with no response body; they alias nothing.
+        payload = json.loads(body).get("body") or {}
+        for v in payload.get("vulns", []):
             ids = {v["id"], *v.get("aliases", [])}
             canon = sorted(i for i in ids if i.startswith("CVE-")) or [v["id"]]
             for i in ids:
