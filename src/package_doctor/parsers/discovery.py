@@ -469,6 +469,48 @@ def _parse_requirement_line(line: str) -> ParsedRequirement | None:
 
 _INCLUDE = re.compile(r"^(?:-r|--requirement)(?:\s+|=)(?P<target>\S.*?)\s*$")
 
+#: A comment, or the comment tail of a line: `#` at the start or after
+#: whitespace. pip ends a logical line here even if it ends with a backslash.
+_COMMENT = re.compile(r"(^|\s+)#.*$")
+
+#: The first per-requirement option (`--hash=...`, `--config-settings=...`,
+#: `--global-option=...`, `-C ...`) on a logical line. Everything from it to
+#: the end of the line is an option, not part of the requirement.
+_PER_REQUIREMENT_OPTION = re.compile(r"\s+-(?:-[A-Za-z][\w-]*|C)(?:[=\s]|$)")
+
+
+def _logical_lines(text: str) -> list[str]:
+    """Join backslash-continued lines the way pip does.
+
+    A trailing backslash continues the logical line onto the next physical
+    one; a comment ends it regardless. ``pip-compile --generate-hashes`` and
+    ``uv export`` write every requirement this way, one ``--hash`` per
+    continuation line, and reading them physically dropped every package.
+    """
+    joined: list[str] = []
+    pending: list[str] = []
+    for physical in text.splitlines():
+        line = physical.rstrip()
+        if line.endswith("\\") and not _COMMENT.search(line):
+            pending.append(line[:-1])
+            continue
+        pending.append(line)
+        joined.append("".join(pending))
+        pending = []
+    if pending:
+        joined.append("".join(pending))
+    return joined
+
+
+def _strip_requirement_options(line: str) -> str:
+    """Drop per-requirement options such as ``--hash=sha256:...``.
+
+    They are pip's to check, not the requirement parser's: packaging rejects
+    the whole line when they are present.
+    """
+    match = _PER_REQUIREMENT_OPTION.search(line)
+    return line[: match.start()].rstrip() if match else line
+
 
 def _origin(path: Path, root: Path) -> str:
     try:
@@ -494,7 +536,8 @@ def parse_requirements_txt(
     """
     root = root or path.parent
     origin = _origin(path, root)
-    for raw in text.splitlines():
+    for logical in _logical_lines(text):
+        raw = _strip_requirement_options(logical)
         include = _INCLUDE.match(raw.strip())
         if include:
             target = (path.parent / include.group("target")).resolve()

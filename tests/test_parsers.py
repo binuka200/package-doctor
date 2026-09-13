@@ -31,6 +31,67 @@ Django==4.2.1 ; python_version >= "3.8"
     assert "requests" in deps.direct
 
 
+# --- hash-pinned requirements (pip-compile --generate-hashes, uv export) ------
+
+HASH_A = "sha256:942c5a758f98d790eaed1a29cb6eefc7ffb0d1cf7af05c3d2791656dbd6ad1e1"
+HASH_B = "sha256:64299f4909223da747622c030b781c0d7811e359c37124b4bd368fb8c6518baa"
+
+
+def test_a_hash_pinned_requirement_is_read(tmp_path):
+    # pip-compile --generate-hashes and uv export write every requirement as
+    # a backslash-continued block. Read physically, no line was a requirement
+    # and a 459-package file scanned as "No dependencies found".
+    write(tmp_path, "requirements.txt", f"requests==2.31.0 \\\n    --hash={HASH_A}\n")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.versions == {"requests": "2.31.0"}
+    assert "requests" in deps.direct
+
+
+def test_hashes_across_several_continuation_lines(tmp_path):
+    write(tmp_path, "requirements.txt", f"""
+requests==2.31.0 \\
+    --hash={HASH_A} \\
+    --hash={HASH_B}
+certifi==2024.2.2 ; python_version >= "3.8" \\
+    --hash={HASH_A} \\
+    --hash={HASH_B}
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.versions == {"requests": "2.31.0", "certifi": "2024.2.2"}
+
+
+def test_via_comment_after_hashes_does_not_swallow_the_next_requirement(tmp_path):
+    write(tmp_path, "requirements.txt", f"""
+requests==2.31.0 \\
+    --hash={HASH_A} \\
+    --hash={HASH_B}
+    # via
+    #   -r requirements.in
+    #   responses
+urllib3==2.2.1 \\
+    --hash={HASH_A}
+    # via requests
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.versions == {"requests": "2.31.0", "urllib3": "2.2.1"}
+
+
+def test_include_on_a_continuation_line_is_followed(tmp_path):
+    write(tmp_path, "requirements.txt", f"""
+-r \\
+    other.txt
+requests==2.31.0 \\
+    --hash={HASH_A}
+-r third.txt
+""")
+    write(tmp_path, "other.txt", f"six==1.16.0 \\\n    --hash={HASH_B}\n")
+    write(tmp_path, "third.txt", "idna==3.7\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"requests": "2.31.0", "six": "1.16.0", "idna": "3.7"}
+    assert deps.origins["six"] == {"other.txt"}
+    assert not deps.refused
+
+
 def test_pep621_and_optional_and_groups(tmp_path):
     write(tmp_path, "pyproject.toml", """
 [project]
