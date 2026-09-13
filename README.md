@@ -287,6 +287,36 @@ If the lookup itself fails, the install is allowed and the model is told it
 went unchecked. `--warn-blocks` makes warnings block too. Responses are
 cached, so the second check of a package costs nothing.
 
+#### Edits to dependency files
+
+An agent that writes a name into `pyproject.toml` and then runs `uv sync`
+never types the name into a shell command, so the install hook cannot see
+it. The same command also runs as a PostToolUse hook on edits:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
+    ]
+  }
+}
+```
+
+After an edit to `pyproject.toml`, `Pipfile` or a `requirements*.txt`, the
+hook reads the file and checks only the names the edit introduced: anything
+not already in a lockfile or in the version of the file git last committed.
+An edit to any other file, or to a lockfile, costs nothing. The edit has
+already happened, so this cannot block; the finding goes to the model as
+context, with the instruction to remove the package from the file before
+anything installs it — which is enough for an agent to fix its own mistake
+before a resolver runs.
+
 ## Use
 
 ```bash

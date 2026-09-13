@@ -24,6 +24,7 @@ from .guard import (
     UNCHECKED,
     WARN,
     Decision,
+    added_requirements,
     decide,
     load_popular,
     parse_install_command,
@@ -609,9 +610,17 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
         event = json.loads(stdin) if stdin.strip() else {}
     except json.JSONDecodeError:
         return EXIT_OK
-    if not isinstance(event, dict) or event.get("tool_name") != "Bash":
+    if not isinstance(event, dict):
         return EXIT_OK
-    command = (event.get("tool_input") or {}).get("command")
+    tool = event.get("tool_name")
+    tool_input = event.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return EXIT_OK
+    if tool in ("Edit", "Write", "MultiEdit"):
+        return await _run_edit_hook(args, event, tool_input)
+    if tool != "Bash":
+        return EXIT_OK
+    command = tool_input.get("command")
     if not isinstance(command, str):
         return EXIT_OK
     requirements = parse_install_command(command)
@@ -645,6 +654,60 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
                 "additionalContext": context,
             },
         }))
+    return EXIT_OK
+
+
+async def _run_edit_hook(args: argparse.Namespace, event: dict, tool_input: dict) -> int:
+    """Claude Code PostToolUse hook for edits to dependency files.
+
+    An agent that writes a name into pyproject.toml and then runs `uv sync`
+    never types the name into a shell command, so the install hook cannot
+    see it. This one runs after the edit, reads the file from disk, and
+    checks only the names the edit introduced. The edit has already
+    happened, so nothing here can block: the finding goes to the model as
+    context, which is enough for it to fix the file before anything
+    resolves it. Silent on every edit that is not to a dependency file.
+    """
+    raw = tool_input.get("file_path")
+    if not isinstance(raw, str) or not raw:
+        return EXIT_OK
+    path = Path(raw).expanduser()
+    cwd = event.get("cwd")
+    root = Path(cwd).expanduser() if isinstance(cwd, str) and cwd else path.parent
+    try:
+        requirements = added_requirements(path, root)
+    except Exception:
+        return EXIT_OK
+    if not requirements:
+        return EXIT_OK
+    try:
+        rows, _degraded = await run_check(requirements, args=args)
+    except Exception as exc:
+        print(json.dumps({
+            "systemMessage": f"package-doctor could not check the dependencies just added "
+                             f"to {path.name} ({exc}).",
+        }))
+        return EXIT_OK
+    flagged = [(p, f, d) for p, f, d in rows if d.level in (BLOCK, WARN, UNCHECKED)]
+    if not flagged:
+        return EXIT_OK
+    lines = _hook_lines(flagged)
+    blocked = any(d.level == BLOCK for _, _, d in flagged)
+    advice = (
+        "Remove the blocked package from the file before anything installs it, "
+        "pick a maintained alternative, or ask the user to add an acceptance to "
+        "package-doctor.toml."
+        if blocked else "Worth a look before syncing."
+    )
+    context = f"package-doctor checked what was just added to {path.name}: " \
+              + " | ".join(lines) + f" {advice}"
+    print(json.dumps({
+        "systemMessage": context,
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": context,
+        },
+    }))
     return EXIT_OK
 
 

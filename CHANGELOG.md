@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The Claude Code hook also runs on edits.** Registered as a PostToolUse
+  hook on Edit, Write and MultiEdit, `package-doctor hook claude-code`
+  reads an edited `pyproject.toml`, `Pipfile` or `requirements*.txt` and
+  checks only the names the edit introduced - those in neither a lockfile
+  nor the committed version of the file. An edit cannot be blocked after
+  the fact, so findings reach the model as context with the instruction
+  to remove the package before anything installs it. Edits to other files
+  and to lockfiles cost nothing.
+
 ## [0.5.0] - 2026-09-13
 
 ### Added

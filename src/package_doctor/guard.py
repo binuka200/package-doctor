@@ -29,6 +29,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 import shlex
+import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -37,6 +38,16 @@ from pathlib import Path
 from packaging.requirements import InvalidRequirement, Requirement
 
 from .models import Finding, Verdict
+from .parsers.discovery import _PARSERS as _MANIFEST_PARSERS
+from .parsers.discovery import (
+    LOCKFILES,
+    MANIFESTS,
+    REQUIREMENTS_DIR,
+    REQUIREMENTS_GLOB,
+    DependencySet,
+    collect_dependencies,
+    parse_requirements_txt,
+)
 from .sources.pypi import normalise
 
 POPULAR_FILE = Path(__file__).parent / "data" / "popular.txt"
@@ -216,6 +227,85 @@ def parse_install_command(command: str) -> list[str]:
             found.append(tok)
             del req
     return found
+
+
+# --- what an edit to a dependency file just added ---------------------------
+
+def is_manifest(path: Path) -> bool:
+    """A file a person or agent writes dependencies into by hand.
+
+    Lockfiles are deliberately excluded: a resolver rewriting uv.lock
+    produces a diff of every transitive package, and checking that on every
+    sync would be a full scan, not a guardrail.
+    """
+    if path.name in MANIFESTS or path.match(REQUIREMENTS_GLOB):
+        return True
+    return path.suffix == ".txt" and REQUIREMENTS_DIR in (
+        path.parent.name, path.parent.parent.name if path.parent.parent != path.parent else "",
+    )
+
+
+def _requirement_strings(deps: DependencySet, names: set[str]) -> list[str]:
+    out = []
+    for name in sorted(names):
+        pinned = deps.versions.get(name)
+        if pinned:
+            out.append(f"{name}=={pinned}")
+        elif deps.specifiers.get(name):
+            out.append(f"{name}{deps.specifiers[name]}")
+        else:
+            out.append(name)
+    return out
+
+
+def _previous_text(path: Path, root: Path) -> str | None:
+    """The file as git last committed it, or None outside a repository."""
+    try:
+        rel = path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "show", f"HEAD:{rel}"],
+            cwd=root, capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _parse_text(path: Path, text: str, root: Path) -> DependencySet:
+    deps = DependencySet()
+    parser = _MANIFEST_PARSERS.get(path.name)
+    if parser is not None:
+        parser(path, deps, text)
+    else:
+        parse_requirements_txt(path, deps, text, root)
+    return deps
+
+
+def added_requirements(path: Path, root: Path) -> list[str]:
+    """Requirement strings for the names an edit to ``path`` introduced.
+
+    A name counts as added when it is in the file now and in neither the
+    project's lockfiles nor the version of the file git last committed.
+    Without a repository or a lockfile everything in the file is new, and
+    is checked; that is rare, and the alternative is checking nothing.
+    """
+    if not is_manifest(path) or not path.is_file():
+        return []
+    now = collect_dependencies([path], root=root)
+    if not now.versions:
+        return []
+    known: set[str] = set()
+    for name in LOCKFILES:
+        lock = root / name
+        if lock.is_file():
+            known |= set(collect_dependencies([lock], root=root).versions)
+    previous = _previous_text(path, root)
+    if previous is not None:
+        known |= set(_parse_text(path, previous, root).versions)
+    return _requirement_strings(now, set(now.versions) - known)
 
 
 def parse_requirement(text: str) -> tuple[str, str | None, str | None]:
