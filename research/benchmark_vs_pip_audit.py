@@ -100,7 +100,7 @@ async def main():
             print(f"  {min(i+40,len(items))}/{len(items)}", file=sys.stderr)
     cache.close()
     total = both + only_pa + only_pd
-    print("\nvulnerability-level comparison over 654 packages")
+    print(f"\nvulnerability-level comparison over {len(items)} pinned pairs")
     print(f"  found by both tools        : {both}")
     print(f"  found only by pip-audit    : {only_pa}   <- our false negatives")
     print(f"  found only by package-doctor: {only_pd}")

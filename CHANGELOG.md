@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured
+
+The sixty-repository run (`research/eval-repos.txt`) was repeated on 0.8.3,
+and the README's Accuracy section now carries these figures:
+
+- 13,042 packages, 6,879 distinct pinned pairs; advisory matching agrees
+  with OSV on 6,878 of them, the one disagreement still `langsmith 0.3.45`.
+- Against `pip-audit --no-deps --disable-pip -s osv` on the same pins:
+  331 packages flagged by each, 1,661 vulnerabilities found by both, zero
+  found only by pip-audit, one only by this tool.
+- 77,148 import sites, down from 108,193, because 0.8.1 stopped counting
+  files under overlapping source roots twice; 77,119 verify, the other 29
+  are pytest's `_pytest` and `py` modules.
+- 2,257 advisories affecting pinned versions, 27 on CISA KEV or above 10%
+  EPSS (13 distinct CVEs).
+- Curated coverage 75%, up from 45%, after the 249 map entries in 0.8.3.
+- 552 act verdicts, 132 of them on maintenance signals across 42 packages,
+  up from 97 on 28; the increase is the larger map, and the README names the
+  entrants that sit closest to the release and commit thresholds.
+- `letta-ai/letta` no longer has a dependency file in its repository, so 59
+  of 60 repositories are read, as before.
+
 ## [0.8.3] - 2026-09-13
 
 ### Added

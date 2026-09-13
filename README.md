@@ -91,8 +91,8 @@ Exploitability of your version
     Unscored means unknown, not low risk.
 ```
 
-Across sixty real projects that turns **2,383 advisories affecting pinned
-versions into 32 worth reading first** — the ones on CISA's list or above a 10%
+Across sixty real projects that turns **2,257 advisories affecting pinned
+versions into 27 worth reading first** — the ones on CISA's list or above a 10%
 exploit probability.
 
 Only advisories affecting your *pinned* version are scored — a CVE fixed five
@@ -751,14 +751,14 @@ reproduces from those two files.
 | | |
 | --- | --- |
 | repositories | 60 (59 with a dependency file the tool reads) |
-| packages assessed | 12,973 |
-| distinct pinned (package, version) pairs | 6,728 |
-| import sites reported | 108,193 |
+| packages assessed | 13,042 |
+| distinct pinned (package, version) pairs | 6,879 |
+| import sites reported | 77,148 |
 
 **Advisory matching, against OSV's own version-scoped query** — the
-authoritative answer to "is this pinned version affected?" — over all 6,728
+authoritative answer to "is this pinned version affected?" — over all 6,879
 pairs, after collapsing GHSA and PYSEC aliases to their CVE:
-**6,727 / 6,728 exact agreement.** The one disagreement is `langsmith 0.3.45`,
+**6,878 / 6,879 exact agreement.** The one disagreement is `langsmith 0.3.45`,
 whose record carries a range typed `SEMVER` alongside its `ECOSYSTEM` range;
 OSV ignores the first for PyPI, this tool reads it, and reports the version
 affected. Earlier runs found and fixed three failures, each now a test:
@@ -772,13 +772,13 @@ vulnerability level with identifiers canonicalised to CVE:
 
 | | |
 | --- | --- |
-| packages flagged, pip-audit / package-doctor | 322 / 322 |
-| vulnerabilities found by both | 1,672 |
+| packages flagged, pip-audit / package-doctor | 331 / 331 |
+| vulnerabilities found by both | 1,661 |
 | found only by pip-audit | **0** |
 | found only by package-doctor | 1 (the langsmith range above) |
 
-**Reachability:** of 108,193 import sites reported, 108,162 open to an import
-of that package on that line. The 31 remaining are `from _pytest...` and
+**Reachability:** of 77,148 import sites reported, 77,119 open to an import
+of that package on that line. The 29 remaining are `from _pytest...` and
 `import py` attributed to pytest, which is correct — both modules ship in the
 pytest distribution — and only the checker's static table did not know it.
 
@@ -787,17 +787,23 @@ that OSV is complete. And it measures the *data* layer.
 
 ### The verdicts, read
 
-The verdict layer is a judgement, so the check is reading them. Of the 437
-*act on these* verdicts across the sixty projects, 340 rest on the pinned
+The verdict layer is a judgement, so the check is reading them. Of the 552
+*act on these* verdicts across the sixty projects, 420 rest on the pinned
 version being affected by a published advisory, which the OSV agreement above
-makes right by construction; they are mostly old lockfiles. The other 97, on
-28 distinct packages, rest on maintenance signals, and every one was read:
-libraries deprecated by their owners (adal, msrest, oauth2client,
-google-generativeai, redis-py-cluster), advisories the maintainers consider
-by-design and will not fix (nltk, keras, diskcache), and packages quiet for
-three to eight years. Two are arguable at the margin — python-pptx and
-requests-kerberos, each just over the two-year threshold — and that is a
-threshold choice rather than a misreading.
+makes right by construction; they are mostly old lockfiles. The other 132, on
+42 distinct packages, rest on maintenance signals, and every one was read:
+libraries deprecated or archived by their owners (adal, msrest, msrestazure,
+oauth2client, google-generativeai, bleach, redis-py-cluster), advisories the
+maintainers consider by-design and will not fix (nltk, keras, diskcache), and
+packages quiet for three to eight years (pysocks, html5lib, chevron,
+rfc3339-validator, requests-aws-sign). The count rose from 97 on 28 packages
+in the previous run because the map grew by 249 entries, and the new entrants
+include the ones closest to the thresholds: requests-toolbelt, olefile and
+flask-session are a few months past the 18-month commit line, and
+dataclasses-json, jsonpatch, python-pptx, requests-kerberos and requests-ntlm
+are just over two years without a release. Those are threshold choices rather
+than misreadings, but there are more of them than there were, and the list is
+in `acts.json` after any run of the harness.
 
 That result is recent. An earlier version of this tool recognised only a
 `fixed` event as closing an advisory's range, and on an eight-project sample
@@ -836,9 +842,10 @@ can no longer produce an actionable verdict** — it can raise something to
 
 ### What is still unmeasured
 
-Coverage, on the 12,973 packages above: **45% get a curated call, 55% get no
-opinion.** The larger the sample, the longer the tail of transitive
-dependencies, and that tail is what "no opinion" is for. Those 55% are not
+Coverage, on the 13,042 packages above: **75% get a curated call, 25% get no
+opinion** — 37% of packages are marked exposed and 38% reviewed and cleared,
+up from 45% curated in the previous run after 249 map entries were added. The larger the sample, the longer the tail of transitive
+dependencies, and that tail is what "no opinion" is for. Those 25% are not
 assessed as safe — they surface as unknown, which is the honest answer, but it
 is a gap rather than a result.
 
