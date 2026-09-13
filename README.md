@@ -457,6 +457,16 @@ it actually imports, not on a pile of disputed pickle advisories.
 
 PRs welcome — include the reasoning, not just the name.
 
+### A second reader
+
+The map is one person's judgement, which is its stated weakness.
+`research/annotate.py` is the instrument for a second one: it draws a blind
+sample across the categories, the cleared list and unreviewed packages,
+walks a reader through each with the same evidence the curator had, and
+reports Cohen's kappa between the two on the distinction that matters —
+exposed or not — with every disagreement listed alongside both sides'
+reasoning. See [CONTRIBUTING.md](CONTRIBUTING.md#being-the-second-reader).
+
 ### Growing it
 
 Curating by working down a download list is brute force; most of what you read

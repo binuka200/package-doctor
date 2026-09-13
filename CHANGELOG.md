@@ -24,9 +24,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The mapping lives in `package_doctor.cwe`; `bulk_scan.py` records the
   ids so a dataset carries them.
 
+- **A second-reader instrument.** `research/annotate.py` draws a blind,
+  stratified sample of the map, runs an annotation session with each
+  package's summary, topics and advisories, and reports Cohen's kappa
+  against the map for exposed-or-not and for category, listing every
+  disagreement with both sides' reasoning and printing calls on
+  unreviewed packages as entries to paste.
+- **Family consistency.** `tests/test_map_families.py` lists packages that
+  do the same job at the same boundary and fails when one member is
+  decided differently from its siblings.
+- Map entries, each with a reason: `pyodbc`, `cx-oracle`, `oracledb`
+  (query); `azure-storage-blob`, `dnspython`, `pycares`, `aiodns`,
+  `python-socketio`, `python-engineio` (http); `gcsfs`, `adlfs` (url);
+  `sentencepiece` (model loading); `celery`, `rq`, `dramatiq`, `huey`
+  (deserialization); `napalm`, `dulwich`, `pygit2` (remote access);
+  `dynaconf` (templating); and `typer`, `docopt`, `fire`, `sphinx`, `pdoc`,
+  `moto`, `responses`, `pydantic-settings`, `environs` as reviewed and not
+  exposed.
+
 ### Changed
 
 - Exposure map `schema_version` is 4.
+- `gitpython` moves from reviewed-and-cleared to *remote access*. Its
+  advisories are command injection through git options and an untrusted
+  search path; anything that clones a repository it was handed is at a
+  boundary. The old entry was wrong.
 
 ## [0.3.0] - 2026-09-13
 

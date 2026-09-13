@@ -86,6 +86,10 @@ packages = [
   "pyyaml-include", "rapidjson", "referencing", "ruamel-yaml", "ruamel-yaml-clib",
   { name = "scapy", why = "parses raw packets from the wire; advisories cite unsafe deserialization of captures" }, "simplejson", "srsly", "strictyaml", "tablib", "tblib", "thrift", "toons",
   "typedload", "ujson", "yamale",
+  { name = "celery", why = "consumes broker messages and deserialises task arguments; the pickle serializer is code execution, and GHSA-q4xr-rc97-m4xx is command injection from task arguments" },
+  { name = "rq", why = "jobs are pickled into Redis and unpickled by workers; whoever can write the queue runs code" },
+  { name = "dramatiq", why = "decodes messages from the broker; its PickleEncoder turns a writable broker into code execution" },
+  { name = "huey", why = "tasks are serialised with pickle by default; a writable broker is code execution" },
 ]
 
 [category.ml_model]
@@ -99,6 +103,7 @@ packages = [
   "pytorch-lightning", "safetensors", "scikit-learn", "sentence-transformers", "skops",
   "tensorflow", "timm", "tokenizers", "torch", "torchvision", "transformers",
   "tritonclient",
+  { name = "sentencepiece", why = "loads tokenizer model files that ship alongside model weights; GHSA-38vq-g6vr-w8wf is a heap overflow parsing one" },
 ]
 
 [category.llm_agent]
@@ -141,6 +146,7 @@ label = "templating"
 description = "Rendering templates, where injection becomes code execution"
 packages = [
   "chameleon", "cheetah3", "genshi", "jinja2", "mako", "pystache",
+  { name = "dynaconf", why = "evaluates @jinja and @format markers in settings values; GHSA-pxrr-hq57-q35p is code execution through that template evaluation" },
 ]
 
 [category.url]
@@ -151,6 +157,8 @@ packages = [
   "packageurl-python", "publicsuffix2", "purl", "rfc3986", "rfc3987", "s3fs",
   "safehttpx", "smart-open", "tld", "tldextract", "uri-template", "uritemplate",
   "uritools", "url-normalize", "urllib3", "w3lib", "yarl",
+  { name = "gcsfs", why = "fsspec filesystem over Google Cloud Storage; paths and URLs come from callers, the same boundary as s3fs" },
+  { name = "adlfs", why = "fsspec filesystem over Azure storage; paths and URLs come from callers, the same boundary as s3fs" },
 ]
 
 [category.http]
@@ -176,6 +184,12 @@ packages = [
   "tornado", "trio-websocket", "twisted", "ua-parser", "ua-parser-builtins", "uamqp",
   "urllib3", "user-agents", "uvicorn", "waitress", "webargs", "webob",
   "websocket-client", "websockets", "werkzeug", "whitenoise", "wsproto", "wtforms",
+  { name = "azure-storage-blob", why = "blob storage client; moves bytes to and from a remote store like google-cloud-storage, and GHSA-64x4-9hc6-r2h6 is a padding oracle in its client-side encryption" },
+  { name = "dnspython", why = "resolves names and parses DNS responses off the wire; GHSA-3rq5-2g8h-59hc is a denial of service from crafted responses" },
+  { name = "pycares", why = "c-ares bindings; parses DNS responses off the wire, GHSA-5qpg-rh4j-qp35 is a use-after-free doing so" },
+  { name = "aiodns", why = "asyncio wrapper over pycares; the same DNS response parsing boundary" },
+  { name = "python-socketio", why = "Socket.IO server; decodes client packets, and GHSA-g8c6-8fjj-2r4m is code execution from unpickling messages off the manager queue" },
+  { name = "python-engineio", why = "Engine.IO transport under python-socketio; parses client packets, advisories are denial of service and CSRF" },
 ]
 
 [category.framework]
@@ -208,6 +222,9 @@ packages = [
   "sqlalchemy-bigquery", "sqlalchemy-jsonfield", "sqlalchemy-utils", "sqlfluff",
   "sqlglot", "sqlmodel", "sqlparse", "teradatasql", "teradatasqlalchemy",
   "tortoise-orm", "trino", "valkey",
+  { name = "pyodbc", why = "DB API driver over ODBC; sends SQL built from caller-supplied values, the same boundary as psycopg2" },
+  { name = "cx-oracle", why = "Oracle DB API driver; sends SQL built from caller-supplied values, the same boundary as psycopg2" },
+  { name = "oracledb", why = "successor to cx-oracle; sends SQL built from caller-supplied values, the same boundary as psycopg2" },
 ]
 
 [category.archive]
@@ -244,6 +261,10 @@ packages = [
   "ansible", "ansible-core", "asyncssh", "execnet", "fabric", "json-rpc", { name = "lupa", why = "runs Lua from caller-supplied source; advisories are sandbox escapes" },
   "netmiko", "paramiko", "pexpect", "plumbum", "ptyprocess", "pysftp", "runs", "scp",
   "sh", "sshtunnel", "subprocess-tee",
+  { name = "napalm", why = "drives network devices over SSH and NETCONF through netmiko; the same boundary" },
+  { name = "dulwich", why = "pure-Python git; parses packfiles and trees from remotes, with advisories for code execution via crafted trees and path traversal on checkout (GHSA-4j5j-58j7-6c3w, GHSA-gfhv-vqv2-4544)" },
+  { name = "pygit2", why = "libgit2 bindings; clones and parses packfiles from remotes, and libgit2 carries the advisories (CVE-2024-24577 is code execution from a crafted index)" },
+  { name = "gitpython", why = "clones and operates on repositories and URLs it is handed; 33 advisories, mostly command injection through git options (CWE-78, CWE-88) and an untrusted search path (CWE-426)" },
 ]
 
 # -------------------------------------------------------------------------
@@ -329,7 +350,6 @@ not_exposed = [
   { name = "fakeredis", why = "in-process test double, not a client" },
   { name = "frozenlist", why = "immutable list" },
   { name = "gitdb", why = "git object storage" },
-  { name = "gitpython", why = "git plumbing wrapper" },
   { name = "greenlet", why = "coroutine primitives" },
   { name = "griffe", why = "extracts Python API signatures; not cryptographic signatures" },
   { name = "griffecli", why = "same as griffe" },
@@ -399,4 +419,13 @@ not_exposed = [
   { name = "wrapt", why = "decorators and monkey patching" },
   { name = "xxhash", why = "non-cryptographic hash, despite the name" },
   { name = "argparse", why = "stdlib since 3.2; the PyPI package is a legacy backport" },
+  { name = "typer", why = "CLI argument parsing over click; argv is the operator's, not a stranger's" },
+  { name = "docopt", why = "CLI argument parsing from a docstring; argv is the operator's" },
+  { name = "fire", why = "CLI generation from Python objects; argv is the operator's" },
+  { name = "sphinx", why = "documentation generator over trusted local sources" },
+  { name = "pdoc", why = "API documentation generator over your own source; its one advisory is a CDN link, not input handling" },
+  { name = "moto", why = "in-process test double for AWS, not a client" },
+  { name = "responses", why = "test double for requests; intercepts calls, parses nothing from outside" },
+  { name = "pydantic-settings", why = "reads environment variables and local secrets files the operator controls; GHSA-4xgf-cpjx-pc3j is symlink following inside that directory" },
+  { name = "environs", why = "parses environment variables set by the operator" },
 ]

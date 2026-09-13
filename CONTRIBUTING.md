@@ -53,6 +53,39 @@ The second list matters as much as the first. It is how "we checked and it's
 fine" stays distinguishable from "nobody has looked", which is a distinction the
 rest of the tool is built on.
 
+### Being the second reader
+
+Every entry was made by one person. The most valuable review is a second
+one made blind, with the same evidence, and a number for how often the two
+agree:
+
+```bash
+python research/annotate.py sample --out research/annotations/sample.json \
+    --dataset data/pypi-top3000.jsonl        # optional: adds unreviewed packages
+python research/annotate.py run research/annotations/sample.json --annotator you
+python research/annotate.py agree research/annotations/sample.json research/annotations/you.jsonl
+```
+
+The sample is drawn across the categories, the cleared list and packages
+the map has no opinion about, and does not contain the curator's answers.
+The session shows each package's summary, topics and advisories with their
+CWE ids, and asks for a category or `n`. A note after your answer is the
+part that matters most: it becomes the `why` of an entry.
+
+`agree` reports Cohen's kappa for exposed-or-not, which is the distinction
+the verdict turns on, and lists every disagreement with both sides'
+reasoning. Each disagreement is either a wrong entry or a criterion that
+was never written down; either is worth a PR. Your calls on packages the
+map had no opinion about are printed as entries ready to paste.
+
+### Families
+
+`tests/test_map_families.py` lists packages that do the same job at the
+same boundary - SQL drivers, task queues, git libraries, test doubles - and
+fails when one member is decided differently from its siblings. When you
+add a package that has obvious siblings, add the family: it is the cheapest
+way to make sure the next one gets decided too.
+
 ### Finding something worth deciding
 
 ```bash
