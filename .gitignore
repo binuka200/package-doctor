@@ -22,3 +22,7 @@ paper/**/*.log
 paper/**/*.out
 paper/**/build.log
 paper/**/page-*.png
+paper/**/arxiv/
+paper/**/*.tar.gz
+paper/**/arxiv-abstract.txt
+paper/**/*.pdf
