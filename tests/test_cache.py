@@ -230,3 +230,72 @@ def test_the_cache_file_is_created_private_not_tightened_afterwards(tmp_path, mo
     c = Cache(path=path)
     c.close()
     assert modes_at_connect == [0o600], "already private when SQLite first opens it"
+
+
+@posix_only
+def test_a_loose_existing_cache_is_tightened_before_sqlite_opens_it(tmp_path, monkeypatch):
+    """Tightening after CREATE TABLE / commit left every row written in that
+    run in a world-readable file for as long as the run took. The existing
+    file must already be private by the time SQLite first opens it."""
+    import os
+    import sqlite3
+    import stat as s
+
+    path = tmp_path / "c.sqlite3"
+    Cache(path=path).close()
+    path.chmod(0o644)
+
+    modes_at_connect = []
+    real_connect = sqlite3.connect
+
+    def spy(target, *a, **kw):
+        modes_at_connect.append(s.S_IMODE(os.stat(target).st_mode))
+        return real_connect(target, *a, **kw)
+
+    monkeypatch.setattr(sqlite3, "connect", spy)
+    Cache(path=path).close()
+    assert modes_at_connect == [0o600]
+
+
+@posix_only
+def test_sqlite_is_opened_under_a_private_umask_that_is_then_restored(tmp_path, monkeypatch):
+    """Whether journal, WAL and SHM sidecars inherit the main file's mode is a
+    platform detail. A 0o077 umask for the life of the connection means
+    anything SQLite creates is born private; the caller's umask must come
+    back unchanged afterwards."""
+    import os
+
+    real = os.umask
+    calls = []
+
+    def spy(mask):
+        calls.append(mask)
+        return real(mask)
+
+    before = real(0)
+    real(before)
+    monkeypatch.setattr(os, "umask", spy)
+    Cache(path=tmp_path / "c.sqlite3").close()
+    assert calls[0] == 0o077
+    assert calls[-1] == before, "restored to what it was"
+    after = real(0)
+    real(after)
+    assert after == before
+
+
+@posix_only
+def test_leftover_sidecar_files_are_tightened_too(tmp_path):
+    """A journal, WAL or SHM file left behind by an older run, or by a
+    platform that ignored the umask, carries the same contents."""
+    import stat as s
+
+    path = tmp_path / "c.sqlite3"
+    c = Cache(path=path, enabled=False)  # nothing opened; exercise the tightening alone
+    sidecars = [tmp_path / f"c.sqlite3{suffix}" for suffix in ("-journal", "-wal", "-shm")]
+    for side in sidecars:
+        side.write_bytes(b"x")
+        side.chmod(0o644)
+    c._restrict_permissions()
+    for side in sidecars:
+        assert not s.S_IMODE(side.stat().st_mode) & (s.S_IRWXG | s.S_IRWXO), side.name
+    c.close()

