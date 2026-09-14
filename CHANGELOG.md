@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claude Code hook silently allowed non-`git`/`http(s)` VCS installs.** The
+  `PreToolUse` hook's URL/VCS block only recognized four prefixes
+  (`http://`, `https://`, `git+`, `ssh://`). `pip install` also accepts
+  `hg+`, `bzr+`, `svn+`, and bare `git://` references, including the
+  `bzr+lp:name` Launchpad shorthand; none of those matched the allowlist,
+  and none parse as a valid PyPI requirement string either, so the hook
+  produced no block and no warning at all. `is_remote_install_target()`
+  now classifies every scheme pip fetches over the network, and the hook's
+  filter uses it instead of the narrower inline tuple.
+
 ## [0.8.4] - 2026-09-13
 
 ### Fixed

