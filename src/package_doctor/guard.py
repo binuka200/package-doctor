@@ -118,21 +118,26 @@ def near_miss(name: str, popular: Sequence[str]) -> str | None:
     """The popular package this name is one edit away from, if this name is
     not itself popular.
 
-    The skip is for names of two characters or fewer, not four: at that
-    length almost everything is one edit from something, so a match would be
-    noise rather than signal. Four was too high a bar - ``toml``, ``lxml``,
-    ``yaml``, ``grpc`` and ``boto`` are all real, popular, four-character
-    packages, so a squat that targets one of them (``tomI``, ``yam1``) is
-    exactly the shape this check exists to catch, and skipping it just
-    because the *typo* happens to be short left that whole class unblocked.
-    ``one_edit_apart`` already bounds the length difference to one, so
-    lowering the threshold does not reopen the noise the original skip was
-    written to avoid.
+    Two characters or fewer is skipped outright - at that length almost any
+    string is one edit from something. Above that, the skip narrows instead
+    of disappearing: for a 3-4 character name, only a same-length edit
+    (a substitution or an adjacent swap) counts. That is the actual shape a
+    typo or a squat takes - ``tomI`` for ``toml``, ``gprc`` for ``grpc`` -
+    real, popular, four-character packages that a full skip at this length
+    left with zero coverage. An insertion or deletion is excluded at this
+    length instead: ``sixx`` is one deletion from the real package ``six``
+    with no squatting behind it at all, purely because short strings are
+    dense enough that a random one nearly always lands next to *something*
+    in a large popular list once insertions and deletions are allowed. Above
+    four characters this restriction does not apply, since coincidental
+    collisions get rare fast as strings get longer.
     """
     key = normalise(name)
     if len(key) <= 2 or key in popular:
         return None
     for candidate in popular:
+        if len(key) <= 4 and len(candidate) != len(key):
+            continue
         if one_edit_apart(key, candidate):
             return candidate
     return None
