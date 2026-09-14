@@ -116,10 +116,21 @@ def one_edit_apart(a: str, b: str) -> bool:
 
 def near_miss(name: str, popular: Sequence[str]) -> str | None:
     """The popular package this name is one edit away from, if this name is
-    not itself popular. Short names are skipped: at four characters or fewer
-    almost everything is one edit from something."""
+    not itself popular.
+
+    The skip is for names of two characters or fewer, not four: at that
+    length almost everything is one edit from something, so a match would be
+    noise rather than signal. Four was too high a bar - ``toml``, ``lxml``,
+    ``yaml``, ``grpc`` and ``boto`` are all real, popular, four-character
+    packages, so a squat that targets one of them (``tomI``, ``yam1``) is
+    exactly the shape this check exists to catch, and skipping it just
+    because the *typo* happens to be short left that whole class unblocked.
+    ``one_edit_apart`` already bounds the length difference to one, so
+    lowering the threshold does not reopen the noise the original skip was
+    written to avoid.
+    """
     key = normalise(name)
-    if len(key) <= 4 or key in popular:
+    if len(key) <= 2 or key in popular:
         return None
     for candidate in popular:
         if one_edit_apart(key, candidate):
@@ -175,15 +186,17 @@ def _looks_local(arg: str) -> bool:
     )
 
 
-def parse_install_command(command: str) -> list[str]:
-    """Requirement strings an install command would add, in order.
+def _install_positionals(command: str) -> list[str]:
+    """Positional arguments to a recognised installer invocation, in order.
 
     Handles the pip, uv, poetry, pipenv, pdm and pipx spellings, ``python -m
-    pip``, chained commands, and quoted specifiers. Options and their values
-    are skipped, and so are paths, URLs and local files, which no registry
-    check can say anything about. ``pipx inject app pkg`` skips the app.
+    pip``, chained commands, and quoted specifiers. Option tokens and their
+    values are dropped, and ``pipx inject app pkg`` drops the app - but
+    everything else passes through unfiltered, including local paths, VCS
+    references and URLs, so callers can each classify what they see rather
+    than losing it here.
     """
-    found: list[str] = []
+    tokens: list[str] = []
     for seg in _segments(command):
         # `python -m pip install` -> drop the interpreter prefix.
         if len(seg) >= 3 and _PIP_LIKE.match(seg[0]) and seg[1] == "-m":
@@ -218,15 +231,45 @@ def parse_install_command(command: str) -> list[str]:
                 if tok in _TAKES_VALUE:
                     skip_next = True
                 continue
-            if _looks_local(tok):
-                continue
-            try:
-                req = Requirement(tok)
-            except InvalidRequirement:
-                continue
-            found.append(tok)
-            del req
+            tokens.append(tok)
+    return tokens
+
+
+def parse_install_command(command: str) -> list[str]:
+    """Requirement strings an install command would add, in order.
+
+    Paths, URLs and local files are skipped, since no registry check can say
+    anything about them - see ``unresolvable_install_targets`` for those.
+    """
+    found: list[str] = []
+    for tok in _install_positionals(command):
+        if _looks_local(tok):
+            continue
+        try:
+            req = Requirement(tok)
+        except InvalidRequirement:
+            continue
+        found.append(tok)
+        del req
     return found
+
+
+def unresolvable_install_targets(command: str) -> list[str]:
+    """Install arguments this guardrail has no way to check: paths, VCS
+    references, and direct URLs.
+
+    ``parse_install_command`` excludes these because there is no PyPI name to
+    check them against, which is correct - a registry lookup cannot say
+    anything about a wheel fetched straight from a URL. But it means
+    ``pip install https://evil.example/pkg.whl`` currently produces the same
+    silence from the guardrail as an empty command, even though installing
+    straight from an arbitrary URL is the highest-risk form of install there
+    is. This surfaces exactly the arguments that were dropped, so a caller
+    can tell "nothing here to check" apart from "the one thing here is the
+    kind this guardrail cannot check at all" and warn accordingly, rather
+    than silently treating it as clean.
+    """
+    return [tok for tok in _install_positionals(command) if _looks_local(tok)]
 
 
 # --- what an edit to a dependency file just added ---------------------------
