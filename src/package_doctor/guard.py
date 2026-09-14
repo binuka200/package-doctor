@@ -181,10 +181,30 @@ def _segments(command: str) -> list[list[str]]:
     return [seg for seg in segments if seg]
 
 
+_LOCAL_ONLY_PREFIXES = (".", "/", "~", "file:")
+_VCS_SCHEMES = ("git+", "hg+", "bzr+", "svn+")
+_REMOTE_PREFIXES = ("http://", "https://", "ssh://", "git://") + _VCS_SCHEMES
+
+
+def is_remote_install_target(target: str) -> bool:
+    """Whether ``target`` is a URL or VCS reference pip would fetch over the
+    network, as opposed to a local path, wheel, or bare filename.
+
+    ``_looks_local`` treats both kinds alike as "not a checkable PyPI name",
+    which is right for skipping the registry lookup. A caller deciding what
+    to block outright needs to tell them apart instead: a local wheel is
+    unresolvable for the same reason but isn't a network fetch. Covers every
+    VCS scheme pip supports, including the ``bzr+lp:name`` Launchpad
+    shorthand (still prefixed with ``bzr+``).
+    """
+    return target.lower().startswith(_REMOTE_PREFIXES)
+
+
 def _looks_local(arg: str) -> bool:
     lowered = arg.lower()
     return (
-        arg.startswith((".", "/", "~", "http://", "https://", "git+", "file:", "ssh://"))
+        arg.startswith(_LOCAL_ONLY_PREFIXES)
+        or is_remote_install_target(arg)
         or lowered.endswith((".whl", ".tar.gz", ".zip", ".txt", ".toml", ".egg"))
         or "/" in arg
         or "\\" in arg

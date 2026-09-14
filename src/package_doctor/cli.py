@@ -27,6 +27,7 @@ from .guard import (
     Provenance,
     added_requirements,
     decide,
+    is_remote_install_target,
     load_popular,
     parse_install_command,
     parse_requirement,
@@ -819,7 +820,7 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
     # `requests` also appears in the same command.
     remote = [
         target for target in unresolvable_install_targets(command)
-        if target.startswith(("http://", "https://", "git+", "ssh://"))
+        if is_remote_install_target(target)
     ]
     if not requirements and not remote:
         return EXIT_OK
