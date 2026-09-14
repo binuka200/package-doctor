@@ -12,6 +12,7 @@ the failure this tool exists to avoid.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -49,6 +50,36 @@ def test_the_search_stops_at_two_levels(tmp_path):
     write(tmp_path, "a/b/c/requirements.txt")
     assert discover_nested(tmp_path) == []
     assert NESTED_DEPTH == 2
+
+
+def test_discover_project_can_be_told_to_look_deeper(tmp_path):
+    """The fallback was locked to two levels; a monorepo whose only manifest
+    sits three folders down with nothing at the top was invisible."""
+    write(tmp_path, "a/b/c/requirements.txt")
+    assert discover_project(tmp_path) == ([], [])
+    paths, nested = discover_project(tmp_path, depth=3)
+    assert rel(tmp_path, nested) == ["a/b/c/requirements.txt"]
+    assert paths == nested
+
+
+def test_scan_depth_flag_reaches_a_deeper_manifest(tmp_path, monkeypatch, capsys):
+    write(tmp_path, "a/b/c/requirements.txt")
+    stub(monkeypatch)
+    assert cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"]) == cli.EXIT_USAGE
+    capsys.readouterr()
+    assert cli.main(["scan", str(tmp_path), "--depth", "3",
+                     "--no-reachability", "--no-cache"]) == cli.EXIT_OK
+    out = " ".join(capsys.readouterr().out.split())
+    assert "a/b/c/requirements.txt" in out
+    assert "up to 3 directories down" in out
+
+
+@pytest.mark.parametrize("bad", ["-1", "two", "1.5"])
+def test_a_negative_or_non_integer_depth_is_a_usage_error(bad):
+    with pytest.raises(argparse.ArgumentTypeError):
+        cli._depth(bad)
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["scan", ".", "--depth", bad])
 
 
 def test_tests_docs_examples_and_vendored_code_are_never_entered(tmp_path):

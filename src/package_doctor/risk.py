@@ -194,6 +194,20 @@ def assess(
     if no_signal:
         verdict = Verdict.UNKNOWN
         reasons.append(Evidence("not enough data to judge: " + "; ".join(remediation.gaps)))
+    elif exploit.kev:
+        # A CVE on CISA's confirmed-exploited-in-the-wild list, affecting the
+        # version actually pinned, is not a guess about what the package
+        # does - it is a fact that this exact vulnerability has already been
+        # used against real targets. That is independent of the exposure
+        # map's own accuracy, so unlike the branch below it does not require
+        # a curated exposure entry: ground truth about active exploitation
+        # outranks a human not having gotten to this package yet, the same
+        # way `exploit.kev` is already inserted at the front of `signals`
+        # rather than treated as just one more weak or strong data point.
+        verdict = Verdict.ACT
+        reasons.extend(signals)
+        reasons.extend(current)
+        reasons.extend(reach)
     elif (
         exposure.is_exposed
         and exposure.confidence is Confidence.CURATED

