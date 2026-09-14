@@ -280,7 +280,7 @@ def discover_nested(root: Path, depth: int = NESTED_DEPTH) -> list[Path]:
     return found
 
 
-def discover_project(root: Path) -> tuple[list[Path], list[Path]]:
+def discover_project(root: Path, depth: int = NESTED_DEPTH) -> tuple[list[Path], list[Path]]:
     """Every dependency file to read for a project directory, and which of
     them the fallback search found.
 
@@ -289,13 +289,18 @@ def discover_project(root: Path) -> tuple[list[Path], list[Path]]:
     towncrier settings; its pins are in core/base/requirements-prod.txt, and
     the scan used to stop at the root and report "No dependencies found". The
     root's files stay in the list, so its own package name is still skipped.
+
+    ``depth`` is how far below an empty root the fallback looks; the default
+    (NESTED_DEPTH, 2) reaches the common one-or-two-levels-deep layouts
+    without wandering into an unrelated project sitting a few folders over.
+    A caller that knows its layout runs deeper can ask for more.
     """
     found = discover_manifests(root)
     if found:
         deps = collect_dependencies(found, root=root)
         if deps.versions or deps.not_analysed or deps.unread or deps.refused:
             return found, []
-    nested = discover_nested(root)
+    nested = discover_nested(root, depth)
     return found + nested, nested
 
 
