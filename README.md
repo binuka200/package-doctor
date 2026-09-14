@@ -50,7 +50,7 @@ marked `inferred` and flagged with `?` in output so you can distrust it.
 
 **Axis 2 — Remediation capacity.** If a fix were needed, would one ship?
 
-Both must fire. `six` going quiet is not a finding, because `six` is not at a
+Both must fire. `mock` going quiet is not a finding, because it is not at a
 trust boundary. `legacy-auth` going quiet is the whole point.
 
 ### The watch tier is an inventory, not a warning
