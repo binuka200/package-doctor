@@ -46,27 +46,60 @@ class Cache:
             # getting this one right covers both.
             with contextlib.suppress(OSError):  # pragma: no cover - platform dependent
                 os.close(os.open(str(self.path), os.O_CREAT | os.O_RDONLY, 0o600))
-            self._conn = sqlite3.connect(str(self.path))
-            self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS entries "
-                "(key TEXT PRIMARY KEY, fetched_at REAL NOT NULL, body TEXT NOT NULL)"
-            )
-            self._conn.commit()
+            # A file that already existed under a looser mode - a cache
+            # created before this hardening was added, or one on a shared
+            # machine created by another tool - is tightened here, before
+            # sqlite3.connect ever touches it. Restricting permissions only
+            # after CREATE TABLE / commit (the previous order) left exactly
+            # that window open: the table creation and every entry written
+            # in this process would have landed in a world-or-group-readable
+            # file for however long the run took.
+            self._restrict_permissions()
+            # SQLite creates rollback-journal or WAL/SHM sidecar files on
+            # demand during a session, and whether they inherit the main
+            # file's mode is a platform and build detail, not a guarantee.
+            # A tightened umask for the life of the connection means
+            # anything the library creates here - not just the file already
+            # chmod'd above - is born 0600 rather than depending on a
+            # chmod afterwards that does not know those filenames in advance.
+            old_umask = os.umask(0o077)
+            try:
+                self._conn = sqlite3.connect(str(self.path))
+                self._conn.execute(
+                    "CREATE TABLE IF NOT EXISTS entries "
+                    "(key TEXT PRIMARY KEY, fetched_at REAL NOT NULL, body TEXT NOT NULL)"
+                )
+                self._conn.commit()
+            finally:
+                os.umask(old_umask)
             # The cache records which packages have been scanned, which says
             # something about projects the user may not have published. On a
-            # shared machine that is nobody else's business. Applied to existing
-            # files as well, since caches created before this existed are the
-            # ones most likely to be large and revealing.
+            # shared machine that is nobody else's business. Run once more,
+            # belt-and-braces: catches a sidecar file from a platform where
+            # the umask above is not honoured, or one left over from a run
+            # before this hardening existed.
             self._restrict_permissions()
             self._prune_if_large()
 
+    def _sidecar_paths(self) -> tuple[Path, ...]:
+        """SQLite's rollback-journal and WAL/SHM files, if this session or a
+        previous one left any behind. Not all of these exist at once - which
+        ones appear depends on journal mode - so each is checked, not assumed."""
+        return tuple(
+            self.path.with_name(self.path.name + suffix)
+            for suffix in ("-journal", "-wal", "-shm")
+        )
+
     def _restrict_permissions(self) -> None:
-        try:
-            mode = stat.S_IMODE(self.path.stat().st_mode)
-            if mode & (stat.S_IRWXG | stat.S_IRWXO):
-                self.path.chmod(0o600)
-        except OSError:  # pragma: no cover - platform dependent
-            pass
+        for candidate in (self.path, *self._sidecar_paths()):
+            try:
+                if not candidate.exists():
+                    continue
+                mode = stat.S_IMODE(candidate.stat().st_mode)
+                if mode & (stat.S_IRWXG | stat.S_IRWXO):
+                    candidate.chmod(0o600)
+            except OSError:  # pragma: no cover - platform dependent
+                pass
 
     def _prune_if_large(self) -> None:
         """Keep the file bounded, cheaply.
