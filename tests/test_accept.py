@@ -290,3 +290,63 @@ def test_explain_shows_the_acceptance(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert code == cli.EXIT_OK, "accepted, so it does not fail"
     assert "Accepted risk" in out and "PROJ-123" in out
+
+
+# --- the config file must not be able to exhaust memory ---------------------
+
+def test_an_oversized_config_is_refused(tmp_path):
+    from package_doctor.accept import MAX_CONFIG_BYTES
+
+    path = tmp_path / "package-doctor.toml"
+    path.write_bytes(b"accept = []\n" + b"#" * MAX_CONFIG_BYTES)
+    with pytest.raises(ConfigError, match="larger than"):
+        load_acceptances(tmp_path)
+
+
+def test_a_config_exactly_at_the_cap_is_still_read(tmp_path):
+    from package_doctor.accept import MAX_CONFIG_BYTES
+
+    body = b"accept = []\n"
+    path = tmp_path / "package-doctor.toml"
+    path.write_bytes(body + b"#" * (MAX_CONFIG_BYTES - len(body)))
+    assert path.stat().st_size == MAX_CONFIG_BYTES
+    assert load_acceptances(tmp_path).entries == []
+
+
+def test_the_config_read_is_bounded_not_just_size_checked(tmp_path, monkeypatch):
+    """Rejecting an oversized file after buffering all of it defeats the cap:
+    a checked-in config from an external PR is in memory before it is
+    refused. The reader must never ask for more than one byte past the cap."""
+    from package_doctor.accept import MAX_CONFIG_BYTES
+
+    path = tmp_path / "package-doctor.toml"
+    path.write_bytes(b"#" * (MAX_CONFIG_BYTES + 4096))
+    real_open = Path.open
+    asked: list[int | None] = []
+
+    class Bounded:
+        def __init__(self, fh):
+            self._fh = fh
+
+        def read(self, size=-1):
+            asked.append(size)
+            return self._fh.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._fh.close()
+
+        def __getattr__(self, name):
+            return getattr(self._fh, name)
+
+    def bounded_open(self, *a, **kw):
+        fh = real_open(self, *a, **kw)
+        return Bounded(fh) if self.name == "package-doctor.toml" else fh
+
+    monkeypatch.setattr(Path, "open", bounded_open)
+    with pytest.raises(ConfigError, match="larger than"):
+        load_acceptances(tmp_path)
+    assert asked, "the file was not read through open()/read()"
+    assert all(n is not None and 0 <= n <= MAX_CONFIG_BYTES + 1 for n in asked), asked
