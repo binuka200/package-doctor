@@ -28,7 +28,7 @@ def console() -> Console:
     return Console(width=100, force_terminal=False)
 
 
-def make(name="demo", verdict=Verdict.ACT, **kw) -> Finding:
+def make(name="demo", verdict=Verdict.REPLACE, **kw) -> Finding:
     return Finding(
         package=kw.pop("package", Package(name=name, version="1.0")),
         exposure=kw.pop("exposure", Exposure(categories=["crypto"],
@@ -51,12 +51,24 @@ def test_an_empty_scan_says_so(capsys):
 
 
 def test_sections_are_labelled_by_what_to_do(capsys):
-    render(console(), [make("a", Verdict.ACT), make("b", Verdict.WATCH)],
+    render(console(), [make("a", Verdict.MITIGATE), make("b", Verdict.REPLACE)],
            sources=["requirements.txt"])
     out = capsys.readouterr().out
-    assert "act on these" in out and "watch" in out
-    # The actionable section must come first.
-    assert out.index("NO ONE HOME") < out.index("EXPOSED, MAINTAINED")
+    assert "plan a migration" in out and "no fix exists anywhere" in out
+
+
+def test_sections_come_in_order_of_what_it_costs_to_ignore(capsys):
+    """Upgrade sits below replace: a fix that already exists is cheaper to
+    act on than a package nobody will ever fix."""
+    from package_doctor.models import VERDICT_ORDER
+
+    shown = [v for v in VERDICT_ORDER if v is not Verdict.OK]
+    render(console(), [make(f"pkg{i}", v) for i, v in enumerate(reversed(shown))],
+           sources=["requirements.txt"], show_all=True)
+    out = capsys.readouterr().out
+    titles = ["FIX TODAY", "REPLACE", "MITIGATE", "UPGRADE", "QUIET", "UNCHECKED"]
+    positions = [out.index(t) for t in titles]
+    assert positions == sorted(positions)
 
 
 def test_there_is_no_aggregate_score_anywhere(capsys):
@@ -69,10 +81,10 @@ def test_there_is_no_aggregate_score_anywhere(capsys):
 
 
 def test_ok_packages_are_hidden_unless_asked_for(capsys):
-    render(console(), [make("quiet", Verdict.OK)], sources=["r.txt"])
-    assert "quiet" not in capsys.readouterr().out
-    render(console(), [make("quiet", Verdict.OK)], sources=["r.txt"], show_ok=True)
-    assert "quiet" in capsys.readouterr().out
+    render(console(), [make("silent-pkg", Verdict.OK)], sources=["r.txt"])
+    assert "silent-pkg" not in capsys.readouterr().out
+    render(console(), [make("silent-pkg", Verdict.OK)], sources=["r.txt"], show_ok=True)
+    assert "silent-pkg" in capsys.readouterr().out
 
 
 def test_known_exploited_sorts_above_a_larger_advisory_count(capsys):
@@ -101,14 +113,14 @@ def test_imported_packages_sort_above_unimported(capsys):
 # --- explain ----------------------------------------------------------------
 
 def test_explain_renders_with_no_data_at_all(capsys):
-    render_explain(console(), make(verdict=Verdict.UNKNOWN, remediation=Remediation(
+    render_explain(console(), make(verdict=Verdict.UNCHECKED, remediation=Remediation(
         gaps=["no source repository declared on PyPI"])))
     out = capsys.readouterr().out
     assert "no source repository" in out
 
 
 def test_explain_states_that_an_empty_record_is_unknown(capsys):
-    render_explain(console(), make(verdict=Verdict.WATCH))
+    render_explain(console(), make(verdict=Verdict.MITIGATE))
     assert "not good" in capsys.readouterr().out
 
 
@@ -133,7 +145,7 @@ def test_explain_never_prints_a_flat_hundred_percent(capsys):
 
 def test_json_shape_is_stable():
     payload = to_dict([make()], ["requirements.txt"], NOW)
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["sources"] == ["requirements.txt"]
     row = payload["findings"][0]
     for key in ("name", "version", "direct", "verdict", "exposure",
@@ -144,9 +156,9 @@ def test_json_shape_is_stable():
 
 
 def test_json_counts_every_verdict():
-    payload = to_dict([make("a", Verdict.ACT), make("b", Verdict.ACT),
+    payload = to_dict([make("a", Verdict.REPLACE), make("b", Verdict.REPLACE),
                        make("c", Verdict.OK)], [], NOW)
-    assert payload["counts"] == {"act": 2, "ok": 1}
+    assert payload["counts"] == {"replace": 2, "ok": 1}
 
 
 def test_json_preserves_evidence_urls():
@@ -178,7 +190,7 @@ def test_explain_says_when_no_version_was_known():
             package=Package(name="pillow", version=version),
             exposure=Exposure(categories=["file/media parsing"], confidence=Confidence.CURATED),
             remediation=Remediation(advisories=AdvisoryHistory(total=153, timely=147)),
-            verdict=Verdict.WATCH,
+            verdict=Verdict.MITIGATE,
         )
         render_explain(Console(file=buf, width=100, force_terminal=False), finding)
         return buf.getvalue()
@@ -202,7 +214,7 @@ def test_scan_header_says_how_many_packages_had_no_version():
             package=Package(name=name, version=version),
             exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
             remediation=Remediation(),
-            verdict=Verdict.WATCH,
+            verdict=Verdict.MITIGATE,
         )
 
     findings = [one("a", "1.0"), one("b", None), one("c", None)]
@@ -232,7 +244,7 @@ def test_a_degraded_scan_says_so_in_the_report_and_the_json():
         package=Package(name="a", version="1.0"),
         exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
         remediation=Remediation(gaps=["not found on PyPI"]),
-        verdict=Verdict.UNKNOWN,
+        verdict=Verdict.UNCHECKED,
     )
     degraded = {"pypi.org": 3, "api.osv.dev": 1}
     buf = io.StringIO()

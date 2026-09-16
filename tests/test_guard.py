@@ -204,7 +204,7 @@ def finding(
 
 
 def test_not_on_pypi_blocks_and_names_a_near_miss():
-    d = decide(finding("reqeusts", Verdict.UNKNOWN, error="not found on PyPI", first=None),
+    d = decide(finding("reqeusts", Verdict.UNCHECKED, error="not found on PyPI", first=None),
                now=NOW, popular=POPULAR)
     assert d.level == BLOCK
     assert d.provenance.found is False
@@ -232,7 +232,7 @@ def test_a_near_miss_alone_warns():
 
 
 def test_act_blocks_with_the_scanner_reasons():
-    d = decide(finding("legacy-auth", Verdict.ACT, exposed=True,
+    d = decide(finding("legacy-auth", Verdict.REPLACE, exposed=True,
                        reasons=["repository is archived", "2 advisories with no published fix"]),
                now=NOW, popular=POPULAR)
     assert d.level == BLOCK
@@ -240,20 +240,75 @@ def test_act_blocks_with_the_scanner_reasons():
 
 
 def test_watch_warns_and_low_unknown_ok_pass():
-    assert decide(finding("pyjwt", Verdict.WATCH, exposed=True,
+    assert decide(finding("pyjwt", Verdict.MITIGATE, exposed=True,
                           reasons=["7 of 8 past advisories fixed at or before disclosure"]),
                   now=NOW, popular=POPULAR).level == WARN
-    for verdict in (Verdict.LOW, Verdict.UNKNOWN, Verdict.OK):
+    for verdict in (Verdict.QUIET, Verdict.UNCHECKED, Verdict.OK):
         assert decide(finding("thing", verdict), now=NOW, popular=POPULAR).level == OK
+
+
+def test_exploited_and_upgrade_block_and_bump_warns():
+    d = decide(finding("pillow", Verdict.EXPLOITED,
+                       reasons=["CVE-2023-4863 on CISA's known-exploited list"]),
+               now=NOW, popular=POPULAR)
+    assert d.level == BLOCK
+    assert d.reasons[0].startswith("CVE-2023-4863")
+    affected = ["pinned version 1.0 is affected by 1 advisory: GHSA-x"]
+    d = decide(finding("pyjwt", Verdict.UPGRADE, exposed=True, reasons=affected),
+               now=NOW, popular=POPULAR)
+    assert d.level == BLOCK and "GHSA-x" in d.reasons[0]
+    # The same upgrade away from a reviewed boundary is worth saying, not refusing.
+    d = decide(finding("black", Verdict.UPGRADE, reasons=affected), now=NOW, popular=POPULAR)
+    assert d.level == WARN and "GHSA-x" in d.reasons[0]
+
+
+def test_a_maintained_package_at_a_boundary_says_nothing():
+    """It used to warn, inherited from the old watch tier. Measured on the ten
+    packages an agent most often reaches for, that warned on seven - including
+    httpx, fastapi and jinja2, each with a spotless record. A guardrail that
+    comments on healthy packages is one the model learns to skim."""
+    f = finding("requests", Verdict.OK, exposed=True)
+    f.remediation.advisories.total = 8
+    f.remediation.advisories.timely = 7
+    d = decide(f, now=NOW, popular=POPULAR)
+    assert d.level == OK
+    assert not any("healthy record" in r for r in d.reasons)
+
+
+def test_quiet_warns_at_a_boundary_and_is_silent_away_from_one():
+    """The one thing left worth saying about a package with no advisory against
+    it: it handles attacker-influenced data, and nobody has shipped in years."""
+    at = decide(finding("requests-toolbelt", Verdict.QUIET, exposed=True,
+                        reasons=["no release in 3.4y"]), now=NOW, popular=POPULAR)
+    assert at.level == WARN
+    assert "trust boundary (auth/session): no release in 3.4y" in at.reasons[0]
+    away = decide(finding("mkdocs-exclude", Verdict.QUIET, reasons=["no release in 7.6y"]),
+                  now=NOW, popular=POPULAR)
+    assert away.level == OK
+
+
+def test_the_hook_blocks_exactly_what_a_scan_fails_on():
+    """One rule, not two: `decide` reads the same `blocks` property the exit
+    code does, so the guardrail and CI can never disagree."""
+    for verdict in (Verdict.EXPLOITED, Verdict.REPLACE, Verdict.UPGRADE):
+        at = finding("thing", verdict, exposed=True, reasons=["x"])
+        away = finding("thing", verdict, reasons=["x"])
+        assert at.blocks and decide(at, now=NOW, popular=POPULAR).level == BLOCK
+        assert decide(away, now=NOW, popular=POPULAR).level == (
+            BLOCK if away.blocks else WARN
+        ), verdict
+    stuck = finding("nltk", Verdict.MITIGATE, exposed=True, reasons=["no fix anywhere"])
+    assert not stuck.blocks
+    assert decide(stuck, now=NOW, popular=POPULAR).level == WARN
 
 
 def test_a_failed_lookup_is_unchecked_and_allowed():
     """An outage elsewhere is not evidence about the package."""
-    d = decide(finding("thing", Verdict.UNKNOWN, error="lookup failed: boom", first=None),
+    d = decide(finding("thing", Verdict.UNCHECKED, error="lookup failed: boom", first=None),
                now=NOW, popular=POPULAR)
     assert d.level == UNCHECKED
     assert d.provenance.found is None
-    d = decide(finding("thing", Verdict.UNKNOWN, first=None), now=NOW, popular=POPULAR,
+    d = decide(finding("thing", Verdict.UNCHECKED, first=None), now=NOW, popular=POPULAR,
                degraded=True)
     assert d.level == UNCHECKED
 
@@ -280,7 +335,7 @@ def stub(monkeypatch, findings):
 
 def test_check_prints_one_decision_per_package_and_exits_on_block(monkeypatch, capsys):
     stub(monkeypatch, [
-        finding("legacy-auth", Verdict.ACT, exposed=True, reasons=["repository is archived"]),
+        finding("legacy-auth", Verdict.REPLACE, exposed=True, reasons=["repository is archived"]),
         finding("six"),
     ])
     code = cli.main(["check", "legacy-auth", "six", "--no-cache"])
@@ -291,10 +346,10 @@ def test_check_prints_one_decision_per_package_and_exits_on_block(monkeypatch, c
 
 
 def test_check_fail_on_never_and_warn(monkeypatch):
-    stub(monkeypatch, [finding("pyjwt", Verdict.WATCH, exposed=True, reasons=["x"])])
+    stub(monkeypatch, [finding("pyjwt", Verdict.MITIGATE, exposed=True, reasons=["x"])])
     assert cli.main(["check", "pyjwt", "--no-cache"]) == cli.EXIT_OK
     assert cli.main(["check", "pyjwt", "--no-cache", "--fail-on", "warn"]) == cli.EXIT_FINDINGS
-    stub(monkeypatch, [finding("legacy-auth", Verdict.ACT, exposed=True, reasons=["x"])])
+    stub(monkeypatch, [finding("legacy-auth", Verdict.REPLACE, exposed=True, reasons=["x"])])
     assert cli.main(["check", "legacy-auth", "--no-cache", "--fail-on", "never"]) == cli.EXIT_OK
 
 
@@ -360,7 +415,7 @@ def run_hook(monkeypatch, stdin: str, *extra: str) -> int:
 
 
 def test_hook_blocks_with_exit_2_and_reasons_on_stderr(monkeypatch, capsys):
-    stub(monkeypatch, [finding("legacy-auth", Verdict.ACT, exposed=True,
+    stub(monkeypatch, [finding("legacy-auth", Verdict.REPLACE, exposed=True,
                                reasons=["repository is archived"])])
     code = run_hook(monkeypatch, hook_event("pip install legacy-auth"))
     out, err = capsys.readouterr()
@@ -371,7 +426,8 @@ def test_hook_blocks_with_exit_2_and_reasons_on_stderr(monkeypatch, capsys):
 
 
 def test_hook_warns_as_context_without_granting_permission(monkeypatch, capsys):
-    stub(monkeypatch, [finding("pyjwt", Verdict.WATCH, exposed=True, reasons=["trust boundary"])])
+    stub(monkeypatch, [finding("pyjwt", Verdict.MITIGATE, exposed=True,
+                               reasons=["trust boundary"])])
     code = run_hook(monkeypatch, hook_event("uv add pyjwt"))
     out, err = capsys.readouterr()
     assert code == 0
@@ -505,12 +561,12 @@ def test_hook_leaves_local_paths_alone(monkeypatch, capsys):
 
 
 def test_hook_can_be_told_to_block_on_warnings(monkeypatch, capsys):
-    stub(monkeypatch, [finding("pyjwt", Verdict.WATCH, exposed=True, reasons=["x"])])
+    stub(monkeypatch, [finding("pyjwt", Verdict.MITIGATE, exposed=True, reasons=["x"])])
     assert run_hook(monkeypatch, hook_event("pip install pyjwt"), "--warn-blocks") == 2
 
 
 def test_hook_blocks_an_invented_name(monkeypatch, capsys):
-    stub(monkeypatch, [finding("reqeusts", Verdict.UNKNOWN, error="not found on PyPI",
+    stub(monkeypatch, [finding("reqeusts", Verdict.UNCHECKED, error="not found on PyPI",
                                first=None)])
     code = run_hook(monkeypatch, hook_event("pip install reqeusts"))
     _, err = capsys.readouterr()

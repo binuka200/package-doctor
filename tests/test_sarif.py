@@ -32,7 +32,7 @@ from package_doctor.sarif import RULES, to_sarif
 NOW = dt.datetime(2026, 9, 13, 10, 30, tzinfo=dt.timezone.utc)
 
 
-def make(name="demo", verdict=Verdict.ACT, **kw) -> Finding:
+def make(name="demo", verdict=Verdict.REPLACE, **kw) -> Finding:
     return Finding(
         package=kw.pop("package", Package(name=name, version="1.0", origins=["requirements.txt"])),
         exposure=kw.pop("exposure", Exposure(categories=["crypto"],
@@ -67,16 +67,22 @@ def test_every_rule_referenced_is_defined(tmp_path):
 
 
 def test_verdicts_map_to_levels(tmp_path):
-    run = to_sarif([make("a", Verdict.ACT), make("b", Verdict.WATCH), make("c", Verdict.LOW)],
-                   tmp_path, NOW)["runs"][0]
+    away = Exposure(categories=[], confidence=Confidence.CURATED)
+    findings = [make("e", Verdict.EXPLOITED), make("r", Verdict.REPLACE),
+                make("u", Verdict.UPGRADE), make("v", Verdict.MITIGATE),
+                make("b", Verdict.UPGRADE, exposure=away), make("a", Verdict.QUIET)]
+    run = to_sarif(findings, tmp_path, NOW)["runs"][0]
     assert [(r["properties"]["package"], r["level"]) for r in run["results"]] == [
-        ("a", "error"), ("b", "warning"), ("c", "note"),
+        ("e", "error"), ("r", "error"), ("u", "error"), ("v", "warning"),
+        # Away from a reviewed boundary the same rule is not an error: the
+        # level follows the group, exactly as the exit code does.
+        ("b", "warning"), ("a", "note"),
     ]
 
 
 def test_unknown_and_ok_produce_no_result(tmp_path):
     """"We could not tell" is not an alert. Neither is "fine"."""
-    run = to_sarif([make("u", Verdict.UNKNOWN), make("o", Verdict.OK)], tmp_path, NOW)["runs"][0]
+    run = to_sarif([make("u", Verdict.UNCHECKED), make("o", Verdict.OK)], tmp_path, NOW)["runs"][0]
     assert run["results"] == []
 
 
@@ -132,7 +138,7 @@ def test_the_message_carries_the_reasons_and_marks_an_assumed_version(tmp_path):
 
 def test_an_inferred_exposure_is_marked_as_a_guess(tmp_path):
     f = make(exposure=Exposure(categories=["crypto"], confidence=Confidence.INFERRED),
-             verdict=Verdict.WATCH)
+             verdict=Verdict.MITIGATE)
     result = to_sarif([f], tmp_path, NOW)["runs"][0]["results"][0]
     assert "(inferred, not reviewed)" in result["message"]["text"]
     assert result["properties"]["exposureConfidence"] == "inferred"
@@ -166,7 +172,7 @@ def test_properties_carry_what_a_dashboard_would_filter_on(tmp_path):
     assert props["direct"] is False
     assert props["advisoriesAffectingVersion"] == ["CVE-2023-4863"]
     assert props["knownExploited"] == ["CVE-2023-4863"]
-    assert props["verdict"] == "act"
+    assert props["verdict"] == "replace"
 
 
 def test_fingerprint_is_the_package_so_alerts_persist_across_runs(tmp_path):
@@ -195,7 +201,7 @@ def test_sarif_is_written_even_when_the_scan_fails_the_build(tmp_path, monkeypat
     code = cli.main(["scan", str(tmp_path), "--no-reachability", "--sarif", str(out)])
     assert code == cli.EXIT_FINDINGS
     doc = json.loads(out.read_text(encoding="utf-8"))
-    assert doc["runs"][0]["results"][0]["ruleId"] == "package-doctor/act"
+    assert doc["runs"][0]["results"][0]["ruleId"] == "package-doctor/replace"
 
 
 def test_sarif_and_json_on_stdout_do_not_collide(tmp_path, monkeypatch, capsys):

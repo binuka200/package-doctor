@@ -121,7 +121,7 @@ def test_findings_render_untrusted_text_literally():
         package=Package(name="demo", version="1.0"),
         exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
         remediation=Remediation(),
-        verdict=Verdict.ACT,
+        verdict=Verdict.REPLACE,
         reasons=[Evidence("[blink]LOOK AT ME[/blink] and \x1b[31mred\x1b[0m")],
     )
     render(console, [finding], sources=["requirements.txt"])
@@ -211,7 +211,7 @@ def test_a_lockfile_version_cannot_carry_an_escape_sequence():
         package=Package(name="demo", version="1.0\x1b]8;;https://evil.invalid\x1b\\"),
         exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
         remediation=Remediation(),
-        verdict=Verdict.WATCH,
+        verdict=Verdict.MITIGATE,
     )
     out = _render_one(finding)
     assert "demo  1.0" in out, "the version is kept"
@@ -249,7 +249,7 @@ def test_explain_strips_escapes_from_paths_urls_and_ids():
         ),
         exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
         remediation=rem,
-        verdict=Verdict.ACT,
+        verdict=Verdict.REPLACE,
         reasons=[Evidence("claim \u202eevil", "https://osv.dev/\x1b]8;;x\x1b\\")],
     )
     buf = io.StringIO()

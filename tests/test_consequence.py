@@ -129,7 +129,7 @@ def stale(name: str, category: str, consequence: str) -> Finding:
 def test_with_the_same_evidence_the_worse_consequence_sorts_first():
     loader = stale("cloudpickle", "deserialization", "code execution")
     parser = stale("ujson", "data parsing", "denial of service")
-    assert loader.verdict is parser.verdict is Verdict.ACT
+    assert loader.verdict is parser.verdict is Verdict.QUIET
     assert _sort_key(loader) < _sort_key(parser)
     # Name order would have put ujson last anyway; swap the names to be sure
     # it is the consequence deciding.
@@ -155,7 +155,7 @@ def test_consequence_never_changes_a_verdict():
             Remediation(last_release=NOW, repo_archived=False, repo_last_push=NOW),
             now=NOW,
         )
-        assert healthy.verdict is Verdict.WATCH, consequence
+        assert healthy.verdict is Verdict.OK, consequence
 
 
 def test_the_word_reaches_the_reader_and_the_json_and_nowhere_becomes_a_number(capsys):

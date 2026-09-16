@@ -93,7 +93,7 @@ def _finding(name: str) -> Finding:
         package=Package(name=name, version="1.0"),
         exposure=m.lookup(name),
         remediation=Remediation(),
-        verdict=Verdict.WATCH,
+        verdict=Verdict.MITIGATE,
     )
 
 

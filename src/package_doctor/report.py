@@ -15,11 +15,12 @@ from dataclasses import asdict
 from typing import Any
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.table import Table
 from rich.text import Text
 
 from .exposure import consequence_rank
-from .models import Confidence, Finding, Verdict
+from .models import Boundary, Confidence, Finding, Verdict
 
 
 def clean(value: object) -> str:
@@ -49,12 +50,29 @@ _ESCAPE_SEQUENCE = re.compile(
     r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?"  # OSC: ESC ] ... BEL or ESC \
 )
 
+#: (verdict, title, hint, style). The title is the action, so a header is an
+#: instruction rather than a diagnosis to decode.
 SECTIONS: list[tuple[Verdict, str, str, str]] = [
-    (Verdict.ACT, "EXPOSED + NO ONE HOME", "act on these", "bold red"),
-    (Verdict.WATCH, "EXPOSED, MAINTAINED", "nothing to do today: someone is home", "yellow"),
-    (Verdict.LOW, "STALE, NOT EXPOSED", "low priority", "cyan"),
-    (Verdict.UNKNOWN, "NO SIGNAL", "unknown, not a finding", "dim"),
+    (Verdict.EXPLOITED, "FIX TODAY", "known exploited, and your version is affected", "bold red"),
+    (Verdict.REPLACE, "REPLACE", "no one is home: plan a migration", "red"),
+    (Verdict.MITIGATE, "MITIGATE", "no fix exists anywhere, but the project is alive", "blue"),
+    (Verdict.UPGRADE, "UPGRADE", "a newer release clears the advisories", "yellow"),
+    (Verdict.QUIET, "QUIET", "gone quiet, nothing wrong today", "cyan"),
+    (Verdict.UNCHECKED, "UNCHECKED", "not enough data to judge: unknown, not a finding", "dim"),
 ]
+
+#: (boundary, title, hint). The groups carry the priority, the sections carry
+#: the action - so the same work is not two different words depending on
+#: whether a human has curated the package yet.
+GROUPS: list[tuple[Boundary, str, str]] = [
+    (Boundary.AT, "AT A TRUST BOUNDARY", "replace and upgrade fail the build"),
+    (Boundary.CLEAR, "NOT AT A TRUST BOUNDARY", "reviewed: worth knowing, not blocking"),
+    (Boundary.UNREVIEWED, "BOUNDARY NOT REVIEWED", "nobody has judged these yet"),
+]
+
+#: Verdicts that are shown inside a group. FIX TODAY is pulled out above them:
+#: active exploitation does not wait on the exposure map.
+_GROUPED = [row for row in SECTIONS if row[0] is not Verdict.EXPLOITED]
 
 
 def _version(finding: Finding) -> str:
@@ -188,12 +206,70 @@ def describe_degraded(degraded: dict[str, int] | None) -> str | None:
     )
 
 
+def _rows(console: Console, findings: list[Finding], now: dt.datetime | None,
+          indent: int = 0) -> None:
+    """One table of findings: name, version, exposure, why.
+
+    ``indent`` lines the rows up under a subsection heading inside a group.
+    """
+    table = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
+    # Wrap a long name rather than clipping it: "djangorestframework-sim…"
+    # is not a package anyone can look up or install.
+    table.add_column("name", style="bold", overflow="fold", max_width=22)
+    table.add_column("version", style="dim", no_wrap=True)
+    table.add_column("exposure", no_wrap=True)
+    # Wrap rather than truncate: a clipped file path or advisory id is worse
+    # than useless, because the user cannot look it up.
+    table.add_column("why", overflow="fold")
+
+    for finding in findings:
+        reasons = finding.reasons[:2]
+        why = Text()
+        for i, reason in enumerate(reasons):
+            if i:
+                why.append("\n")
+            why.append(clean(reason.claim))
+        if not reasons:
+            why.append("-", style="dim")
+        extra = len(finding.reasons) - len(reasons)
+        if extra > 0:
+            # Worded, not another "(+N more)": reason claims can end in their
+            # own "(+79 more)" and two bare counts side by side read as one
+            # confusing number.
+            why.append(
+                f"\nand {extra} more reason{'s' if extra > 1 else ''} "
+                f"- package-doctor explain {clean(finding.package.name)}",
+                style="dim",
+            )
+        if finding.accepted is not None and finding.acceptance_expired:
+            # Back in its verdict section because the acceptance ran out, not
+            # because anything about the package changed. Say which.
+            why.append(
+                f"\nacceptance {_until(finding, now)}: {clean(finding.accepted.reason)}",
+                style="yellow",
+            )
+        missing = _lookup_gaps(finding)
+        if missing:
+            # A lookup that failed is a signal the row does not have. It used
+            # to show only in `explain`; a reader of the table alone took the
+            # row as complete.
+            why.append(f"\nmissing signal: {clean('; '.join(missing))}", style="dim")
+
+        exposure_text = Text(finding.exposure.label)
+        if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
+            exposure_text.append("?", style="dim")
+
+        table.add_row(clean(finding.package.name), _version(finding), exposure_text, why)
+    console.print(Padding(table, (0, 0, 0, indent)) if indent else table)
+
+
 def render(
     console: Console,
     findings: list[Finding],
     *,
     sources: Iterable[str],
     show_ok: bool = False,
+    show_all: bool = False,
     now: dt.datetime | None = None,
     degraded: dict[str, int] | None = None,
     notes: Iterable[str] = (),
@@ -213,77 +289,55 @@ def render(
         # be judged on maintenance, but "no advisories" must not be implied.
         console.print(Text(pin_note[0], style=pin_note[1]))
 
-    # Accepted findings leave their verdict section for one of their own. The
-    # verdict is unchanged; only where it is shown and whether it fails the
-    # build. An expired acceptance stays put, and its row says it expired.
+    # Accepted findings leave their section for one of their own. The verdict is
+    # unchanged; only where it is shown and whether it fails the build. An
+    # expired acceptance stays put, and its row says it expired.
     accepted = [f for f in findings if f.suppressed]
+    live = [f for f in findings if not f.suppressed]
     by_verdict: dict[Verdict, list[Finding]] = {}
-    for finding in findings:
-        if finding.suppressed:
-            continue
+    for finding in live:
         by_verdict.setdefault(finding.verdict, []).append(finding)
 
     shown = 0
-    for verdict, title, hint, style in SECTIONS:
-        group = sorted(by_verdict.get(verdict, []), key=_sort_key)
-        if not group:
-            continue
-        shown += len(group)
+    exploited = sorted(by_verdict.get(Verdict.EXPLOITED, []), key=_sort_key)
+    if exploited:
+        shown += len(exploited)
+        _, title, hint, style = SECTIONS[0]
         console.print()
         line = Text(title, style=style)
         line.append(f"   {hint}", style="dim")
         console.print(line)
+        _rows(console, exploited, now)
 
-        table = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
-        # Wrap a long name rather than clipping it: "djangorestframework-sim…"
-        # is not a package anyone can look up or install.
-        table.add_column("name", style="bold", overflow="fold", max_width=22)
-        table.add_column("version", style="dim", no_wrap=True)
-        table.add_column("exposure", no_wrap=True)
-        # Wrap rather than truncate: a clipped file path or advisory id is
-        # worse than useless, because the user cannot look it up.
-        table.add_column("why", overflow="fold")
+    for boundary, title, hint in GROUPS:
+        group = [f for f in live if f.exposure.boundary is boundary
+                 and f.verdict not in (Verdict.EXPLOITED, Verdict.OK)]
+        if not group:
+            continue
+        shown += len(group)
+        console.print()
+        line = Text(title, style="bold" if boundary is Boundary.AT else "")
+        line.append(f"   {hint}", style="dim")
+        console.print(line)
 
-        for finding in group:
-            reasons = finding.reasons[:2]
-            why = Text()
-            for i, reason in enumerate(reasons):
-                if i:
-                    why.append("\n")
-                why.append(clean(reason.claim))
-            if not reasons:
-                why.append("-", style="dim")
-            extra = len(finding.reasons) - len(reasons)
-            if extra > 0:
-                # Worded, not another "(+N more)": reason claims can end in
-                # their own "(+79 more)" and two bare counts side by side read
-                # as one confusing number.
-                why.append(
-                    f"\nand {extra} more reason{'s' if extra > 1 else ''} "
-                    f"- package-doctor explain {clean(finding.package.name)}",
-                    style="dim",
-                )
-            if finding.accepted is not None and finding.acceptance_expired:
-                # Back in its verdict section because the acceptance ran out,
-                # not because anything about the package changed. Say which.
-                why.append(
-                    f"\nacceptance {_until(finding, now)}: "
-                    f"{clean(finding.accepted.reason)}",
-                    style="yellow",
-                )
-            missing = _lookup_gaps(finding)
-            if missing:
-                # A lookup that failed is a signal the row does not have. It
-                # used to show only in `explain`; a reader of the table alone
-                # took the row as complete.
-                why.append(f"\nmissing signal: {clean('; '.join(missing))}", style="dim")
+        if boundary is not Boundary.AT and not show_all:
+            # Collapsed to a count: these ask for the same work, at a priority
+            # that does not interrupt. `--all` prints them.
+            counts = [
+                (t, len([f for f in group if f.verdict is v])) for v, t, _, _ in _GROUPED
+            ]
+            summary = ", ".join(f"{n} {t.lower()}" for t, n in counts if n)
+            console.print(Text(f"  {summary}  -  --all to list", style="dim"))
+            continue
 
-            exposure_text = Text(finding.exposure.label)
-            if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
-                exposure_text.append("?", style="dim")
-
-            table.add_row(clean(finding.package.name), _version(finding), exposure_text, why)
-        console.print(table)
+        for verdict, sub, sub_hint, style in _GROUPED:
+            rows = sorted([f for f in group if f.verdict is verdict], key=_sort_key)
+            if not rows:
+                continue
+            sub_line = Text(f"  {sub}", style=style)
+            sub_line.append(f"   {sub_hint}", style="dim")
+            console.print(sub_line)
+            _rows(console, rows, now, indent=2)
 
     if accepted:
         console.print()
@@ -295,7 +349,7 @@ def render(
         table.add_column("version", style="dim", no_wrap=True)
         table.add_column("verdict", no_wrap=True)
         table.add_column("why", overflow="fold")
-        labels = {v: hint for v, _, hint, _ in SECTIONS}
+        labels = {v: title.lower() for v, title, _, _ in SECTIONS}
         for finding in sorted(accepted, key=_sort_key):
             assert finding.accepted is not None
             why = Text(clean(finding.accepted.reason))
@@ -313,23 +367,18 @@ def render(
         console.print()
         console.print(Text("OK", style="green"))
         table = Table(show_header=False, box=None, padding=(0, 1), pad_edge=False)
-        # Wrap a long name rather than clipping it: "djangorestframework-sim…"
-        # is not a package anyone can look up or install.
         table.add_column("name", style="bold", overflow="fold", max_width=22)
         table.add_column("version", style="dim")
+        table.add_column("exposure", style="dim")
         for finding in sorted(ok, key=_sort_key):
-            table.add_row(clean(finding.package.name), _version(finding))
+            table.add_row(clean(finding.package.name), _version(finding),
+                          clean(finding.exposure.label))
         console.print(table)
 
     console.print()
     summary = Text()
-    counts = [
-        ("act on", len(by_verdict.get(Verdict.ACT, [])), "red"),
-        ("watch", len(by_verdict.get(Verdict.WATCH, [])), "yellow"),
-        ("low", len(by_verdict.get(Verdict.LOW, [])), "cyan"),
-        ("unknown", len(by_verdict.get(Verdict.UNKNOWN, [])), "dim"),
-        ("ok", len(ok), "green"),
-    ]
+    counts = [(title.lower(), len(by_verdict.get(v, [])), style) for v, title, _, style in SECTIONS]
+    counts.append(("ok", len(ok), "green"))
     if accepted:
         counts.append(("accepted", len(accepted), "magenta"))
     for i, (label, count, colour) in enumerate(counts):
@@ -338,6 +387,12 @@ def render(
         summary.append(f"{count} ", style=f"bold {colour}")
         summary.append(label, style="dim")
     console.print(summary)
+
+    blocking = sum(1 for f in live if f.blocks)
+    if blocking:
+        console.print(
+            Text(f"{blocking} of these fail the build at the default level", style="red")
+        )
 
     if not shown:
         console.print(Text("Nothing to act on.", style="green"))
@@ -348,8 +403,8 @@ def render(
     note = describe_degraded(degraded)
     if note:
         console.print(Text(note, style="yellow"))
-    for line in notes:
-        console.print(Text(clean(line), style="dim"))
+    for line_text in notes:
+        console.print(Text(clean(line_text), style="dim"))
     console.print()
 
 
@@ -369,59 +424,50 @@ def render_markdown(
 ) -> str:
     """The report as GitHub-flavoured Markdown, for a job's step summary.
 
-    Same sections, same order, same rule that accepted findings are shown
-    and never dropped. Nothing here that the terminal report would not say.
+    Same groups, same sections, same rule that accepted findings are shown and
+    never dropped. Nothing here that the terminal report would not say - and
+    nothing collapsed, since a step summary is read once and not scrolled past.
     """
     total = len(findings)
     direct = sum(1 for f in findings if f.package.direct)
     src = ", ".join(_md_cell(s) for s in sources) or "no dependency files"
     accepted = [f for f in findings if f.suppressed]
+    live = [f for f in findings if not f.suppressed]
     by_verdict: dict[Verdict, list[Finding]] = {}
-    for finding in findings:
-        if not finding.suppressed:
-            by_verdict.setdefault(finding.verdict, []).append(finding)
+    for finding in live:
+        by_verdict.setdefault(finding.verdict, []).append(finding)
 
     out: list[str] = []
     out.append("## Dependency Risk Report")
     out.append("")
     out.append(f"{total} packages · {direct} direct · from {src}")
     out.append("")
-    counts = [
-        ("act on", len(by_verdict.get(Verdict.ACT, []))),
-        ("watch", len(by_verdict.get(Verdict.WATCH, []))),
-        ("low", len(by_verdict.get(Verdict.LOW, []))),
-        ("unknown", len(by_verdict.get(Verdict.UNKNOWN, []))),
-        ("ok", len(by_verdict.get(Verdict.OK, []))),
-    ]
+    counts = [(title.lower(), len(by_verdict.get(v, []))) for v, title, _, _ in SECTIONS]
+    counts.append(("ok", len(by_verdict.get(Verdict.OK, []))))
     if accepted:
         counts.append(("accepted", len(accepted)))
     out.append("**" + " · ".join(f"{n} {label}" for label, n in counts) + "**")
     out.append("")
+    blocking = sum(1 for f in live if f.blocks)
+    if blocking:
+        out.append(f"**{blocking} of these fail the build at the default level.**")
+        out.append("")
     pin_note = _pin_note(findings)
     if pin_note:
         for line in pin_note[0].split("\n"):
             out.append(f"> {_md_cell(line)}")
         out.append("")
 
-    shown = 0
-    for verdict, title, hint, _style in SECTIONS:
-        group = sorted(by_verdict.get(verdict, []), key=_sort_key)
-        if not group:
-            continue
-        shown += len(group)
-        out.append(f"### {title.title()} — {hint}")
-        out.append("")
+    def table(rows: list[Finding]) -> None:
         out.append("| Package | Version | Exposure | Why |")
         out.append("| --- | --- | --- | --- |")
-        for finding in group:
+        for finding in rows:
             exposure = finding.exposure.label
             if finding.exposure.confidence is Confidence.INFERRED and finding.exposure.is_exposed:
                 exposure += "?"
             why = [r.claim for r in finding.reasons] or ["-"]
             if finding.accepted is not None and finding.acceptance_expired:
-                why.append(
-                    f"acceptance {_until(finding, now)}: {finding.accepted.reason}"
-                )
+                why.append(f"acceptance {_until(finding, now)}: {finding.accepted.reason}")
             if _lookup_gaps(finding):
                 why.append("missing signal: " + "; ".join(_lookup_gaps(finding)))
             # Joined after cleaning: clean() strips newlines with the rest of
@@ -432,12 +478,37 @@ def render_markdown(
             )
         out.append("")
 
+    shown = 0
+    exploited = sorted(by_verdict.get(Verdict.EXPLOITED, []), key=_sort_key)
+    if exploited:
+        shown += len(exploited)
+        _, title, hint, _style = SECTIONS[0]
+        out.append(f"### {title.title()} — {hint}")
+        out.append("")
+        table(exploited)
+
+    for boundary, title, hint in GROUPS:
+        group = [f for f in live if f.exposure.boundary is boundary
+                 and f.verdict not in (Verdict.EXPLOITED, Verdict.OK)]
+        if not group:
+            continue
+        shown += len(group)
+        out.append(f"### {title.title()} — {hint}")
+        out.append("")
+        for verdict, sub, sub_hint, _style in _GROUPED:
+            rows = sorted([f for f in group if f.verdict is verdict], key=_sort_key)
+            if not rows:
+                continue
+            out.append(f"#### {sub.title()} — {sub_hint}")
+            out.append("")
+            table(rows)
+
     if accepted:
         out.append("### Accepted Risk — on the record, not failing the build")
         out.append("")
         out.append("| Package | Version | Verdict | Reason | Until |")
         out.append("| --- | --- | --- | --- | --- |")
-        labels = {v: hint for v, _, hint, _ in SECTIONS}
+        labels = {v: title.lower() for v, title, _, _ in SECTIONS}
         for finding in sorted(accepted, key=_sort_key):
             assert finding.accepted is not None
             out.append(
@@ -471,20 +542,10 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
 
     console.print()
     title = Text(clean(f"{pkg.name} {pkg.version or ''}").strip(), style="bold")
-    style = {
-        Verdict.ACT: "bold red",
-        Verdict.WATCH: "yellow",
-        Verdict.LOW: "cyan",
-        Verdict.UNKNOWN: "dim",
-        Verdict.OK: "green",
-    }[finding.verdict]
-    label = {
-        Verdict.ACT: "ACT ON THIS",
-        Verdict.WATCH: "WATCH",
-        Verdict.LOW: "LOW PRIORITY",
-        Verdict.UNKNOWN: "NO SIGNAL",
-        Verdict.OK: "OK",
-    }[finding.verdict]
+    label, style = next(
+        ((title, style) for v, title, _, style in SECTIONS if v is finding.verdict),
+        ("OK", "green"),
+    )
     title.append(f"    {label}", style=style)
     console.print(title)
 
@@ -500,6 +561,14 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
 
     section("Exposure")
     row("Category", finding.exposure.label)
+    row(
+        "Group",
+        {
+            Boundary.AT: "at a trust boundary",
+            Boundary.CLEAR: "not at a trust boundary",
+            Boundary.UNREVIEWED: "boundary not reviewed",
+        }[finding.exposure.boundary],
+    )
     row(
         "Source",
         {
@@ -718,8 +787,14 @@ def to_dict(
                 "sites": finding.package.import_sites,
             },
             "verdict": finding.verdict.value,
+            # The one a CI consumer should key on: True means this finding
+            # fails the build at the default level.
+            "blocks": finding.blocks and not finding.suppressed,
             "exposure": {
                 "categories": finding.exposure.categories,
+                # "at", "clear" or "unreviewed": which group the row is under,
+                # and what decides whether the verdict fails a build.
+                "boundary": finding.exposure.boundary.value,
                 "confidence": finding.exposure.confidence.value,
                 "note": finding.exposure.note,
                 "why": finding.exposure.why,
@@ -775,7 +850,10 @@ def to_dict(
         # 2: "version" may be assumed (see "version_assumed"), and findings
         # carry "accepted". Counts are still by verdict; "accepted" is the
         # number of findings an unexpired acceptance kept out of the exit code.
-        "schema_version": 2,
+        # 3: verdicts are named for their action - exploited, replace, mitigate,
+        # upgrade, quiet, unchecked, ok - replacing act, watch, low and
+        # unknown; findings carry "boundary" and "blocks".
+        "schema_version": 3,
         "generated_at": now.isoformat(),
         "sources": list(sources),
         "counts": counts,

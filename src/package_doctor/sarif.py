@@ -6,8 +6,8 @@ are the locations, and an accepted risk is carried as a SARIF suppression
 rather than dropped - the dashboard then shows it as dismissed with the
 reason, which is exactly how the report treats it.
 
-Only the verdicts that ask something of the reader are emitted. *Unknown* is
-"we could not tell", which the model treats as not a finding, and *ok* is
+Only the verdicts that ask something of the reader are emitted. *Unchecked*
+is "we could not tell", which the model treats as not a finding, and *ok* is
 nothing at all; either would be an alert that can never be resolved.
 """
 
@@ -30,27 +30,43 @@ HOMEPAGE = "https://github.com/binuka200/package-doctor"
 #: The rule ids are stable identifiers other tools key on; the wording can
 #: change, the ids should not.
 RULES: dict[Verdict, tuple[str, str, str, str]] = {
-    Verdict.ACT: (
-        "package-doctor/act",
+    Verdict.EXPLOITED: (
+        "package-doctor/exploited",
         "error",
-        "Exposed dependency with no one left to fix it",
-        "The package sits at a trust boundary (it handles data an attacker can "
-        "influence) and either shows evidence that nobody is left to ship a fix, "
-        "or the version in use is affected by a published advisory.",
+        "Known-exploited vulnerability in the version in use",
+        "The version in use is affected by a CVE on CISA's Known Exploited "
+        "Vulnerabilities catalogue: the flaw has been used against real targets. "
+        "Fix today.",
     ),
-    Verdict.WATCH: (
-        "package-doctor/watch",
+    Verdict.REPLACE: (
+        "package-doctor/replace",
+        "error",
+        "Dependency with no one left to fix it",
+        "The repository is archived or the maintainer marked the project Inactive, "
+        "or the version in use carries an advisory with no fix anywhere and the "
+        "project has gone quiet. Plan a migration.",
+    ),
+    Verdict.UPGRADE: (
+        "package-doctor/upgrade",
+        "error",
+        "Advisories fixed in a newer release",
+        "The version in use is affected by published advisories that a newer "
+        "release no longer carries. Upgrade.",
+    ),
+    Verdict.MITIGATE: (
+        "package-doctor/mitigate",
         "warning",
-        "Exposed dependency, maintained",
-        "The package sits at a trust boundary and is actively maintained. Nothing "
-        "to do today; it is where the next advisory that matters will land.",
+        "Advisory with no fix anywhere",
+        "The version in use is affected by an advisory that no release fixes, in a "
+        "project that is still active. Upgrading cannot clear it: work around it, "
+        "or press upstream.",
     ),
-    Verdict.LOW: (
-        "package-doctor/low",
+    Verdict.QUIET: (
+        "package-doctor/quiet",
         "note",
-        "Stale dependency, not at a trust boundary",
-        "The package shows maintenance concerns but does not handle "
-        "attacker-controlled input as far as the exposure map knows. Low priority.",
+        "Dependency has gone quiet",
+        "Nothing is wrong with the version in use, but the project has not shipped "
+        "in a long time. Worth knowing before a fix is needed.",
     ),
 }
 
@@ -161,6 +177,11 @@ def to_sarif(findings: list[Finding], root: Path, now: dt.datetime) -> dict[str,
         if rule is None:
             continue
         rule_id, level, *_ = rule
+        # A finding that does not fail a build must not arrive as an `error` in
+        # a dashboard: the level follows the group, the same way the exit code
+        # does. `note` stays `note` wherever it is found.
+        if level == "error" and not finding.blocks:
+            level = "warning"
         locations, related = _locations(finding, root)
         result: dict[str, Any] = {
             "ruleId": rule_id,
@@ -178,6 +199,8 @@ def to_sarif(findings: list[Finding], root: Path, now: dt.datetime) -> dict[str,
                 "direct": finding.package.direct,
                 "verdict": finding.verdict.value,
                 "exposure": finding.exposure.categories,
+                "boundary": finding.exposure.boundary.value,
+                "blocks": finding.blocks and not finding.suppressed,
                 "exposureConfidence": finding.exposure.confidence.value,
                 "consequence": finding.exposure.consequence,
                 "advisoriesAffectingVersion": (

@@ -186,7 +186,7 @@ async def test_a_range_nothing_satisfies_is_a_gap():
 
 # --- the label never goes missing ------------------------------------------
 
-def assumed(name="demo", verdict=Verdict.WATCH, affecting=0) -> Finding:
+def assumed(name="demo", verdict=Verdict.MITIGATE, affecting=0) -> Finding:
     pkg = Package(name=name, version="2.0", version_assumed=True)
     adv = AdvisoryHistory(total=affecting, affecting_current=affecting,
                           ids_affecting_current=[f"GHSA-{i}" for i in range(affecting)])
@@ -203,7 +203,8 @@ def test_the_evidence_says_the_version_was_assumed():
 
 
 def test_the_table_marks_it_and_the_header_explains(capsys):
-    render(Console(width=100, force_terminal=False), [assumed(), assumed("pinned")],
+    render(Console(width=100, force_terminal=False),
+           [assumed(affecting=1), assumed("pinned", affecting=1)],
            sources=["r.txt"], now=NOW)
     out = capsys.readouterr().out
     assert "2.0?" in out
@@ -214,7 +215,7 @@ def test_the_table_marks_it_and_the_header_explains(capsys):
 def test_skipped_and_assumed_are_reported_separately(capsys):
     unpinned = Finding(package=Package(name="u", version=None),
                        exposure=Exposure(categories=["crypto"], confidence=Confidence.CURATED),
-                       remediation=Remediation(), verdict=Verdict.WATCH)
+                       remediation=Remediation(), verdict=Verdict.MITIGATE)
     render(Console(width=100, force_terminal=False), [assumed(), unpinned],
            sources=["r.txt"], now=NOW)
     out = capsys.readouterr().out
@@ -229,7 +230,7 @@ def test_explain_says_it_plainly(capsys):
 
 
 def test_markdown_and_json_carry_the_flag():
-    f = assumed()
+    f = assumed(affecting=1)
     assert "2.0?" in render_markdown([f], sources=["r.txt"], now=NOW)
     payload = to_dict([f], [], NOW)
     row = payload["findings"][0]

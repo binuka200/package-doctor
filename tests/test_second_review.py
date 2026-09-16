@@ -270,7 +270,7 @@ async def test_redirect_target_reads_location_without_following(make_client):
 
 # --- the gap reaches the table ---------------------------------------------
 
-def _finding(gaps: list[str], verdict=Verdict.LOW) -> Finding:
+def _finding(gaps: list[str], verdict=Verdict.QUIET) -> Finding:
     return Finding(
         package=Package(name="gearman3", version="1.0"),
         exposure=Exposure(categories=[], confidence=Confidence.CURATED),
@@ -282,7 +282,8 @@ def _finding(gaps: list[str], verdict=Verdict.LOW) -> Finding:
 
 def test_a_failed_lookup_is_named_in_the_table_and_markdown(capsys):
     f = _finding(["repository metadata unavailable"])
-    render(Console(width=120, force_terminal=False), [f], sources=["r.txt"], now=NOW)
+    render(Console(width=120, force_terminal=False), [f], sources=["r.txt"], now=NOW,
+           show_all=True)
     assert "missing signal: repository metadata unavailable" in capsys.readouterr().out
     assert "missing signal: repository metadata unavailable" in render_markdown(
         [f], sources=["r.txt"], now=NOW
@@ -291,7 +292,8 @@ def test_a_failed_lookup_is_named_in_the_table_and_markdown(capsys):
 
 def test_a_fact_about_the_package_is_not_called_a_missing_signal(capsys):
     f = _finding(["no source repository declared on PyPI"])
-    render(Console(width=120, force_terminal=False), [f], sources=["r.txt"], now=NOW)
+    render(Console(width=120, force_terminal=False), [f], sources=["r.txt"], now=NOW,
+           show_all=True)
     assert "missing signal" not in capsys.readouterr().out
 
 
@@ -306,11 +308,13 @@ def test_explain_distinguishes_the_two_dates(capsys):
     assert payload["findings"][0]["remediation"]["repo_last_commit"].startswith("2024-")
 
 
-# --- the watch tier ---------------------------------------------------------
+# --- a maintained package at a trust boundary -------------------------------
 
-def test_the_watch_tier_reads_as_an_inventory_not_a_warning(capsys):
-    hint = next(h for v, _, h, _ in SECTIONS if v is Verdict.WATCH)
-    assert "nothing to do today" in hint
+def test_a_maintained_boundary_package_is_an_inventory_not_a_finding(capsys):
+    """It is where the next advisory that matters will land, but there is
+    nothing to do about it today, so it is not a section of the report."""
+    hint = next(h for v, _, h, _ in SECTIONS if v is Verdict.QUIET)
+    assert "nothing wrong today" in hint
     f = assess(
         Package(name="requests", version="2.0"),
         Exposure(categories=["http/network"], confidence=Confidence.CURATED),
@@ -319,8 +323,9 @@ def test_the_watch_tier_reads_as_an_inventory_not_a_warning(capsys):
                     .AdvisoryHistory(total=5, timely=5)),
         now=NOW,
     )
-    assert f.verdict is Verdict.WATCH
-    assert f.reasons[0].claim.startswith("healthy record: 5 of 5")
+    assert f.verdict is Verdict.OK
     render(Console(width=120, force_terminal=False), [f], sources=["r.txt"], now=NOW)
-    out = capsys.readouterr().out
-    assert "nothing to do today: someone is home" in out
+    assert "requests" not in capsys.readouterr().out
+    render(Console(width=120, force_terminal=False), [f], sources=["r.txt"], now=NOW,
+           show_ok=True)
+    assert "requests" in capsys.readouterr().out

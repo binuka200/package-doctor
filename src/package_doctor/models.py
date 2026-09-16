@@ -19,17 +19,45 @@ from enum import Enum
 
 
 class Verdict(str, Enum):
-    """What the user should do about a package, which is the only thing worth sorting on."""
+    """What the user should do about a package, which is the only thing worth sorting on.
 
-    ACT = "act"          # exposed + no one home
-    WATCH = "watch"      # exposed, but actively maintained
-    LOW = "low"          # stale, but not at a trust boundary
-    UNKNOWN = "unknown"  # not enough signal - deliberately NOT "bad"
-    OK = "ok"            # maintained and not exposed
+    Each is named for the action it asks for rather than the reasoning behind
+    it, so a section header is an instruction and not a diagnosis to decode.
+    """
+
+    EXPLOITED = "exploited"  # known exploited, and the pinned version is affected
+    REPLACE = "replace"      # proof nobody is home, or an unfixable advisory in a quiet project
+    MITIGATE = "mitigate"    # an advisory with no fix anywhere, but the project is alive
+    UPGRADE = "upgrade"      # a newer release clears the advisories against the pinned version
+    QUIET = "quiet"          # gone quiet, nothing actually wrong
+    UNCHECKED = "unchecked"  # not enough signal - deliberately NOT "bad"
+    OK = "ok"                # nothing to do
+
+
+class Boundary(str, Enum):
+    """Which side of the trust boundary the exposure map puts a package on.
+
+    ``UNREVIEWED`` is the honest third answer, and the reason this is not a
+    boolean: roughly a quarter of a real dependency set gets no curated call,
+    and filing those under "not at a boundary" would state a fact the map
+    does not have.
+    """
+
+    AT = "at"                  # curated: handles data an attacker can influence
+    CLEAR = "clear"            # curated: reviewed, and not at a boundary
+    UNREVIEWED = "unreviewed"  # no opinion, or only a classifier guess
 
 
 #: Ordering used for report sections and for ``--fail-on``.
-VERDICT_ORDER = [Verdict.ACT, Verdict.WATCH, Verdict.LOW, Verdict.UNKNOWN, Verdict.OK]
+VERDICT_ORDER = [
+    Verdict.EXPLOITED,
+    Verdict.REPLACE,
+    Verdict.MITIGATE,
+    Verdict.UPGRADE,
+    Verdict.QUIET,
+    Verdict.UNCHECKED,
+    Verdict.OK,
+]
 
 
 class Confidence(str, Enum):
@@ -69,6 +97,17 @@ class Exposure:
     @property
     def is_exposed(self) -> bool:
         return bool(self.categories)
+
+    @property
+    def boundary(self) -> Boundary:
+        """Which group the package is reported under.
+
+        A guess is not a review: an inferred category leaves the package
+        unreviewed, so nothing built on it can demand action.
+        """
+        if self.confidence is not Confidence.CURATED:
+            return Boundary.UNREVIEWED
+        return Boundary.AT if self.categories else Boundary.CLEAR
 
     @property
     def label(self) -> str:
@@ -112,6 +151,13 @@ class AdvisoryHistory:
     @property
     def has_signal(self) -> bool:
         return self.total > 0
+
+    @property
+    def fixed_affecting_current(self) -> int:
+        """Advisories against the pinned version that the latest release no
+        longer carries: the ones an upgrade would clear."""
+        stuck = len(set(self.ids_affecting_current) & set(self.ids_unfixed))
+        return max(self.affecting_current - stuck, 0)
 
 
 @dataclass
@@ -245,6 +291,21 @@ class Finding:
     #: acceptance ran out rather than silently failing the build again.
     accepted: Acceptance | None = None
     acceptance_expired: bool = False
+
+    @property
+    def blocks(self) -> bool:
+        """Whether this finding fails a build at the default level.
+
+        Active exploitation blocks wherever it is found. Everything else
+        blocks only at a reviewed trust boundary: away from one the same
+        facts are worth knowing and not worth stopping a pipeline for, and
+        a guessed boundary must never be able to do it.
+        """
+        if self.verdict is Verdict.EXPLOITED:
+            return True
+        if self.verdict in (Verdict.REPLACE, Verdict.UPGRADE):
+            return self.exposure.boundary is Boundary.AT
+        return False
 
     @property
     def suppressed(self) -> bool:

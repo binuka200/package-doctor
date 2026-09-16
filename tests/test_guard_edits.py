@@ -156,7 +156,7 @@ def test_an_added_bad_package_reaches_the_model_as_context_not_a_block(repo, mon
         'dependencies = ["requests>=2", "pillow==10.0.0", "legacy-auth==2.1.0"]\n',
         encoding="utf-8",
     )
-    stub(monkeypatch, [finding("legacy-auth", Verdict.ACT, ["repository is archived"])])
+    stub(monkeypatch, [finding("legacy-auth", Verdict.REPLACE, ["repository is archived"])])
     code = run_hook(monkeypatch, event(repo / "pyproject.toml", repo))
     out, err = capsys.readouterr()
     assert code == 0, "the edit already happened; PostToolUse cannot block"
@@ -177,7 +177,11 @@ def test_only_the_new_name_is_looked_up(repo, monkeypatch, capsys):
 
         async def analyze_all(self, packages, now, progress=None):
             seen.extend(p.name for p in packages)
-            return [finding(p.name, Verdict.OK, []) for p in packages]
+            found = [finding(p.name, Verdict.OK, []) for p in packages]
+            for f in found:
+                # Not at a boundary: a healthy boundary package still warns.
+                f.exposure = Exposure(categories=[], confidence=Confidence.CURATED)
+            return found
 
     monkeypatch.setattr(cli, "Analyzer", Stub)
     (repo / "pyproject.toml").write_text(

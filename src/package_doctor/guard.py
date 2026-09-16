@@ -18,10 +18,15 @@ that, and they are facts rather than inferences, so they can block:
 These are about provenance, not exposure. They live here rather than in the
 exposure map or the risk rules, and they never touch a verdict.
 
-The rest follows the verdict the scanner already reached. *Act* blocks;
-*watch* warns; anything weaker passes. And when the upstream services could
-not answer, the package is *unchecked* and allowed: a guardrail that fails
-closed on somebody else's outage is the first thing a team removes.
+The rest follows the verdict the scanner already reached, and blocks exactly
+what a scan of the same package would fail on: *fix today* wherever it is
+found, and a *replace* or *upgrade* at a reviewed trust boundary. A finding
+that would not stop a build does not stop an install either - *mitigate*, the
+same facts away from a boundary, and a boundary package that has gone quiet
+all warn, and a package with nothing to do about it says nothing at all. And
+when the upstream services could not answer, the package is *unchecked* and
+allowed: a guardrail that fails closed on somebody else's outage is the first
+thing a team removes.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from .models import Finding, Verdict
+from .models import Boundary, Finding, Verdict
 from .parsers.discovery import _PARSERS as _MANIFEST_PARSERS
 from .parsers.discovery import (
     LOCKFILES,
@@ -440,20 +445,33 @@ def decide(
 
     verdict = finding.verdict
     claims = [r.claim for r in finding.reasons]
-    if verdict is Verdict.ACT:
+    if finding.blocks:
+        # Exactly what fails a scan: exploited wherever it is found, or a
+        # replacement or upgrade at a reviewed trust boundary. The hook and CI
+        # never disagree about what is worth refusing.
         level = BLOCK
-        reasons.append("exposed, and " + ("; ".join(claims[:3]) or "no one left to fix it"))
-    elif verdict is Verdict.WATCH:
+        reasons.append("; ".join(claims[:3]) or "no one left to fix it")
+    elif verdict in (Verdict.REPLACE, Verdict.UPGRADE, Verdict.MITIGATE):
+        # The same facts away from a reviewed boundary, or an advisory nobody
+        # can fix. Worth saying before the package is added; not worth refusing.
         if level == OK:
             level = WARN
-        reasons.append(
-            f"at a trust boundary ({finding.exposure.label})"
-            + (f": {claims[0]}" if claims else "")
-        )
+        reasons.append("; ".join(claims[:2]) or verdict.value)
+    elif verdict is Verdict.QUIET and finding.exposure.boundary is Boundary.AT:
+        # Nothing is wrong with it, but it handles attacker-influenced data and
+        # nobody has shipped in years: the one thing worth a line of context
+        # before an agent adopts it.
+        if level == OK:
+            level = WARN
+        detail = "; ".join(claims[:2]) or "has gone quiet"
+        reasons.append(f"at a trust boundary ({finding.exposure.label}): {detail}")
     elif not reasons:
-        if verdict is Verdict.LOW and claims:
+        # Nothing to do about this one. A guardrail that comments on healthy
+        # packages is one an agent learns to skim: `httpx` and `fastapi` are
+        # exactly what it should be reaching for.
+        if verdict is Verdict.QUIET and claims:
             reasons.append(f"not at a known boundary; {claims[0]}")
-        elif verdict is Verdict.UNKNOWN:
+        elif verdict is Verdict.UNCHECKED:
             reasons.append("no exposure signal and no maintenance signal")
         else:
             reasons.append(

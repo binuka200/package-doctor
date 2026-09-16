@@ -55,40 +55,77 @@ def stub_analyzer(monkeypatch, findings):
 
 # --- the CI contract --------------------------------------------------------
 
-def test_fail_on_act_exits_nonzero_when_something_needs_action(project, monkeypatch):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.ACT)])
+def at_boundary(name: str, verdict: Verdict) -> Finding:
+    return finding(name, verdict)
+
+
+def away(name: str, verdict: Verdict) -> Finding:
+    f = finding(name, verdict)
+    f.exposure = Exposure(categories=[], confidence=Confidence.CURATED)
+    return f
+
+
+@pytest.mark.parametrize("verdict", [Verdict.EXPLOITED, Verdict.REPLACE, Verdict.UPGRADE])
+def test_the_default_fails_at_a_reviewed_boundary(project, monkeypatch, verdict):
+    stub_analyzer(monkeypatch, [at_boundary("alpha", verdict)])
+    assert cli.main(["scan", str(project)]) == cli.EXIT_FINDINGS
+
+
+@pytest.mark.parametrize("verdict", [Verdict.REPLACE, Verdict.UPGRADE, Verdict.MITIGATE])
+def test_the_default_does_not_fail_away_from_a_boundary(project, monkeypatch, verdict):
+    """The same facts, where the map says no attacker-controlled data flows.
+    Worth knowing; not worth turning a pipeline red."""
+    stub_analyzer(monkeypatch, [away("alpha", verdict)])
+    assert cli.main(["scan", str(project)]) == cli.EXIT_OK
+
+
+def test_exploited_fails_wherever_it_is_found(project, monkeypatch):
+    """Active exploitation does not wait on the exposure map."""
+    stub_analyzer(monkeypatch, [away("alpha", Verdict.EXPLOITED)])
+    assert cli.main(["scan", str(project)]) == cli.EXIT_FINDINGS
+
+
+def test_mitigate_never_fails_even_at_a_boundary(project, monkeypatch):
+    """No release anywhere fixes it, so a red build cannot be turned green -
+    which is how a scanner gets switched off."""
+    stub_analyzer(monkeypatch, [at_boundary("alpha", Verdict.MITIGATE)])
+    assert cli.main(["scan", str(project)]) == cli.EXIT_OK
+    assert cli.main(["scan", str(project), "--fail-on", "vulnerable"]) == cli.EXIT_FINDINGS
+
+
+def test_quiet_never_fails(project, monkeypatch):
+    stub_analyzer(monkeypatch, [at_boundary("alpha", Verdict.QUIET)])
+    for level in ("boundary", "vulnerable"):
+        assert cli.main(["scan", str(project), "--fail-on", level]) == cli.EXIT_OK
+    assert cli.main(["scan", str(project), "--fail-on", "all"]) == cli.EXIT_FINDINGS
+
+
+def test_the_stricter_levels_ignore_the_boundary(project, monkeypatch):
+    stub_analyzer(monkeypatch, [away("alpha", Verdict.UPGRADE)])
+    assert cli.main(["scan", str(project), "--fail-on", "boundary"]) == cli.EXIT_OK
+    assert cli.main(["scan", str(project), "--fail-on", "vulnerable"]) == cli.EXIT_FINDINGS
+    assert cli.main(["scan", str(project), "--fail-on", "exploited"]) == cli.EXIT_OK
+
+
+def test_the_old_level_names_still_work(project, monkeypatch):
+    """`--fail-on act` in somebody's pipeline must not become a usage error."""
+    stub_analyzer(monkeypatch, [at_boundary("alpha", Verdict.UPGRADE)])
     assert cli.main(["scan", str(project), "--fail-on", "act"]) == cli.EXIT_FINDINGS
-
-
-def test_fail_on_act_exits_zero_when_nothing_does(project, monkeypatch):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH),
-                                finding("beta", Verdict.LOW)])
+    stub_analyzer(monkeypatch, [away("alpha", Verdict.UPGRADE)])
     assert cli.main(["scan", str(project), "--fail-on", "act"]) == cli.EXIT_OK
-
-
-def test_fail_on_watch_is_stricter(project, monkeypatch):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
     assert cli.main(["scan", str(project), "--fail-on", "watch"]) == cli.EXIT_FINDINGS
-    assert cli.main(["scan", str(project), "--fail-on", "act"]) == cli.EXIT_OK
 
 
 def test_fail_on_never_always_succeeds(project, monkeypatch):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.ACT)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.EXPLOITED)])
     assert cli.main(["scan", str(project), "--fail-on", "never"]) == cli.EXIT_OK
 
 
-def test_unknown_and_ok_never_fail_a_build(project, monkeypatch):
+def test_unchecked_and_ok_never_fail_a_build(project, monkeypatch):
     """"We could not tell" must not break someone's pipeline."""
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.UNKNOWN),
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.UNCHECKED),
                                 finding("beta", Verdict.OK)])
-    assert cli.main(["scan", str(project), "--fail-on", "watch"]) == cli.EXIT_OK
-
-
-def test_default_fail_level_is_act(project, monkeypatch):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
-    assert cli.main(["scan", str(project)]) == cli.EXIT_OK
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.ACT)])
-    assert cli.main(["scan", str(project)]) == cli.EXIT_FINDINGS
+    assert cli.main(["scan", str(project), "--fail-on", "review"]) == cli.EXIT_OK
 
 
 # --- usage errors -----------------------------------------------------------
@@ -111,29 +148,29 @@ def test_no_subcommand_prints_help_and_fails(capsys):
 # --- output -----------------------------------------------------------------
 
 def test_json_output_is_valid_and_carries_the_schema(project, monkeypatch, capsys):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.ACT)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.REPLACE)])
     cli.main(["scan", str(project), "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert payload["tool"] == "package-doctor"
-    assert payload["schema_version"] == 2
-    assert payload["counts"] == {"act": 1}
+    assert payload["schema_version"] == 3
+    assert payload["counts"] == {"replace": 1}
     row = payload["findings"][0]
     assert row["name"] == "alpha"
-    assert row["verdict"] == "act"
+    assert row["verdict"] == "replace"
     # Contracts other tools would build on.
     assert set(row["reachability"]) == {"checked", "imported", "tests_only", "sites"}
     assert "exploitability" in row["remediation"]
 
 
 def test_output_file_is_written(project, monkeypatch, tmp_path):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.ACT)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.REPLACE)])
     out = tmp_path / "report.json"
     cli.main(["scan", str(project), "--output", str(out)])
     assert json.loads(out.read_text())["findings"][0]["name"] == "alpha"
 
 
 def test_human_output_names_the_source_files(project, monkeypatch, capsys):
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.ACT)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.REPLACE)])
     cli.main(["scan", str(project)])
     assert "requirements.txt" in capsys.readouterr().out
 
@@ -216,7 +253,7 @@ def test_explain_takes_the_pinned_version_with_pin(tmp_path, monkeypatch):
 
         async def analyze(self, package, now):
             seen["version"] = package.version
-            return finding("pillow", Verdict.WATCH)
+            return finding("pillow", Verdict.MITIGATE)
 
     monkeypatch.setattr(cli, "Analyzer", Stub)
     cli.main(["explain", "pillow", "--pin", "10.0.0", "--path", str(tmp_path), "--no-cache"])
@@ -229,7 +266,7 @@ def test_scan_reports_sources_relative_to_the_project(tmp_path, monkeypatch, cap
     (tmp_path / "requirements").mkdir()
     (tmp_path / "requirements.txt").write_text("-r requirements/base.txt\n", encoding="utf-8")
     (tmp_path / "requirements" / "base.txt").write_text("alpha==1.0\n", encoding="utf-8")
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.MITIGATE)])
     cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
     out = capsys.readouterr().out
     assert "from requirements.txt, requirements/base.txt" in out
@@ -239,7 +276,7 @@ def test_scan_says_which_local_packages_it_skipped(tmp_path, monkeypatch, capsys
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "myproj"\ndependencies = ["alpha==1.0"]\n', encoding="utf-8"
     )
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.MITIGATE)])
     cli.main(["scan", str(tmp_path), "--no-reachability", "--no-cache"])
     out = capsys.readouterr().out
     assert "Skipped myproj" in out and "own package" in out
@@ -258,9 +295,9 @@ def test_json_on_stdout_stays_valid_when_there_are_notes(tmp_path, monkeypatch, 
         cli, "collect_dependencies",
         lambda paths, **kw: discovery.collect_dependencies(paths, max_bytes=100, **kw),
     )
-    stub_analyzer(monkeypatch, [finding("alpha", Verdict.WATCH)])
+    stub_analyzer(monkeypatch, [finding("alpha", Verdict.MITIGATE)])
     cli.main(["scan", str(tmp_path), "--json", "--no-reachability", "--no-cache"])
     out, err = capsys.readouterr()
     payload = json.loads(out)
-    assert payload["counts"]["watch"] == 1
+    assert payload["counts"]["mitigate"] == 1
     assert "Skipped myproj" in err and "Not read:" in err

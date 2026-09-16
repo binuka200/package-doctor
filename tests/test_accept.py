@@ -31,7 +31,7 @@ from package_doctor.report import render, render_markdown, to_dict
 NOW = dt.datetime(2026, 9, 13, tzinfo=dt.timezone.utc)
 
 
-def finding(name: str, verdict: Verdict = Verdict.ACT, version: str | None = "1.0") -> Finding:
+def finding(name: str, verdict: Verdict = Verdict.REPLACE, version: str | None = "1.0") -> Finding:
     return Finding(
         package=Package(name=name, version=version),
         exposure=Exposure(categories=["auth/session"], confidence=Confidence.CURATED),
@@ -130,7 +130,7 @@ def test_an_unexpired_acceptance_suppresses_the_finding(tmp_path):
     f = finding("legacy-auth")
     notes = apply_acceptances([f], load_acceptances(tmp_path), NOW)
     assert f.suppressed and not f.acceptance_expired
-    assert f.verdict is Verdict.ACT, "the verdict is a fact about the package, unchanged"
+    assert f.verdict is Verdict.REPLACE, "the verdict is a fact about the package, unchanged"
     assert notes == []
 
 
@@ -200,7 +200,7 @@ def test_an_expired_acceptance_is_shown_in_its_verdict_section_with_the_reason(c
     f.acceptance_expired = True
     render(Console(width=100, force_terminal=False), [f], sources=["r.txt"], now=NOW)
     out = capsys.readouterr().out
-    assert "NO ONE HOME" in out and "expired 2026-01-01" in out and "PROJ-123" in out
+    assert "REPLACE" in out and "expired 2026-01-01" in out and "PROJ-123" in out
     assert "ACCEPTED RISK" not in out
 
 
@@ -216,7 +216,7 @@ def test_json_carries_the_acceptance_and_a_suppressed_flag():
     }
     assert payload["findings"][1]["accepted"] is None
     assert payload["accepted"] == 1
-    assert payload["counts"] == {"act": 2}, "counts are by verdict; acceptance is separate"
+    assert payload["counts"] == {"replace": 2}, "counts are by verdict; acceptance is separate"
 
 
 # --- the CI contract --------------------------------------------------------

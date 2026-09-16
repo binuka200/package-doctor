@@ -3,7 +3,7 @@
 #   - uses: binuka200/package-doctor@v0.3.0
 #
 # That one line scans the checkout, fails the job when anything lands in
-# "act on these", and writes the report to the job's step summary so nobody
+# a trust boundary and asks for work, and writes the report to the job's step summary so nobody
 # has to open a log. Set `upload-sarif: true` (and grant
 # `security-events: write`) to have findings show up as code scanning alerts
 # on the pull request as well.
@@ -27,8 +27,8 @@ inputs:
     description: Project directory to scan (where the lockfile lives).
     default: "."
   fail-on:
-    description: "Exit non-zero at this level or worse: act, watch or never."
-    default: act
+    description: "What fails the job: exploited, boundary, vulnerable, all or never."
+    default: boundary
   args:
     description: Extra arguments passed to `package-doctor scan` verbatim.
     default: ""

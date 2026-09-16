@@ -53,14 +53,25 @@ marked `inferred` and flagged with `?` in output so you can distrust it.
 Both must fire. `mock` going quiet is not a finding, because it is not at a
 trust boundary. `legacy-auth` going quiet is the whole point.
 
-### The watch tier is an inventory, not a warning
+### Every section is an instruction
 
-*Watch* means at a trust boundary, and someone is home. It is where the next
-advisory that matters will land, so it is worth knowing, but there is nothing
-to do about it today, and a clean record is shown as one: *healthy record: 5
-of 5 past advisories fixed at or before disclosure*. In a service with many
-boundary packages this tier is large, and that is information about the
-service rather than a queue of work.
+Findings are grouped by what to do about them, in order of what it costs to
+ignore:
+
+| Section | Means | Fails the build by default |
+| --- | --- | --- |
+| **exploited** | a CVE on CISA's known-exploited list affects your version | yes |
+| **replace** | proof nobody is home - archived or marked Inactive - or an unfixable advisory in a project that has gone quiet | at a boundary |
+| **upgrade** | advisories affect your version, and a newer release is clear of them | at a boundary |
+| **mitigate** | an advisory with no fix anywhere, in a project that is still active | no |
+| **quiet** | gone quiet, nothing actually wrong | no |
+| **unchecked** | not enough data to judge | no |
+
+A package at a trust boundary with someone home is *ok*. It is where the next
+advisory that matters will land, so `explain` and the JSON still record its
+exposure, but there is nothing to do about it today. In a service with many
+boundary packages that list is long, and it is information about the service
+rather than a queue of work. `--show-ok` lists it.
 
 ## Which advisory first
 
@@ -75,7 +86,7 @@ findings are ranked by how likely the flaw is to actually be used:
   30 days, giving an ordering where an advisory count gives none.
 
 ```
-EXPOSED + NO ONE HOME   act on these
+EXPLOITED   known exploited, and your version is affected: fix today
 pillow  10.0.0  file/media parsing  CVE-2023-4863 on CISA's known-exploited list,
                                     and your pinned version is affected
 ```
@@ -115,10 +126,12 @@ package-doctor also AST-parses your own source and reports **where** you import
 each dependency:
 
 ```
-EXPOSED + NO ONE HOME   act on these
+EXPLOITED   known exploited, and your version is affected: fix today
 pillow  10.0.0  file/media parsing  CVE-2023-4863 on CISA's known-exploited list,
                                     and your pinned version is affected
                                     imported by your code at api/upload.py:2
+
+UPGRADE     a newer release clears the advisories
 paramiko 3.5.1  remote access       pinned version 3.5.1 is affected by 1 advisory:
                                     GHSA-r374-rxx8-8654
                                     imported by your code at api/sftp.py:12
@@ -249,7 +262,7 @@ BLOCK     reqeusts
           not on PyPI: an install would fail, or fetch whatever someone has registered under this name since
           one edit from requests; did you mean that?
 BLOCK     pillow 10.0.0
-          exposed, and CVE-2023-4863 on CISA's known-exploited list, and your pinned version is affected
+          CVE-2023-4863 on CISA's known-exploited list, and your pinned version is affected
 WARN      requests 2.34.2?
           at a trust boundary (http/network): healthy record: 7 of 8 past advisories fixed at or before disclosure
 OK        six 1.17.0?
@@ -265,7 +278,21 @@ is **not on PyPI**; it was **first published within 30 days** (`--new-days`);
 or it is **one edit from a far more common name** and not itself common,
 which is the shape of a typo or of a squat. These are about provenance, not
 exposure, and they never touch a verdict. Otherwise the scanner's verdict
-decides: *act* blocks, *watch* warns, the rest pass. And when the upstream
+decides, and it blocks exactly what a scan of the same package would fail on:
+
+| Verdict | At a trust boundary | Anywhere else |
+| --- | --- | --- |
+| **fix today** | block | block |
+| **replace** | block | warn |
+| **upgrade** | block | warn |
+| **mitigate** | warn | warn |
+| **quiet** | warn | silent |
+| **unchecked** | allowed, with a note | allowed, with a note |
+| **ok** | silent | silent |
+
+A package with nothing to do about it says nothing at all: `httpx`, `fastapi`
+and `jinja2` are what an agent should be reaching for, and a guardrail that
+comments on them is one the model learns to skim. And when the upstream
 services cannot answer, the package is *unchecked* and allowed — a guardrail
 that fails closed on somebody else's outage is the first thing a team removes.
 
@@ -346,17 +373,24 @@ package-doctor scan
 Dependency Risk Report   73 packages · 12 direct
 from uv.lock, pyproject.toml
 
-EXPOSED + NO ONE HOME    act on these
-  legacy-auth   2.1.0   auth/session       repository is archived
-                                           2 advisories with no published fix
-  old-parser    1.7.4   html/xml parsing   marked Development Status :: 7 - Inactive
+AT A TRUST BOUNDARY   replace and upgrade fail the build
+  REPLACE   no one is home: plan a migration
+    legacy-auth  2.1.0  auth/session      repository is archived
+    old-parser   1.7.4  html/xml parsing  marked Development Status :: 7 - Inactive
+  UPGRADE   a newer release clears the advisories
+    legacy-http  4.0.1  http/network      pinned version 4.0.1 is affected by 3 advisories
+                                          the latest release, 4.2.0, fixes all of them
+  MITIGATE  no fix exists anywhere, but the project is alive
+    old-store    1.5.9  deserialization   1 of 1 advisories has no published fix
 
-EXPOSED, MAINTAINED      nothing to do today: someone is home
-  requests      2.33.1  http/network, url parsing   healthy record: 7 of 8 past
-                                                    advisories fixed at or before disclosure
+NOT AT A TRUST BOUNDARY   reviewed: worth knowing, not blocking
+  9 quiet, 2 upgrade  -  --all to list
 
-STALE, NOT EXPOSED       low priority
-  six           1.17.0  no boundary        reviewed as a finished utility
+BOUNDARY NOT REVIEWED   nobody has judged these yet
+  4 quiet  -  --all to list
+
+0 fix today   2 replace   1 mitigate   1 upgrade   13 quiet   0 unchecked   56 ok
+4 of these fail the build at the default level
 ```
 
 Then get the working behind any row:
@@ -381,13 +415,14 @@ assumes that version, and says so everywhere the assumption shows:
 8 of 8 without a pinned version: advisories matched against the newest release
 instead, marked ? (use a lockfile to pin them)
 
-EXPOSED, MAINTAINED   nothing to do today: someone is home
-httpx  0.28.1?  http/network  healthy record: 1 of 1 past advisories fixed at or before disclosure
+AT A TRUST BOUNDARY   replace and upgrade fail the build
+  UPGRADE   a newer release clears the advisories
+    old-client  1.3.0?  http/network  newest release 1.3.0 (assumed: nothing pins this package) is affected
 ```
 
 The `?` is the same mark an inferred exposure carries: something to distrust.
-In `explain` the version reads `0.28.1 (assumed)`, an advisory match reads
-*newest release 0.28.1 (assumed: nothing pins this package) is affected*, and
+In `explain` the version reads `1.3.0 (assumed)`, an advisory match reads
+*newest release 1.3.0 (assumed: nothing pins this package) is affected*, and
 the JSON carries `"version_assumed": true`. `--no-assume-latest` turns the
 fallback off and skips advisory matching for unpinned packages instead. A
 lockfile is still the answer; this is a first run, not a substitute.
@@ -398,11 +433,15 @@ Responses are cached for a day. `package-doctor cache path` shows where, and
 ### In CI
 
 ```bash
-package-doctor scan --fail-on act
+package-doctor scan --fail-on boundary
 ```
 
-Exits `1` when anything lands in *act on these*, `0` otherwise. Use
-`--fail-on watch` to be stricter, `--fail-on never` to report only.
+Exits `1` on anything under *at a trust boundary* that asks for work - a
+replacement or an upgrade - and on active exploitation wherever it is found.
+`--fail-on vulnerable` ignores the boundary and fails on every advisory
+against a version in use, `--fail-on all` adds *quiet*, `--fail-on exploited`
+fails only on what is being exploited, and `--fail-on never` reports only. The
+older `act` and `watch` still work.
 
 ```bash
 package-doctor scan --json -o report.json
@@ -416,7 +455,7 @@ package-doctor scan --markdown "$GITHUB_STEP_SUMMARY" # for the job summary
 - uses: binuka200/package-doctor@v0.3.0
 ```
 
-One line scans the checkout, fails the job on anything in *act on these*,
+One line scans the checkout, fails the job on what sits at a trust boundary and asks for work,
 and writes the report to the job's step summary so nobody opens a log. To
 have findings appear as code scanning alerts on the pull request as well:
 
@@ -428,7 +467,7 @@ steps:
   - uses: binuka200/package-doctor@v0.3.0
     with:
       upload-sarif: true
-      fail-on: act          # or watch, or never
+      fail-on: boundary     # or exploited, vulnerable, all, never
       args: --direct-only   # anything `scan` takes
 ```
 
@@ -440,11 +479,13 @@ response cache carried between runs. Inputs, outputs and defaults are in
 
 `--sarif PATH` writes a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/)
 report that GitHub code scanning, GitLab and most security dashboards ingest.
-Each *act*, *watch* or *low* finding is one result, at levels `error`,
-`warning` and `note`. Its location is the first place your own source
-imports the package, with the other import sites as related locations; a
-package your code never imports points at the line of the dependency file
-that declared it. *Unknown* and *ok* produce nothing, because an alert that
+Each finding that fails the build is one result at level `error`; the same
+verdict away from a reviewed boundary arrives as `warning`, *mitigate* is a
+`warning`, and *quiet* is a `note`. Its location
+is the first place your own source imports the package, with the other
+import sites as related locations; a package your code never imports points
+at the line of the dependency file that declared it. *Unchecked* and *ok*
+produce nothing, because an alert that
 can never be resolved is how a tool gets muted. Accepted risks (below) are
 carried as SARIF suppressions, so a dashboard shows them as dismissed with
 the reason rather than not at all.
@@ -485,8 +526,8 @@ never out of sight:
 
 ```
 ACCEPTED RISK   on the record, not failing the build
-  legacy-auth  2.1.0  act on these  Replacement lands in Q4, see PROJ-123
-                                    until 2026-12-31 (in 3 months)
+  legacy-auth  2.1.0  replace  Migration lands in Q4, see PROJ-123
+                               until 2026-12-31 (in 3 months)
 ```
 
 The verdict is not changed by acceptance. It is a fact about the package;
@@ -787,8 +828,9 @@ that OSV is complete. And it measures the *data* layer.
 
 ### The verdicts, read
 
-The verdict layer is a judgement, so the check is reading them. Of the 552
-*act on these* verdicts across the sixty projects, 420 rest on the pinned
+The verdict layer is a judgement, so the check is reading them. This run
+predates the split of *act* into *exploited*, *replace* and *upgrade*. Of the 552
+*act* verdicts across the sixty projects, 420 rest on the pinned
 version being affected by a published advisory, which the OSV agreement above
 makes right by construction; they are mostly old lockfiles. The other 132, on
 42 distinct packages, rest on maintenance signals, and every one was read:
@@ -837,8 +879,8 @@ pytest-django and factory-boy. Roughly three in five were wrong.
 
 So inference was cut back to the handful of classifiers that genuinely imply
 untrusted input, taking it from 151 packages to 5, and **an inferred category
-can no longer produce an actionable verdict** — it can raise something to
-*watch* and say why, and that is all. Saying "not reviewed" beats guessing.
+can no longer demand a replacement** — it can raise something to *review*
+and say why, and that is all. Saying "not reviewed" beats guessing.
 
 ### What is still unmeasured
 
@@ -856,8 +898,8 @@ zero. Treat the advisory numbers as solid and the categories as a draft.
 ## Use it alongside pip-audit, not instead of it
 
 `pip-audit` is the PyPA tool and is better at what it does: telling you, on every
-commit, which pinned versions have known CVEs. Most of what lands in *act on
-these* here, it would also find.
+commit, which pinned versions have known CVEs. Most of what lands in
+*fix today*, *upgrade* and *mitigate* here, it would also find.
 
 What it does not do is tell you which of those to fix first, which of them your
 code actually imports, or which of your dependencies has nobody left to ship a

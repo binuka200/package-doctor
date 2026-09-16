@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The report is grouped by trust boundary, and the verdicts are named for
+  what to do.** Sections used to be a diagnosis to decode ("exposed + no one
+  home"), and the boundary was baked into the verdict, so the same work had two
+  names depending on whether a human had curated the package yet. Now the group
+  carries the priority and the verdict carries the action:
+
+  ```
+  FIX TODAY             known exploited, and your version is affected
+  AT A TRUST BOUNDARY   replace and upgrade fail the build
+  NOT AT A TRUST BOUNDARY   reviewed: worth knowing, not blocking
+  BOUNDARY NOT REVIEWED     nobody has judged these yet
+  ```
+
+  The verdicts are *exploited*, *replace*, *mitigate*, *upgrade*, *quiet*,
+  *unchecked* and *ok*, replacing act/watch/low/unknown. The two lower groups
+  print as a count; `--all` lists them.
+- **"Quiet for years" no longer asks for a replacement.** Two weak signals are a
+  forecast about who would answer, not evidence that anything is wrong, so they
+  now produce *quiet*, which never fails a build. Across sixty repositories 19
+  of 26 "replace" verdicts rested on age alone with no advisory against the
+  version in use. *Replace* now needs proof - an archived repository, the
+  maintainer's Inactive classifier, or an unfixable advisory in a project that
+  has also gone quiet.
+- **An advisory nobody fixed, in a project that is still shipping, is
+  *mitigate*.** chromadb, mariadb and nltk were being told to plan a
+  replacement while committing daily. Upgrading cannot clear these, so the call
+  is a human one and it never fails a build.
+- **The trust boundary decides what blocks, not what a finding is called.**
+  Exploitation blocks wherever it is found; *replace* and *upgrade* block at a
+  reviewed boundary and inform away from one. An inferred exposure is
+  unreviewed, so it can never fail a build.
+- `--fail-on` takes `exploited`, `boundary` (default), `vulnerable`, `all` or
+  `never`. `act`, `watch` and the short-lived `replace`/`upgrade`/`review`/`bump`
+  names still work. The action's `fail-on` input follows.
+- JSON `schema_version` is 3: findings carry `boundary` ("at", "clear",
+  "unreviewed") and `blocks`, and `counts` uses the new verdict names. SARIF
+  rules are `package-doctor/exploited`, `/replace`, `/upgrade`, `/mitigate` and
+  `/quiet`, and a finding that does not fail the build is downgraded from
+  `error` to `warning` so a dashboard shows what a pipeline would.
+- **`check` and the Claude Code hook map one-to-one onto the report.** They
+  block exactly what a scan fails on - *fix today* anywhere, *replace* or
+  *upgrade* at a reviewed trust boundary - and warn on *mitigate*, on the same
+  facts away from a boundary, and on a boundary package that has gone quiet.
+- **A healthy package at a trust boundary no longer warns.** Inherited from the
+  old watch tier, it fired on seven of the ten packages an agent most often
+  adds - `httpx`, `fastapi`, `jinja2` and `requests` among them, each with a
+  spotless advisory record - and said nothing anyone could act on.
+
 ### Fixed
 
 - **Claude Code hook silently allowed non-`git`/`http(s)` VCS installs.** The

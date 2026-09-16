@@ -200,7 +200,8 @@ def main() -> int:
     acts = []
     for name, (_, d) in scans.items():
         for f in d["findings"]:
-            if f["verdict"] == "act":
+            # The verdicts that fail a build by default; "act" before 0.9.
+            if f["verdict"] in ("exploited", "replace", "upgrade", "act"):
                 acts.append({"repo": name, "package": f["name"], "version": f["version"],
                              "exposure": f["exposure"]["categories"],
                              "reasons": [r["claim"] for r in f["reasons"]]})

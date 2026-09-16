@@ -148,7 +148,7 @@ def test_not_being_imported_never_lowers_a_verdict():
 
     for pkg in (imported, absent, unchecked):
         finding = assess(pkg, _exposed(), _abandoned(), now=NOW)
-        assert finding.verdict is Verdict.ACT, pkg.import_sites
+        assert finding.verdict is Verdict.REPLACE, pkg.import_sites
 
 
 def test_an_import_site_is_reported_as_evidence():

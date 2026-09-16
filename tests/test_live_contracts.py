@@ -244,9 +244,10 @@ async def test_a_real_package_produces_a_coherent_finding(live_client):
     assert adv.affecting_current > 0, "requests 2.19.0 is old and should be affected"
     assert adv.cves_affecting_current, "no CVE aliases resolved for an affected version"
 
-    # An old, exposed, affected version must be actionable.
-    assert finding.verdict is Verdict.ACT
-    assert finding.reasons, "an ACT verdict with no stated reason is unusable"
+    # An old, exposed, affected version must be actionable: at the least an
+    # upgrade, since requests is maintained and has shipped the fixes.
+    assert finding.verdict in (Verdict.EXPLOITED, Verdict.REPLACE, Verdict.UPGRADE)
+    assert finding.reasons, "an actionable verdict with no stated reason is unusable"
     assert all(r.claim for r in finding.reasons)
 
 
@@ -257,7 +258,7 @@ async def test_a_healthy_package_is_not_flagged(live_client):
     with upstream("upstream"):
         finding = await analyzer.analyze(Package(name="six", version="1.17.0"), NOW)
 
-    assert finding.verdict is not Verdict.ACT
+    assert finding.verdict is not Verdict.REPLACE
     assert not finding.exposure.is_exposed
 
 

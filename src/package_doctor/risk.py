@@ -2,17 +2,18 @@
 
 The rule that separates this tool from every release-age scanner:
 
-* An **authoritative** signal alone is enough to call a package unmaintained.
-  These are statements of fact, not inferences - the repository is archived,
-  the maintainer set the Inactive classifier, or an advisory exists with no
-  patched release anywhere.
+* An **authoritative** signal is proof that nobody is home: the repository is
+  archived, or the maintainer set the Inactive classifier. Those are statements
+  of fact, and they alone can ask for a replacement.
 * A **weak** signal is never enough on its own. Release age in particular is a
   notoriously bad solo signal: it cannot distinguish an abandoned library from
   a finished one, or from a tool whose data updates server-side. Two weak
-  signals that agree are required before the tool will say anything.
+  signals that agree make a package *quiet*, which is a forecast about who
+  would answer - not a reason to migrate off it, and never a failed build.
 
-And a package is only ever escalated to "act on this" when the unmaintained
-finding meets a trust boundary.
+What the user should do comes from the vulnerabilities against the version in
+use crossed with that capacity; the trust boundary decides how loud it is, and
+is the only thing that turns a finding into a failed build.
 """
 
 from __future__ import annotations
@@ -101,10 +102,16 @@ def assess(
                 "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
             ),
         )
+    unfixed_evidence: list[Evidence] = []
     if adv.unfixed:
+        # Weak, not authoritative. Measured across sixty projects, three
+        # quarters of the packages this used to condemn were alive and
+        # committing: an advisory nobody fixed usually means the maintainer
+        # judged that one won't-fix, not that the project is gone. What it
+        # costs *you* is decided by whether it affects your version, below.
         ids = ", ".join(adv.ids_unfixed[:2])
         more = f" and {adv.unfixed - 2} more" if adv.unfixed > 2 else ""
-        authoritative.append(
+        unfixed_evidence.append(
             Evidence(
                 f"{adv.unfixed} advisor{'y' if adv.unfixed == 1 else 'ies'} "
                 f"with no published fix: {ids}{more}",
@@ -135,8 +142,16 @@ def assess(
     # but age-based reasoning must not touch it.
     if known_stable:
         weak = []
+    # Kept whatever the safelist says: an advisory nobody fixed is a fact about
+    # the package, and a reviewed-as-finished entry is a judgement about age.
+    weak += unfixed_evidence
 
-    unmaintained = bool(authoritative) or len(weak) >= thresholds.weak_signals_required
+    # Proof is a stated fact: the repository is archived, or the maintainer set
+    # the Inactive classifier. "Quiet" is an inference from two weak signals
+    # agreeing - a forecast about capacity, not evidence that anything is
+    # wrong - so it is never on its own a reason to demand a replacement.
+    proof = bool(authoritative)
+    quiet = len(weak) >= thresholds.weak_signals_required
     signals = authoritative + weak
 
     # Reachability is evidence, never a verdict.
@@ -158,6 +173,13 @@ def assess(
     # abandonment rule used to show only its abandonment reason, hiding that
     # dozens of advisories applied to the version actually installed.
     current: list[Evidence] = []
+    # "Upgrade" is only honest when a newer release is actually clear of the
+    # advisories: one the latest release still carries is not fixed by moving
+    # to it. An assumed version already is the newest a fresh install would
+    # get, so there is nothing further to move to unless PyPI says otherwise.
+    fixable = adv.fixed_affecting_current
+    if package.version_assumed and remediation.latest_version in (None, package.version):
+        fixable = 0
     if adv.affecting_current:
         ids = ", ".join(adv.ids_affecting_current[:2])
         more = (
@@ -178,12 +200,38 @@ def assess(
                 f"https://osv.dev/list?q={package.name}&ecosystem=PyPI",
             )
         )
+        if fixable:
+            target = (
+                f"the latest release, {remediation.latest_version},"
+                if remediation.latest_version
+                else "a newer release"
+            )
+            if fixable == adv.affecting_current:
+                what = "it" if fixable == 1 else "all of them"
+            else:
+                rest = adv.affecting_current - fixable
+                verb = "has" if rest == 1 else "have"
+                what = f"{fixable} of them; {rest} {verb} no published fix"
+            current.append(Evidence(f"{target} fixes {what}"))
         note = describe_exploit(exploit)
         if note and not exploit.kev:
             current.append(Evidence(note, "https://www.first.org/epss/"))
 
     # ---- verdict ---------------------------------------------------------
+    #
+    # Each verdict names what to do, and the first that applies wins. The
+    # order is what it costs to ignore: a flaw being exploited today, then a
+    # boundary nobody will ever patch, then a patch that already exists.
     reasons: list[Evidence] = []
+    unfixable = adv.affecting_current - fixable
+    guessed: list[Evidence] = []
+    if exposure.is_exposed and exposure.confidence is Confidence.INFERRED:
+        guessed.append(
+            Evidence(
+                f"exposure ({exposure.label}) is inferred from PyPI metadata, not "
+                f"reviewed: confirm whether it is at a trust boundary"
+            )
+        )
     no_signal = (
         remediation.gaps != []
         and remediation.last_release is None
@@ -192,78 +240,64 @@ def assess(
     )
 
     if no_signal:
-        verdict = Verdict.UNKNOWN
+        verdict = Verdict.UNCHECKED
         reasons.append(Evidence("not enough data to judge: " + "; ".join(remediation.gaps)))
     elif exploit.kev:
         # A CVE on CISA's confirmed-exploited-in-the-wild list, affecting the
-        # version actually pinned, is not a guess about what the package
-        # does - it is a fact that this exact vulnerability has already been
-        # used against real targets. That is independent of the exposure
-        # map's own accuracy, so unlike the branch below it does not require
-        # a curated exposure entry: ground truth about active exploitation
-        # outranks a human not having gotten to this package yet, the same
-        # way `exploit.kev` is already inserted at the front of `signals`
-        # rather than treated as just one more weak or strong data point.
-        verdict = Verdict.ACT
+        # version actually pinned, is not a guess about what the package does -
+        # it is a fact that this exact vulnerability has already been used
+        # against real targets. It is the one verdict that does not wait on the
+        # exposure map, and the one that blocks wherever it is found.
+        verdict = Verdict.EXPLOITED
         reasons.extend(signals)
         reasons.extend(current)
         reasons.extend(reach)
-    elif (
-        exposure.is_exposed
-        and exposure.confidence is Confidence.CURATED
-        and (unmaintained or adv.affecting_current)
-    ):
-        # Either nobody is left to fix it, or the version installed right now
-        # is known-vulnerable. Both are actionable and both get stated.
-        #
-        # Only a *curated* exposure can reach this branch. An inferred category
-        # is a guess, measured at roughly 40% accurate, and a guess must never
-        # be able to demand action - it can raise something to WATCH and say
-        # why, and that is all.
-        verdict = Verdict.ACT
+    elif proof or (unfixable and quiet):
+        # Nobody is home, and this is the evidence rather than the forecast:
+        # the repository is archived or marked Inactive, or your version carries
+        # an advisory with no fix anywhere and the project has gone quiet. Any
+        # upgrade that helps today is still named; it does not change the answer,
+        # because the next flaw here will have no fix to upgrade to either.
+        verdict = Verdict.REPLACE
         reasons.extend(signals)
         reasons.extend(current)
         reasons.extend(reach)
-    elif exposure.is_exposed:
-        verdict = Verdict.WATCH
-        if adv.timely:
-            reasons.append(
-                Evidence(
-                    f"healthy record: {adv.timely} of {adv.total} past advisories fixed "
-                    f"at or before disclosure"
-                )
-            )
-        reasons.extend(signals)
-        reasons.extend(reach)
-        if not reasons:
-            # Exposed but nothing adverse found. Say so explicitly rather than
-            # leaving a blank cell - and say what we do *not* know, since an
-            # empty security record is absence of evidence, not evidence of care.
-            if not adv.has_signal:
-                reasons.append(
-                    Evidence("at a trust boundary; no advisory history to judge it by")
-                )
-            else:
-                reasons.append(Evidence("at a trust boundary; no maintenance concerns found"))
-    elif signals or current:
-        # Not at a known trust boundary, so this is an observation rather than
-        # an accusation. A single weak signal is enough to mention it here,
-        # because nothing in this bucket asks the user to do anything.
-        #
-        # `current` belongs in the condition, not just the body: a package whose
-        # installed version has published advisories must never report OK just
-        # because it is maintained and absent from the exposure map. Coverage of
-        # the map is incomplete by design, and this is what stops that gap from
-        # turning into silence about a known-vulnerable version.
-        verdict = Verdict.LOW
-        reasons.extend(signals)
+    elif unfixable:
+        # An advisory against your version that no release anywhere fixes, in a
+        # project that is still shipping. Upgrading cannot clear it, so the call
+        # is a human one - work around it, or press upstream - and a build that
+        # cannot be turned green is the fastest way to get a scanner switched
+        # off. It never blocks.
+        verdict = Verdict.MITIGATE
         reasons.extend(current)
+        reasons.extend(signals)
+        reasons.extend(guessed)
+        reasons.extend(reach)
+    elif fixable:
+        # Known-vulnerable, and the fix already exists. Cheap to act on, which
+        # is why it blocks at a reviewed boundary and only informs away from
+        # one: a lockfile a few releases behind is the normal state of a
+        # project rather than an emergency.
+        verdict = Verdict.UPGRADE
+        reasons.extend(current)
+        reasons.extend(signals)
+        reasons.extend(guessed)
+        reasons.extend(reach)
+    elif signals:
+        # Gone quiet, with nothing actually wrong. Worth knowing before you
+        # need a fix - it is a statement about who would answer, not an
+        # accusation - so it is never a reason to stop a build.
+        verdict = Verdict.QUIET
+        reasons.extend(signals)
         if known_stable:
             reasons.append(Evidence("reviewed as a finished utility, not at a trust boundary"))
     elif exposure.confidence is Confidence.NONE:
-        verdict = Verdict.UNKNOWN
+        verdict = Verdict.UNCHECKED
         reasons.append(Evidence("no exposure signal and no maintenance signal"))
     else:
+        # Including a maintained package at a trust boundary. There is nothing
+        # to do about it, and a section that asks nothing of the reader is an
+        # inventory, not a finding. The exposure is still in `explain` and JSON.
         verdict = Verdict.OK
 
     return Finding(

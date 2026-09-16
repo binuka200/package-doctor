@@ -7,6 +7,7 @@ import asyncio
 import datetime as dt
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
@@ -74,10 +75,27 @@ EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_USAGE = 2
 
-_FAIL_LEVELS = {
-    "act": [Verdict.ACT],
-    "watch": [Verdict.ACT, Verdict.WATCH],
-    "never": [],
+#: What each --fail-on level counts as a failure. The default keys off
+#: `Finding.blocks`: active exploitation anywhere, and a replacement or upgrade
+#: at a reviewed trust boundary. The stricter levels ignore the boundary.
+_FAIL_LEVELS: dict[str, Callable[[Finding], bool]] = {
+    "never": lambda f: False,
+    "exploited": lambda f: f.verdict is Verdict.EXPLOITED,
+    "boundary": lambda f: f.blocks,
+    "vulnerable": lambda f: f.verdict in (
+        Verdict.EXPLOITED, Verdict.REPLACE, Verdict.MITIGATE, Verdict.UPGRADE
+    ),
+    "all": lambda f: f.verdict not in (Verdict.OK, Verdict.UNCHECKED),
+}
+
+#: Fails on what a reviewed boundary says is not optional, and nothing else.
+DEFAULT_FAIL_LEVEL = "boundary"
+
+#: Level names from before the groups existed, kept so an existing pipeline
+#: does not break on an unknown choice.
+_FAIL_ALIASES = {
+    "act": "boundary", "watch": "vulnerable", "replace": "boundary",
+    "upgrade": "boundary", "review": "vulnerable", "bump": "vulnerable",
 }
 
 
@@ -206,10 +224,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the import scan of your own source",
     )
     scan.add_argument(
+        "--all",
+        dest="show_all",
+        action="store_true",
+        help="list the groups away from a reviewed trust boundary, instead of a count",
+    )
+    scan.add_argument(
         "--fail-on",
-        choices=sorted(_FAIL_LEVELS),
-        default="act",
-        help="exit non-zero at this level or worse (default: act)",
+        choices=[*_FAIL_LEVELS, *_FAIL_ALIASES],
+        default=DEFAULT_FAIL_LEVEL,
+        metavar="{exploited,boundary,vulnerable,all,never}",
+        help=f"exit non-zero at this level or worse (default: {DEFAULT_FAIL_LEVEL})",
     )
     common(scan)
 
@@ -520,12 +545,13 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         print(json.dumps(payload, indent=2))
     else:
         render(
-            console, findings, sources=source_names, show_ok=args.show_ok, now=now,
+            console, findings, sources=source_names, show_ok=args.show_ok,
+            show_all=args.show_all, now=now,
             degraded=degraded, notes=acceptance_notes,
         )
 
-    failing = _FAIL_LEVELS[args.fail_on]
-    if any(f.verdict in failing and not f.suppressed for f in findings):
+    fails = _FAIL_LEVELS[_FAIL_ALIASES.get(args.fail_on, args.fail_on)]
+    if any(fails(f) and not f.suppressed for f in findings):
         return EXIT_FINDINGS
     return EXIT_OK
 
@@ -606,7 +632,8 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
     if finding.exposure.categories:
         note = exposure_map.describe(finding.exposure.categories[0])
     render_explain(console, finding, exposure_note=note)
-    return EXIT_FINDINGS if finding.verdict is Verdict.ACT and not finding.suppressed else EXIT_OK
+    fails = _FAIL_LEVELS[DEFAULT_FAIL_LEVEL]
+    return EXIT_FINDINGS if fails(finding) and not finding.suppressed else EXIT_OK
 
 
 CheckRow = tuple[Package, Finding, Decision]
