@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-09-16
 
 ### Changed
 
@@ -569,7 +569,7 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.8.4...HEAD
+[0.9.0]: https://github.com/binuka200/package-doctor/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/binuka200/package-doctor/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/binuka200/package-doctor/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/binuka200/package-doctor/compare/v0.8.1...v0.8.2
