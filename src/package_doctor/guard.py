@@ -78,6 +78,9 @@ class Decision:
     level: str
     reasons: list[str] = field(default_factory=list)
     provenance: Provenance = Provenance()
+    #: A requirement string that would pass, when one exists: "pillow==12.3.0".
+    #: A refusal an agent cannot act on becomes a retry of the same command.
+    remedy: str | None = None
 
     @property
     def blocked(self) -> bool:
@@ -159,15 +162,39 @@ _TAKES_VALUE = {
     "--no-binary", "--implementation", "--abi", "--progress-bar", "--log", "--proxy",
     "--retries", "--timeout", "--exists-action", "--trusted-host", "--cert",
     "--client-cert", "--report", "--src", "-e", "--editable", "--branch", "--tag", "--rev",
+    "--with", "--with-editable", "--with-requirements", "--python-preference", "--refresh-package",
 }
 
-#: (verb tokens) that mean "install these names". Matched as a contiguous
+#: (verb tokens) -> which arguments name a package. Matched as a contiguous
 #: run of tokens anywhere in a segment, so `python -m pip install` works.
-_INSTALLERS: tuple[tuple[str, ...], ...] = (
-    ("pip", "install"), ("pip3", "install"), ("uv", "pip", "install"), ("uv", "add"),
-    ("poetry", "add"), ("pipenv", "install"), ("pdm", "add"), ("pipx", "install"),
-    ("pipx", "inject"),
+#:
+#: * ``all``   - every positional is a package (``pip install a b``).
+#: * ``first`` - only the first is; the rest are the tool's own arguments
+#:   (``uvx ruff check .`` runs ruff, it does not install ``check``).
+#: * ``app``   - the first positional is the app being injected into.
+#: * ``with``  - nothing positional; the packages are ``--with`` values
+#:   (``uv run --with httpx python app.py`` fetches httpx and runs the script,
+#:   which is an install and an execution in one step).
+_INSTALLERS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("pip", "install"), "all"),
+    (("pip3", "install"), "all"),
+    (("uv", "pip", "install"), "all"),
+    (("uv", "add"), "all"),
+    (("uv", "tool", "install"), "all"),
+    (("uv", "tool", "run"), "first"),
+    (("uv", "run"), "with"),
+    (("uvx",), "first"),
+    (("rye", "add"), "all"),
+    (("poetry", "add"), "all"),
+    (("pipenv", "install"), "all"),
+    (("pdm", "add"), "all"),
+    (("pipx", "install"), "all"),
+    (("pipx", "run"), "first"),
+    (("pipx", "inject"), "app"),
 )
+
+#: Options whose value is a package to fetch, for ``uv run``/``uvx``.
+_WITH_OPTIONS = ("--with", "--with-editable")
 _SEPARATORS = {"&&", "||", ";", "|", "&"}
 _PIP_LIKE = re.compile(r"^(python[0-9.]*|py)$")
 
@@ -231,37 +258,55 @@ def _install_positionals(command: str) -> list[str]:
         # `python -m pip install` -> drop the interpreter prefix.
         if len(seg) >= 3 and _PIP_LIKE.match(seg[0]) and seg[1] == "-m":
             seg = seg[2:]
-        start = None
-        for verb in _INSTALLERS:
+        start = mode = None
+        for verb, how in _INSTALLERS:
             for i in range(len(seg) - len(verb) + 1):
                 if tuple(seg[i : i + len(verb)]) == verb:
-                    start = i + len(verb)
+                    start, mode = i + len(verb), how
                     break
             if start is not None:
-                if verb == ("pipx", "inject"):
-                    # The first positional is the app, not a package to check.
-                    skipped_app = False
-                    rest = []
-                    for tok in seg[start:]:
-                        if not tok.startswith("-") and not skipped_app:
-                            skipped_app = True
-                            continue
-                        rest.append(tok)
-                    seg = rest
-                    start = 0
                 break
         if start is None:
             continue
+        if mode == "app":
+            # The first positional is the app being injected into, not a
+            # package to check.
+            skipped_app = False
+            rest = []
+            for tok in seg[start:]:
+                if not tok.startswith("-") and not skipped_app:
+                    skipped_app = True
+                    continue
+                rest.append(tok)
+            seg, start = rest, 0
         skip_next = False
+        # True when the token being skipped is a package rather than some
+        # other option value: `uv run --python 3.12 --with httpx` names one
+        # package, not two.
+        value_is_package = False
         for tok in seg[start:]:
             if skip_next:
-                skip_next = False
+                if value_is_package:
+                    tokens.append(tok)
+                skip_next = value_is_package = False
                 continue
             if tok.startswith("-"):
-                if tok in _TAKES_VALUE:
+                head, eq, inline = tok.partition("=")
+                if mode == "with" and head in _WITH_OPTIONS:
+                    if eq:
+                        tokens.append(inline)
+                    else:
+                        skip_next = value_is_package = True
+                elif tok in _TAKES_VALUE:
                     skip_next = True
                 continue
+            if mode == "with":
+                # Everything positional here is the command being run, not a
+                # package: `uv run --with httpx python app.py`.
+                continue
             tokens.append(tok)
+            if mode == "first":
+                break
     return tokens
 
 
@@ -300,6 +345,74 @@ def unresolvable_install_targets(command: str) -> list[str]:
     than silently treating it as clean.
     """
     return [tok for tok in _install_positionals(command) if _looks_local(tok)]
+
+
+# --- where an install would fetch from --------------------------------------
+
+#: Options naming an index to resolve packages against.
+_INDEX_OPTIONS = ("-i", "--index-url", "--extra-index-url", "--index", "--default-index")
+
+#: Hosts that are PyPI itself. Anything else is somebody's own index, which is
+#: not wrong - it is how private packages work - but it changes what a name
+#: means, so it is stated rather than assumed.
+PYPI_HOSTS = ("pypi.org", "files.pythonhosted.org", "pypi.python.org")
+
+
+@dataclass(frozen=True)
+class IndexUse:
+    """A non-default index an install command would resolve against."""
+
+    url: str
+    #: True when the index is plain HTTP, or TLS verification was waived for
+    #: its host with --trusted-host: the bytes can be replaced in transit.
+    unverified: bool = False
+
+    @property
+    def reason(self) -> str:
+        where = f"resolves against {self.url}, not PyPI"
+        if self.unverified:
+            return (f"{where}, over an unverified connection - anything on the "
+                    f"path can replace what gets installed")
+        return (f"{where} - a name means whatever that index serves, so a package "
+                f"missing from PyPI may be internal, and one present on both is "
+                f"resolved by version, not by which you meant")
+
+
+def index_uses(command: str) -> list[IndexUse]:
+    """Non-PyPI indexes an install command would resolve against.
+
+    Dependency confusion lives here: an extra index plus a name that also
+    exists on PyPI is decided by version number, not by which one was meant.
+    The guardrail cannot tell which is right, so it states what the command
+    would do rather than guessing.
+    """
+    out: list[IndexUse] = []
+    for seg in _segments(command):
+        urls: list[str] = []
+        trusted: list[str] = []
+        expect: str | None = None
+        for tok in seg:
+            if expect is not None:
+                (urls if expect == "index" else trusted).append(tok)
+                expect = None
+                continue
+            head, _, inline = tok.partition("=")
+            if head in _INDEX_OPTIONS:
+                if inline:
+                    urls.append(inline)
+                else:
+                    expect = "index"
+            elif head == "--trusted-host":
+                if inline:
+                    trusted.append(inline)
+                else:
+                    expect = "trusted"
+        for url in urls:
+            host = url.split("://")[-1].split("/")[0].split("@")[-1].split(":")[0]
+            if host in PYPI_HOSTS:
+                continue
+            out.append(IndexUse(url, url.startswith("http://") or host in trusted))
+    return out
 
 
 # --- what an edit to a dependency file just added ---------------------------
@@ -381,6 +494,64 @@ def added_requirements(path: Path, root: Path) -> list[str]:
     return _requirement_strings(now, set(now.versions) - known)
 
 
+#: Commands that resolve or install from files already in the project. No name
+#: is typed, so the install hook has nothing to read; what they add shows up in
+#: the lockfile once they have run.
+_RESOLVERS: tuple[tuple[str, ...], ...] = (
+    ("uv", "sync"), ("uv", "lock"), ("uv", "pip", "sync"), ("poetry", "install"),
+    ("poetry", "lock"), ("poetry", "update"), ("pdm", "install"), ("pdm", "lock"),
+    ("pdm", "update"), ("pipenv", "lock"), ("pipenv", "sync"), ("pip-compile",),
+    ("pip-sync",), ("rye", "sync"),
+)
+
+#: How many newly locked packages are checked after a resolve. A first lock
+#: adds hundreds of transitive names; this is a guardrail, not a scan, and the
+#: count of what was not checked is reported rather than hidden.
+MAX_RESOLVED = 20
+
+
+def is_resolver_command(command: str) -> bool:
+    """True when this command resolves dependencies from files, naming none."""
+    for seg in _segments(command):
+        if len(seg) >= 3 and _PIP_LIKE.match(seg[0]) and seg[1] == "-m":
+            seg = seg[2:]
+        for verb in _RESOLVERS:
+            if any(tuple(seg[i : i + len(verb)]) == verb for i in range(len(seg))):
+                return True
+        # `pip install -r requirements.txt` types no name either.
+        if any(opt in seg for opt in ("-r", "--requirement")):
+            for verb, _how in _INSTALLERS:
+                if any(tuple(seg[i : i + len(verb)]) == verb for i in range(len(seg))):
+                    return True
+    return False
+
+
+def resolved_additions(root: Path, limit: int = MAX_RESOLVED) -> tuple[list[str], int]:
+    """(requirement strings a resolve just added to a lockfile, how many more).
+
+    Diffed against the version git last committed, so a sync that changes
+    nothing reports nothing. Outside a repository there is no before, and an
+    empty result is the honest answer rather than the whole lockfile.
+    """
+    added: dict[str, str] = {}
+    for name in LOCKFILES:
+        path = root / name
+        if not path.is_file():
+            continue
+        previous = _previous_text(path, root)
+        if previous is None:
+            continue
+        try:
+            now = collect_dependencies([path], root=root)
+            was = _parse_text(path, previous, root)
+        except Exception:
+            continue
+        for req in _requirement_strings(now, set(now.versions) - set(was.versions)):
+            added.setdefault(re.split(r"[=<>!~\[]", req, maxsplit=1)[0], req)
+    ordered = sorted(added.values())
+    return ordered[:limit], max(len(ordered) - limit, 0)
+
+
 def parse_requirement(text: str) -> tuple[str, str | None, str | None]:
     """(name, pinned version, specifier) from one requirement string."""
     req = Requirement(text)
@@ -445,12 +616,18 @@ def decide(
 
     verdict = finding.verdict
     claims = [r.claim for r in finding.reasons]
+    remedy: str | None = None
     if finding.blocks:
         # Exactly what fails a scan: exploited wherever it is found, or a
         # replacement or upgrade at a reviewed trust boundary. The hook and CI
         # never disagree about what is worth refusing.
         level = BLOCK
         reasons.append("; ".join(claims[:3]) or "no one left to fix it")
+        if rem.latest_version and rem.advisories.fixed_affecting_current:
+            # There is a release without these advisories, so the way out is a
+            # version rather than a different package. Named here so the model
+            # retries with it instead of retrying the same command.
+            remedy = f"{name}=={rem.latest_version}"
     elif verdict in (Verdict.REPLACE, Verdict.UPGRADE, Verdict.MITIGATE):
         # The same facts away from a reviewed boundary, or an advisory nobody
         # can fix. Worth saying before the package is added; not worth refusing.
@@ -478,4 +655,4 @@ def decide(
                 "reviewed as not at a trust boundary" if finding.exposure.note
                 else "no concerns found"
             )
-    return Decision(level, reasons, provenance)
+    return Decision(level, reasons, provenance, remedy)

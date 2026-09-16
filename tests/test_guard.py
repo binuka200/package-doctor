@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import os
 
 import pytest
 
@@ -23,14 +24,18 @@ from package_doctor.guard import (
     UNCHECKED,
     WARN,
     decide,
+    index_uses,
     is_remote_install_target,
+    is_resolver_command,
     near_miss,
     one_edit_apart,
     parse_install_command,
     parse_requirement,
+    resolved_additions,
     unresolvable_install_targets,
 )
 from package_doctor.models import (
+    AdvisoryHistory,
     Confidence,
     Evidence,
     Exposure,
@@ -571,3 +576,233 @@ def test_hook_blocks_an_invented_name(monkeypatch, capsys):
     code = run_hook(monkeypatch, hook_event("pip install reqeusts"))
     _, err = capsys.readouterr()
     assert code == 2 and "not on PyPI" in err
+
+
+# --- the shapes an agent actually types -------------------------------------
+
+@pytest.mark.parametrize("command, expected", [
+    # Fetches the package and runs code with it, in one step.
+    ("uv run --with requests-toolbelt python app.py", ["requests-toolbelt"]),
+    ("uv run --with=httpx --with rich python x.py", ["httpx", "rich"]),
+    # An option value is not a package: this names one, not two.
+    ("uv run --python 3.12 --with httpx python app.py", ["httpx"]),
+    ("uv run python app.py", []),
+    ("uv tool install black", ["black"]),
+    # uvx runs the tool: the rest of the line is the tool's own arguments.
+    ("uvx ruff check .", ["ruff"]),
+    ("uv tool run ruff check .", ["ruff"]),
+    ("pipx run cowsay hello there", ["cowsay"]),
+    ("rye add httpx", ["httpx"]),
+])
+def test_ephemeral_and_tool_installs_are_read(command, expected):
+    assert parse_install_command(command) == expected
+
+
+# --- where the install would fetch from -------------------------------------
+
+def test_index_uses_names_a_private_index_and_flags_an_unverified_one():
+    plain = index_uses("pip install -i http://10.0.0.5/simple internal-lib "
+                       "--trusted-host 10.0.0.5")
+    assert [(u.url, u.unverified) for u in plain] == [("http://10.0.0.5/simple", True)]
+    extra = index_uses("pip install --extra-index-url https://mirror.example/simple thing")
+    assert [(u.url, u.unverified) for u in extra] == [("https://mirror.example/simple", False)]
+    assert "dependency" not in extra[0].reason  # states what it does, does not diagnose
+    assert "resolved by version" in extra[0].reason
+
+
+def test_pypi_itself_is_not_a_private_index():
+    assert index_uses("pip install --index-url https://pypi.org/simple requests") == []
+    assert index_uses("pip install requests") == []
+
+
+def test_tls_waived_for_the_index_host_is_unverified():
+    [use] = index_uses("pip install --index-url https://mirror.example/simple "
+                       "--trusted-host mirror.example thing")
+    assert use.unverified and "unverified connection" in use.reason
+
+
+# --- what a resolve just locked ---------------------------------------------
+
+@pytest.mark.parametrize("command, expected", [
+    ("uv sync", True), ("poetry lock", True), ("pdm install --prod", True),
+    ("pip install -r requirements.txt", True), ("pip-compile pyproject.toml", True),
+    ("pip install requests", False), ("uv run python app.py", False), ("pytest -q", False),
+])
+def test_resolver_commands_name_no_package_and_are_recognised(command, expected):
+    assert is_resolver_command(command) is expected
+
+
+def test_resolved_additions_diffs_the_lockfile_against_the_last_commit(tmp_path):
+    import subprocess
+    lock = tmp_path / "uv.lock"
+    lock.write_text('[[package]]\nname = "six"\nversion = "1.17.0"\n', encoding="utf-8")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@x", "PATH": os.environ.get("PATH", "")}
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "commit", "-qm", "x"], cwd=tmp_path, check=True, env=env)
+    lock.write_text('[[package]]\nname = "six"\nversion = "1.17.0"\n\n'
+                    '[[package]]\nname = "legacy-auth"\nversion = "2.1.0"\n', encoding="utf-8")
+    added, more = resolved_additions(tmp_path)
+    assert added == ["legacy-auth==2.1.0"], "only what the resolve added"
+    assert more == 0
+    assert resolved_additions(tmp_path, limit=0) == ([], 1), "the rest is counted, not hidden"
+
+
+def test_resolved_additions_is_silent_outside_a_repository(tmp_path):
+    (tmp_path / "uv.lock").write_text('[[package]]\nname = "six"\nversion = "1.0"\n',
+                                      encoding="utf-8")
+    assert resolved_additions(tmp_path) == ([], 0), "no before: not the whole lockfile"
+
+
+# --- a block names the way out ----------------------------------------------
+
+def _upgradable(name: str = "pillow", version: str = "9.5.0") -> Finding:
+    adv = AdvisoryHistory(total=3, affecting_current=2,
+                          ids_affecting_current=["GHSA-a", "GHSA-b"])
+    return Finding(
+        package=Package(name=name, version=version),
+        exposure=Exposure(categories=["file/media parsing"], confidence=Confidence.CURATED),
+        remediation=Remediation(first_release=NOW - dt.timedelta(days=900),
+                                last_release=NOW - dt.timedelta(days=30),
+                                latest_version="12.3.0", advisories=adv),
+        verdict=Verdict.UPGRADE,
+        reasons=[Evidence(f"pinned version {version} is affected by 2 advisories")],
+    )
+
+
+def test_a_block_carries_a_requirement_that_would_pass():
+    d = decide(_upgradable(), now=NOW, popular=POPULAR)
+    assert d.level == BLOCK
+    assert d.remedy == "pillow==12.3.0"
+
+
+def test_nothing_is_offered_when_no_release_fixes_it():
+    """A replacement has no version to retry with, and inventing one would be
+    worse than saying nothing."""
+    f = finding("legacy-auth", Verdict.REPLACE, exposed=True, reasons=["repository is archived"])
+    assert decide(f, now=NOW, popular=POPULAR).remedy is None
+
+
+def test_the_hook_prints_the_retry_line(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    stub(monkeypatch, [_upgradable()])
+    assert run_hook(monkeypatch, hook_event("pip install pillow==9.5.0")) == 2
+    assert "-> retry with pillow==12.3.0" in capsys.readouterr().err
+
+
+# --- a private index changes what a name means ------------------------------
+
+def _no_pypi(name: str = "internal-lib") -> Finding:
+    return finding(name, Verdict.UNCHECKED, error="not found on PyPI", first=None)
+
+
+def test_a_private_index_turns_not_on_pypi_into_a_warning(monkeypatch, capsys, tmp_path):
+    """An internal package is missing from PyPI by design. Blocking the command
+    that points at the index holding it is the wrong answer, and it is how a
+    team learns to remove the hook."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    stub(monkeypatch, [_no_pypi()])
+    code = run_hook(monkeypatch, hook_event(
+        "pip install --extra-index-url https://mirror.example/simple internal-lib"))
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "may be internal" in out and "mirror.example" in out
+
+
+def test_without_an_index_not_on_pypi_still_blocks(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    stub(monkeypatch, [_no_pypi()])
+    assert run_hook(monkeypatch, hook_event("pip install internal-lib")) == 2
+    assert "not on PyPI" in capsys.readouterr().err
+
+
+def test_a_private_index_is_noted_even_when_the_package_is_fine(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    stub(monkeypatch, [finding("requests")])
+    assert run_hook(monkeypatch, hook_event(
+        "pip install -i http://10.0.0.5/simple requests --trusted-host 10.0.0.5")) == 0
+    message = json.loads(capsys.readouterr().out)["systemMessage"]
+    assert "10.0.0.5" in message and "unverified connection" in message
+
+
+# --- said once, not every time ----------------------------------------------
+
+def _quiet_row(monkeypatch):
+    stub(monkeypatch, [finding("requests-toolbelt", Verdict.QUIET, exposed=True,
+                               reasons=["no release in 3.4y"])])
+
+
+def test_a_warning_is_said_once_per_session(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    _quiet_row(monkeypatch)
+    assert run_hook(monkeypatch, hook_event("uv add requests-toolbelt")) == 0
+    assert "requests-toolbelt" in capsys.readouterr().out
+
+    assert run_hook(monkeypatch, hook_event("uv add requests-toolbelt")) == 0
+    assert capsys.readouterr().out == "", "the same paragraph twice is what gets skimmed"
+
+    event = json.loads(hook_event("uv add requests-toolbelt"))
+    event["session_id"] = "a-different-session"
+    assert run_hook(monkeypatch, json.dumps(event)) == 0
+    assert "requests-toolbelt" in capsys.readouterr().out, "a new session has not heard it"
+
+
+def test_a_block_repeats_every_time(monkeypatch, capsys, tmp_path):
+    """A refusal is not context: the command was tried again, so it is answered
+    again."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    stub(monkeypatch, [finding("legacy-auth", Verdict.REPLACE, exposed=True,
+                               reasons=["repository is archived"])])
+    for _ in range(2):
+        assert run_hook(monkeypatch, hook_event("pip install legacy-auth")) == 2
+        assert "legacy-auth" in capsys.readouterr().err
+
+
+def test_an_unreadable_session_record_never_swallows_a_warning(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    (tmp_path / "hook-sessions").mkdir()
+    for path in (tmp_path / "hook-sessions").iterdir():  # pragma: no cover - empty
+        path.unlink()
+    monkeypatch.setattr(cli, "_session_file", lambda session: tmp_path / "nope" / "x.json")
+    _quiet_row(monkeypatch)
+    assert run_hook(monkeypatch, hook_event("uv add requests-toolbelt")) == 0
+    assert "requests-toolbelt" in capsys.readouterr().out
+
+
+# --- what a resolve pulled in -----------------------------------------------
+
+def _post_event(command: str) -> str:
+    event = json.loads(hook_event(command))
+    event["hook_event_name"] = "PostToolUse"
+    return json.dumps(event)
+
+
+def test_the_resolve_hook_checks_what_a_sync_just_locked(monkeypatch, capsys, tmp_path):
+    """`uv sync` types no package name, so the install hook has nothing to
+    read. What it pulled in exists only in the lockfile afterwards."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "resolved_additions",
+                        lambda root, *a, **kw: (["legacy-auth==2.1.0"], 3))
+    stub(monkeypatch, [finding("legacy-auth", Verdict.REPLACE, exposed=True,
+                               reasons=["repository is archived"])])
+    assert run_hook(monkeypatch, _post_event("uv sync")) == 0, "already resolved: nothing to block"
+    payload = json.loads(capsys.readouterr().out)
+    assert "legacy-auth" in payload["systemMessage"]
+    assert "+3 more" in payload["systemMessage"], "what was not checked is counted, not hidden"
+    assert payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+
+
+def test_the_resolve_hook_ignores_commands_that_resolve_nothing(monkeypatch, capsys, tmp_path):
+    called = []
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "resolved_additions", lambda *a, **kw: called.append(1) or ([], 0))
+    assert run_hook(monkeypatch, _post_event("pytest -q")) == 0
+    assert not called and capsys.readouterr().out == ""
+
+
+def test_the_resolve_hook_is_silent_when_the_lock_added_nothing(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "resolved_additions", lambda *a, **kw: ([], 0))
+    assert run_hook(monkeypatch, _post_event("uv sync")) == 0
+    assert capsys.readouterr().out == ""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import sys
 from collections.abc import Callable
@@ -28,10 +29,13 @@ from .guard import (
     Provenance,
     added_requirements,
     decide,
+    index_uses,
     is_remote_install_target,
+    is_resolver_command,
     load_popular,
     parse_install_command,
     parse_requirement,
+    resolved_additions,
     unresolvable_install_targets,
 )
 from .models import Exposure, Finding, Package, Remediation, Verdict
@@ -795,6 +799,58 @@ async def _run_check(args: argparse.Namespace, console: Console) -> int:
     return _check_exit(rows, args.fail_on)
 
 
+#: How long a session's record of what it has already been told is kept.
+_SESSION_TTL = 7 * 24 * 3600
+
+
+def _session_file(session: str) -> Path | None:
+    if not session:
+        return None
+    digest = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
+    return default_cache_path().parent / "hook-sessions" / f"{digest}.json"
+
+
+def _unseen(session: str, keys: list[str]) -> list[str]:
+    """The keys this session has not already been told about, recording them.
+
+    An agent that retries the same install gets the same paragraph again, and
+    repeated context is what teaches a model to skim it. Only warnings are
+    deduplicated: a block is a refusal, and a refusal has to be repeated every
+    time the command is tried. Any failure to read or write the record returns
+    everything, because a lost warning is worse than a duplicated one.
+    """
+    path = _session_file(session)
+    if path is None:
+        return keys
+    try:
+        seen = set(json.loads(path.read_text(encoding="utf-8"))) if path.is_file() else set()
+    except (OSError, ValueError):
+        seen = set()
+    fresh = [key for key in keys if key not in seen]
+    if not fresh:
+        return []
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(seen | set(keys))), encoding="utf-8")
+        cutoff = _now().timestamp() - _SESSION_TTL
+        for old in path.parent.glob("*.json"):
+            if old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return fresh
+
+
+def _row_key(row: CheckRow) -> str:
+    package, _finding, decision = row
+    return f"{decision.level}:{package.name}:{package.version or ''}"
+
+
+def _session_id(event: dict) -> str:
+    value = event.get("session_id")
+    return value if isinstance(value, str) else ""
+
+
 def _hook_lines(rows: list[CheckRow]) -> list[str]:
     out = []
     for package, _, decision in rows:
@@ -838,6 +894,10 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
     command = tool_input.get("command")
     if not isinstance(command, str):
         return EXIT_OK
+    if event.get("hook_event_name") == "PostToolUse":
+        # The command has already run. `uv sync` and friends type no package
+        # name, so the only place what they added shows up is the lockfile.
+        return await _run_resolve_hook(args, event, command)
     requirements = parse_install_command(command)
     # Anything the shell parser recognised as an install target but could
     # not turn into a checkable name - a URL or a VCS reference, the
@@ -878,6 +938,20 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
                   "command is blocked for the target below"
             )
 
+    # Where this command would resolve from. "Not on PyPI" is only proof of an
+    # invented name when PyPI is where the install would look: with a private
+    # index configured, an unknown name is what an internal package looks like,
+    # and blocking it teaches the team to remove the hook.
+    indexes = index_uses(command)
+    if indexes:
+        for _package, _finding, decision in rows:
+            if decision.level == BLOCK and decision.provenance.found is False:
+                decision.level = WARN
+                decision.reasons = [
+                    f"not on PyPI, and this command resolves against {indexes[0].url}: "
+                    f"it may be internal, or it may be a name that exists nowhere"
+                ] + decision.reasons[1:]
+
     lines = _hook_lines(rows)
     if unchecked:
         lines.append(unchecked)
@@ -890,14 +964,27 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
 
     blocking = {BLOCK, WARN} if args.warn_blocks else {BLOCK}
     if remote or any(d.level in blocking for _, _, d in rows):
+        # A version that would pass, spelled as a command. Without it the model
+        # has only a refusal, and the next thing it does is try again.
+        remedies = [d.remedy for _, _, d in rows if d.remedy]
+        retry = "".join(f"\n  -> retry with {r}" for r in remedies)
         sys.stderr.write(
-            "package-doctor blocked this install:\n  " + "\n  ".join(lines)
+            "package-doctor blocked this install:\n  " + "\n  ".join(lines) + retry
             + "\nPick a maintained alternative, pin a fixed version, or ask the user "
               "to add an acceptance to package-doctor.toml and rerun.\n"
         )
         return 2
-    if any(d.level in (WARN, UNCHECKED) for _, _, d in rows):
-        context = "package-doctor: " + " | ".join(lines)
+
+    session = _session_id(event)
+    context_rows = [row for row in rows if row[2].level in (WARN, UNCHECKED)]
+    fresh = set(_unseen(session, [_row_key(row) for row in context_rows]))
+    context_lines = _hook_lines([row for row in context_rows if _row_key(row) in fresh])
+    context_lines += [
+        f"NOTE {use.reason}" for use in indexes
+        if _unseen(session, [f"index:{use.url}"])
+    ]
+    if context_lines:
+        context = "package-doctor: " + " | ".join(context_lines)
         print(json.dumps({
             "systemMessage": context,
             "hookSpecificOutput": {
@@ -905,6 +992,49 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
                 "additionalContext": context,
             },
         }))
+    return EXIT_OK
+
+
+async def _run_resolve_hook(args: argparse.Namespace, event: dict, command: str) -> int:
+    """Claude Code PostToolUse hook for `uv sync`, `poetry lock` and friends.
+
+    These name no package, so the install hook has nothing to read, and what
+    they pull in - transitive dependencies included - only exists afterwards,
+    in the lockfile. This diffs the lockfile against the version git last
+    committed and checks what the resolve added. It cannot block, because the
+    resolve has already happened; the finding goes to the model as context,
+    which is what it needs to fix the file before anything runs the code.
+    """
+    if not is_resolver_command(command):
+        return EXIT_OK
+    cwd = event.get("cwd")
+    root = Path(cwd).expanduser() if isinstance(cwd, str) and cwd else Path.cwd()
+    try:
+        requirements, more = resolved_additions(root)
+    except Exception:
+        return EXIT_OK
+    if not requirements:
+        return EXIT_OK
+    try:
+        rows, _degraded = await run_check(requirements, args=args)
+    except Exception:
+        return EXIT_OK
+    flagged = [row for row in rows if row[2].level in (BLOCK, WARN)]
+    fresh = set(_unseen(_session_id(event), [_row_key(row) for row in flagged]))
+    flagged = [row for row in flagged if _row_key(row) in fresh]
+    if not flagged:
+        return EXIT_OK
+    lines = _hook_lines(flagged)
+    if more:
+        lines.append(f"(+{more} more newly locked packages, not checked)")
+    context = "package-doctor checked what the resolve just locked: " + " | ".join(lines)
+    print(json.dumps({
+        "systemMessage": context,
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": context,
+        },
+    }))
     return EXIT_OK
 
 

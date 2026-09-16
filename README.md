@@ -292,7 +292,36 @@ decides, and it blocks exactly what a scan of the same package would fail on:
 
 A package with nothing to do about it says nothing at all: `httpx`, `fastapi`
 and `jinja2` are what an agent should be reaching for, and a guardrail that
-comments on them is one the model learns to skim. And when the upstream
+comments on them is one the model learns to skim.
+
+A block names the way out, because a refusal an agent cannot act on becomes a
+retry of the same command:
+
+```
+BLOCK pillow 9.5.0: CVE-2023-4863 on CISA's known-exploited list ...
+  -> retry with pillow==12.3.0
+```
+
+It reads the shapes an agent actually types, including the ones that install
+and execute in a single step - `uv run --with`, `uvx`, `uv tool install`,
+`pipx run` and `rye add` - and it says a warning once per session rather than
+on every retry. Blocks always repeat: the command was tried again, so it is
+answered again.
+
+**Where the install would fetch from.** `--index-url`, `--extra-index-url` and
+`--trusted-host` change what a name means, so they are stated: a private index
+is noted, and one reached over plain HTTP says that anything on the path can
+replace what gets installed. With an index configured, *not on PyPI* stops
+being a block and becomes a warning - a package missing from PyPI is what an
+internal package looks like, and refusing it is how a team learns to remove
+the hook.
+
+**After a resolve.** `uv sync`, `poetry lock` and `pip install -r` name no
+package, and what they pull in exists only in the lockfile afterwards. A
+`PostToolUse` hook diffs the lockfile against the last commit and checks what
+was added, transitive packages included. It cannot block - the resolve has
+happened - so the finding goes to the model as context, with a count of
+anything past the first twenty. And when the upstream
 services cannot answer, the package is *unchecked* and allowed — a guardrail
 that fails closed on somebody else's outage is the first thing a team removes.
 

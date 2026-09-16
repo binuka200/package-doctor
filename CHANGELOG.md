@@ -52,6 +52,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block exactly what a scan fails on - *fix today* anywhere, *replace* or
   *upgrade* at a reviewed trust boundary - and warn on *mitigate*, on the same
   facts away from a boundary, and on a boundary package that has gone quiet.
+- **The hook reads the install shapes it was missing.** `uv run --with`,
+  `uvx`, `uv tool run`, `uv tool install`, `pipx run` and `rye add` were all
+  invisible to it; the first three fetch a package and execute it in one step,
+  which is the case the guardrail exists for. `uvx ruff check .` names `ruff`
+  and not `check`, and an option value is never read as a package.
+- **The hook is aware of where an install would fetch from.** A non-PyPI
+  `--index-url` or `--extra-index-url` is stated, and one over plain HTTP - or
+  with TLS waived for its host by `--trusted-host` - says so. With a private
+  index configured, *not on PyPI* is a warning rather than a block: a package
+  missing from PyPI is what an internal package looks like.
+- **A block names a requirement that would pass** - `-> retry with
+  pillow==12.3.0` - so a refusal is a corrected command rather than a reason
+  to try the same one again.
+- **A warning is said once per session**, keyed on the event's `session_id`.
+  Blocks still repeat every time the command is tried.
+- **A `PostToolUse` hook checks what a resolve locked.** `uv sync`,
+  `poetry lock` and `pip install -r` type no package name; this diffs the
+  lockfile against the last commit and checks what was added, up to twenty
+  packages, counting the rest.
 - **A healthy package at a trust boundary no longer warns.** Inherited from the
   old watch tier, it fired on seven of the ten packages an agent most often
   adds - `httpx`, `fastapi`, `jinja2` and `requests` among them, each with a
