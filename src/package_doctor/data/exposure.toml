@@ -67,6 +67,7 @@ packages = [
   { name = "django-otp", why = "one-time-password second factor for Django logins" },
   { name = "django-ratelimit", why = "rate limits views such as login by client key; a bypass reopens brute force (CWE-307)" },
   { name = "django-rest-knox", why = "token authentication for Django REST framework" },
+  { name = "django-ses", why = "SESEventWebhookView receives bounce and complaint notifications and verifies their SNS signatures, the same job as django-anymail's webhooks; GHSA-qg36-9jxh-fj25 accepted a signing certificate the request itself named, so anyone could forge them" },
   { name = "django-two-factor-auth", why = "two-factor login flow over django-otp" },
   { name = "djangorestframework-api-key", why = "API key authentication for DRF endpoints" },
   { name = "djangorestframework-simplejwt", why = "issues and verifies JWTs for DRF; algorithm and key handling decide who is logged in" },
@@ -863,6 +864,7 @@ packages = [
   { name = "youtube-transcript-api", why = "fetches and parses YouTube pages; the same scraping boundary as deep-translator" },
   { name = "yt-dlp", why = "downloads media from arbitrary sites; the extractor parses their pages, and GHSA-3ch3-jhc6-5r8x is proxy injection from a site" },
   { name = "apache-airflow-providers-google", why = "operators that move files between GCS, Drive and workers; GHSA-8g23-2q5p-8866 and GHSA-h8p2-8g72-qpgh are improper input validation in those transfers, so it is not a thin wrapper" },
+  { name = "zeroconf", why = "listens for multicast DNS on UDP 5353 and parses packets from any host on the local link, unauthenticated; GHSA-9pgc-3ccv-5297 is unbounded recursion on chained compression pointers, GHSA-qc2x-6f54-m6h9 cache corruption from an over-long RDLENGTH, and GHSA-9663-mqmp-p9mm, GHSA-phvx-9mgw-67r5 and GHSA-rfg2-pjw2-56x2 memory exhaustion by flood; the same shelf as pycares and dnspython" },
 ]
 
 [category.framework]
@@ -1042,6 +1044,7 @@ consequence = "file write"
 packages = [
   { name = "backports-tarfile", why = "backport of CPython's tarfile with the extraction filters; the same boundary as the stdlib module it replaces" },
   { name = "backports-zstd", why = "backport of the zstd decompressor" },
+  { name = "blosc2", why = "decompresses Blosc2 chunks and frames read from files, in C, the same shelf as zstandard and lz4; its one advisory, GHSA-8c7c-2c8j-3xfp, is a heap overflow on the compression side of a 2.0 beta, so the call rests on what it decompresses rather than on that" },
   { name = "brotli", why = "Brotli decompression; response bodies and files from outside" },
   { name = "compressed-rtf", why = "decompresses RTF from Outlook messages" },
   { name = "cramjam", why = "many decompressors in Rust for pyarrow and others" },
@@ -1223,6 +1226,7 @@ packages = [
   { name = "pyspark", why = "drives a Spark cluster through a JVM gateway; advisories include authentication bypass (CWE-287, CWE-306), command injection (CWE-78) and deserialization (CWE-502)" },
   { name = "ray", why = "GHSA-6wgj-66m2-xxp2 is arbitrary code execution through the jobs submission API; the cluster runs whatever it is sent" },
   { name = "restrictedpython", why = "runs a restricted subset of Python from users; its advisories are a string of guard bypasses" },
+  { name = "rpyc", why = "remote Python calls: clients act on server objects through netrefs, the same shelf as execnet; GHSA-h5cg-53g7-gqjw ran a remote attacker's code when a service called __array__ on a client netref, and GHSA-pj4g-4488-wmxm let clients modify service attributes into a code-executing call" },
   { name = "runs", why = "runs a block of text as a subprocess" },
   { name = "scp", why = "SCP over paramiko; remote file operations" },
   { name = "semantic-kernel", why = "GHSA-xjw9-4gw8-4rqx: InMemoryVectorStore filters in the Python SDK were remote code execution; GHSA-2ww3-72rp-wpp4 is the .NET SDK and does not apply" },

@@ -338,3 +338,20 @@ def test_markup_parsers_the_classifier_used_to_guess_are_now_curated():
         assert e.confidence is Confidence.CURATED and "html/xml parsing" in e.categories, name
     for name in ("markdown-include", "md-mermaid", "pybtex-docutils", "zensical"):
         assert m.is_reviewed(name) and not m.lookup(name).is_exposed, name
+
+
+def test_a_ten_repository_sample_s_unmapped_boundaries_follow_their_shelves():
+    """zeroconf parses mDNS from anyone on the link, like pycares and dnspython;
+    rpyc is remote interpreters, like execnet; django-ses verifies inbound
+    webhook signatures, like django-anymail and stripe; blosc2 decompresses in
+    C, like zstandard and lz4."""
+    m = load_exposure_map()
+    shelves = {
+        "zeroconf": ("pycares", "http/network"),
+        "rpyc": ("execnet", "remote access"),
+        "django-ses": ("django-anymail", "auth/session"),
+        "blosc2": ("zstandard", "archive extraction"),
+    }
+    for name, (sibling, label) in shelves.items():
+        assert label in m.lookup(name).categories, name
+        assert label in m.lookup(sibling).categories, sibling
