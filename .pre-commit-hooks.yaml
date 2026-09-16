@@ -1,7 +1,7 @@
 # pre-commit hook definition. In a project's .pre-commit-config.yaml:
 #
 #   - repo: https://github.com/binuka200/package-doctor
-#     rev: v0.3.0
+#     rev: v1.0.0
 #     hooks:
 #       - id: package-doctor
 #
@@ -14,5 +14,5 @@
   entry: package-doctor scan
   language: python
   pass_filenames: false
-  files: ^(uv\.lock|poetry\.lock|Pipfile(\.lock)?|pyproject\.toml|requirements[^/]*\.txt|requirements/.*\.txt|package-doctor\.toml)$
+  files: ^(uv\.lock|poetry\.lock|Pipfile(\.lock)?|pyproject\.toml|setup\.(py|cfg)|requirements[^/]*\.txt|requirements/.*\.txt|package-doctor\.toml)$
   minimum_pre_commit_version: "2.9.2"

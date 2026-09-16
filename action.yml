@@ -1,6 +1,6 @@
 # package-doctor as a GitHub Action.
 #
-#   - uses: binuka200/package-doctor@v0.3.0
+#   - uses: binuka200/package-doctor@v1.0.0
 #
 # That one line scans the checkout, fails the job when anything lands in
 # a trust boundary and asks for work, and writes the report to the job's step summary so nobody
@@ -14,9 +14,9 @@
 
 name: package-doctor
 description: >-
-  Finds the Python dependencies that sit at a trust boundary and have no one
-  left to fix them. Fails the job on findings, writes a step summary, and can
-  upload SARIF for code scanning.
+  Tells you which Python dependencies to fix first: the ones being exploited,
+  and the ones nobody is left to patch. Fails the job on findings, writes a
+  step summary, and can upload SARIF for code scanning.
 author: Binuka Jayaweera
 branding:
   icon: activity

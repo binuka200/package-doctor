@@ -6,7 +6,7 @@ Thanks for looking. Most of what this project needs is not code.
 
 **Argue with [`exposure.toml`](src/package_doctor/data/exposure.toml).**
 
-That file is ~1,440 judgement calls about which Python packages sit somewhere an
+That file is about 1,500 judgement calls about which Python packages sit somewhere an
 attacker can reach, each with a one-sentence reason. Every one of them was made
 by one person. Some are wrong,
 and the wrong ones are worse than the missing ones — a bad entry makes the tool
@@ -134,7 +134,7 @@ git clone https://github.com/binuka200/package-doctor
 cd package-doctor
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                 # offline, about 2s
+pytest                 # offline, about 4s
 pytest -m live         # hits the real APIs; opt-in, not run in PR CI
 ruff check src tests research
 ```
@@ -167,9 +167,18 @@ They write to `data/`, which is gitignored. Run `bulk_scan.py` before
 `evaluate_repos.py` produces the accuracy figures in the README: it clones the
 repositories listed in `eval-repos.txt`, scans them, checks every pinned
 package against OSV's own version query and every import site against the
-source line, and dumps the *act* verdicts for reading. Re-run it after any
+source line, and dumps the verdicts that ask for work (*exploited*, *replace*,
+*upgrade*) for reading. Re-run it after any
 change to advisory matching or the risk rules, and update the README if the
 numbers move.
+
+`audit_map.py` checks the map against the advisories it was curated from: a
+package cleared as not exposed whose advisories cite a boundary weakness, an
+exposed package whose advisories reached a worse consequence than its
+categories, and a `why` citing an advisory id that does not exist. Run it
+after editing `exposure.toml`; the weekly live-contracts job runs it with
+`--strict`. A finding is settled by naming the advisory in the `why` of the
+entry that acts on it, or of the entry that declines to and says why.
 
 ## Reporting a problem
 

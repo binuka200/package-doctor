@@ -135,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="package-doctor",
         description=(
-            "Find dependencies that sit at a trust boundary and have no one left to fix them."
+            "Find which Python dependencies to fix first: the ones being exploited, "
+            "and the ones nobody is left to patch."
         ),
     )
     parser.add_argument(
@@ -157,9 +158,15 @@ def build_parser() -> argparse.ArgumentParser:
             help="skip repository lookups (faster, fewer signals)",
         )
         p.add_argument(
-            "--stale-release-days", type=int, default=Thresholds.stale_release_days
+            "--stale-release-days", type=int, default=Thresholds.stale_release_days,
+            help="days without a release that count as one weak signal (default: "
+                 f"{Thresholds.stale_release_days})",
         )
-        p.add_argument("--stale-push-days", type=int, default=Thresholds.stale_push_days)
+        p.add_argument(
+            "--stale-push-days", type=int, default=Thresholds.stale_push_days,
+            help="days without a pushed commit that count as one weak signal (default: "
+                 f"{Thresholds.stale_push_days})",
+        )
         p.add_argument(
             "--no-assume-latest",
             dest="assume_latest",
