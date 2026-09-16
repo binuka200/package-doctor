@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "package-doctor"
-version = "1.0.0"
+version = "1.0.1"
 description = "Tells you which Python dependencies to fix first: the ones being exploited, and the ones nobody is left to patch."
 readme = "README.md"
 requires-python = ">=3.10"

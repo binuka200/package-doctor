@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-16
+
+Documentation and metadata. Nothing covered by the 1.0 compatibility promise
+changes.
+
+### Changed
+
+- **The README is a landing page.** It went from 1,006 lines to 169: what the
+  tool does, the report sections, install, quick start, CI and Claude Code
+  setup, and the headline accuracy numbers. The detail moved unchanged into
+  `docs/usage.md`, `docs/agent-guardrail.md`, `docs/how-it-works.md`,
+  `docs/exposure-map.md` and `docs/accuracy.md`, linked by absolute URL so
+  PyPI renders them.
+- **The summary says what the tool is for:** which Python dependencies to fix
+  first, the ones being exploited and the ones nobody is left to patch. The
+  same wording is in the PyPI summary, the GitHub Action description and
+  `package-doctor --help`.
+- **The accuracy numbers were re-measured on 1.0.0**, on fresh clones: 6,897 of
+  6,898 pinned pairs agree with OSV, pip-audit finds nothing package-doctor
+  misses, and the exposure map's comparison now excludes entries decided from
+  advisories, which would otherwise build the outcome into the test.
+- **PyPI keywords** drop `sbom`, which the tool does not do, and add
+  `vulnerability`, `osv`, `cisa-kev`, `epss`, `sarif`, `pip-audit` and
+  `claude-code`.
+
+### Fixed
+
+- **`--stale-release-days` and `--stale-push-days` have help text**, with their
+  defaults, in `scan`, `explain`, `check` and `hook`.
+- **The pre-commit hook runs when `setup.py` or `setup.cfg` changes**, both of
+  which the scanner reads.
+- **Stale documentation**, checked against the code: the Action and pre-commit
+  examples pinned v0.3.0; a `check` example showed a warning the tool no longer
+  gives; the `scan` example listed its sections out of order; joblib was named
+  as a model-loading package; the map size and test time were out of date.
+- **Undocumented behaviour is documented:** `research/audit_map.py`, building
+  the dataset `suggest_map.py` reads, GitHub as a data source, the `--json`,
+  `--output`, `--fail-on`, `--all` and `--depth` options, and every install and
+  resolve command the agent guardrail reads.
+
 ## [1.0.0] - 2026-09-16
 
 No behaviour changes from 0.9.1. This release marks the interfaces other
@@ -658,7 +698,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/binuka200/package-doctor/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/binuka200/package-doctor/compare/v0.9.1...v1.0.0
 [0.9.1]: https://github.com/binuka200/package-doctor/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/binuka200/package-doctor/compare/v0.8.4...v0.9.0
