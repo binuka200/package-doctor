@@ -5,6 +5,56 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.9.1] - 2026-09-16
+
+### Added
+
+- **The exposure map is audited against its own advisories.**
+  `research/audit_map.py` reads each mapped package's OSV advisories against
+  the answer the map gives and reports three disagreements: a package cleared
+  as not at a boundary whose advisories cite a trust-boundary weakness, an
+  exposed package whose advisories point to a worse consequence than any of
+  its categories, and a `why` citing an advisory id OSV has never heard of.
+  Naming the advisory in a `why` settles a finding either way, so silence is
+  the only thing reported. It runs weekly in the live contract workflow with
+  `--strict`; an OSV outage is listed, not failed. A wrong entry is worse than
+  a missing one - a missing entry says "boundary not reviewed", a wrong one
+  looks exactly like a reviewed answer - and this is the check for it.
+
+### Changed
+
+- **66 map entries the first audit disagreed with were decided from the
+  advisory text.** 28 packages gained the category their advisories reached:
+  code execution for langchain, llama-index, smolagents, semantic-kernel,
+  pillow, chromadb, pdfminer-six, apache-airflow, litellm and open-webui, and
+  auth for signature verifiers (ecdsa, rsa, signxml, starkbank-ecdsa) and for
+  mcp, fastmcp and mitmproxy. 26 kept their call with the reason recorded -
+  mislabelled CWEs such as uvicorn's log injection, opt-in features, trusted or
+  local preconditions, and langchain-core, whose serialization flaw stops
+  short of code execution. Nine cleared packages now cite the advisories they
+  were cleared despite.
+- **47 unreviewed packages were decided**, found in a 110-repository random
+  sample, most because their own advisories cite a trust-boundary weakness.
+  31 are now mapped - among them fugue's pickling RPC server,
+  nemo-toolkit and torchgeo's model loaders, lightrag-hku's JWT handling,
+  gdown's archive extraction, homeassistant, zeroconf, rpyc and django-ses -
+  and 16 are reviewed as not exposed, including vyper, whose advisories are
+  miscompiled contracts, and pyngrok, which never sees tunnel traffic.
+- **HTML and XML classifiers no longer drive inference.** Of the unreviewed
+  packages they guessed as parsing markup, about one in four did; the rest
+  generate it (dominate, htmlmin, pytablewriter) or are documentation tooling.
+  The five that parse outside markup - inscriptis, mf2py, sickle, onvif-python
+  and feedgen - have curated entries instead.
+
+### Fixed
+
+- **Map citations that named no real advisory.** babel cited CVE-2021-20095
+  and diskcache GHSA-r8gq-9x9w-jcpg; OSV has neither. They now cite
+  CVE-2021-42771 and GHSA-w8v5-vhqr-4h9v. open-webui's reason said it was
+  listed under auth, and it never was.
+
 ## [0.9.0] - 2026-09-16
 
 ### Changed
@@ -569,6 +619,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/binuka200/package-doctor/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/binuka200/package-doctor/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/binuka200/package-doctor/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/binuka200/package-doctor/compare/v0.8.2...v0.8.3
