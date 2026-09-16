@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "package-doctor"
-version = "0.9.1"
+version = "1.0.0"
 description = "Finds dependencies that sit at a trust boundary and have no one left to fix them."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = "MIT"
 authors = [{ name = "Binuka Jayaweera" }]
 keywords = ["dependencies", "security", "supply-chain", "maintenance", "sbom"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",

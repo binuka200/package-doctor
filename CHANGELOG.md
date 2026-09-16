@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-16
+
+No behaviour changes from 0.9.1. This release marks the interfaces other
+tools build on as stable.
+
+### Stable from 1.0
+
+Covered by semantic versioning, so a change that breaks any of these waits
+for 2.0:
+
+- the `scan`, `explain`, `check`, `hook` and `cache` commands and their options;
+- the `--json` output at `schema_version` 3 - fields may be added, none
+  removed or renamed;
+- the verdict names *exploited*, *replace*, *mitigate*, *upgrade*, *quiet*,
+  *unchecked* and *ok*, and the `--fail-on` levels;
+- exit codes: `0` nothing that fails the build, `1` something does, `2` a
+  usage error;
+- the Claude Code hook's input and output.
+
+**Not frozen: the data.** The exposure map, the advisories, the CISA KEV list
+and EPSS scores change continuously, and map updates ship in minor and patch
+releases. Upgrading package-doctor can therefore change the verdict on a
+package you have not touched - that is the tool getting more accurate, not an
+interface change. Pin package-doctor itself when a build must be reproducible.
+
+### Changed
+
+- **The package is marked `Development Status :: 5 - Production/Stable`**,
+  replacing *Alpha*.
+- **The README shows real output.** Screenshots of `package-doctor scan` and
+  `package-doctor explain pillow` on a demo project replace two text blocks,
+  one of which still showed the pre-0.9 *EXPLOITED* header. They are served
+  from GitHub, so PyPI renders them too.
+
+### Fixed
+
+- **The sdist no longer carries the README screenshots.** `docs/` is excluded,
+  keeping the sdist at around 317 KB rather than 1.9 MB.
+
 ## [0.9.1] - 2026-09-16
 
 ### Added
@@ -619,7 +658,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/binuka200/package-doctor/compare/v0.9.1...v1.0.0
 [0.9.1]: https://github.com/binuka200/package-doctor/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/binuka200/package-doctor/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/binuka200/package-doctor/compare/v0.8.3...v0.8.4
