@@ -42,10 +42,17 @@ _CLASSIFIER_HINTS: tuple[tuple[str, str], ...] = (
     # Multimedia :: Graphics" caught seaborn and pydeck, which plot trusted
     # dataframes. "Framework :: Django" caught pytest-django and factory-boy.
     # Roughly three in five were wrong.
+    #
+    # The Markup :: HTML and Markup :: XML classifiers went the same way later.
+    # Across the PyPI metadata of 6,065 packages from real scans and the top-3,000
+    # run, 19 unreviewed packages were guessed html/xml parsing through them and about
+    # five parse markup from outside (inscriptis, mf2py, sickle, onvif-python,
+    # feedgen). The rest write it: dominate, htmlmin, ansi2html and pytablewriter
+    # generate HTML; markdown-include, zensical and pybtex-docutils are docs
+    # tooling. The classifier says what format a package touches, not which way.
+    # The five that parse now have curated entries instead.
     ("Topic :: Security :: Cryptography", "crypto"),
     ("Topic :: Internet :: WWW/HTTP :: Session", "auth/session"),
-    ("Topic :: Text Processing :: Markup :: HTML", "html/xml parsing"),
-    ("Topic :: Text Processing :: Markup :: XML", "html/xml parsing"),
     ("Topic :: Internet :: WWW/HTTP :: WSGI", "http/network"),
 )
 

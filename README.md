@@ -911,6 +911,12 @@ untrusted input, taking it from 151 packages to 5, and **an inferred category
 can no longer demand a replacement** — it can raise something to *review*
 and say why, and that is all. Saying "not reviewed" beats guessing.
 
+The markup classifiers were cut the same way later. Of the unreviewed packages
+they guessed as parsing HTML or XML, about one in four did; the rest generate
+it (dominate, htmlmin, pytablewriter) or are documentation tooling. A
+classifier names the format a package touches, not the direction. The ones
+that parse outside markup now have curated entries.
+
 ### What is still unmeasured
 
 Coverage, on the 13,042 packages above: **75% get a curated call, 25% get no

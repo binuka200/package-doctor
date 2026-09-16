@@ -226,6 +226,32 @@ def test_build_and_plotting_tools_are_not_inferred_as_exposed():
         assert not m.lookup("some-package", info).is_exposed, info
 
 
+def test_markup_classifiers_do_not_imply_parsing_untrusted_markup():
+    """Packages that generate HTML or XML carry the same classifiers as the
+    ones that parse it. dominate, htmlmin and zensical were being guessed as
+    html/xml parsing; the format is not the direction."""
+    m = load_exposure_map()
+    for info in (
+        {"classifiers": ["Topic :: Text Processing :: Markup :: HTML"],
+         "summary": "Dominate is a Python library for creating and manipulating HTML"},
+        {"classifiers": ["Topic :: Documentation", "Topic :: Text Processing :: Markup :: HTML"],
+         "summary": "A modern static site generator"},
+        {"classifiers": ["Topic :: Text Processing :: Markup :: XML"],
+         "summary": "A docutils backend for pybtex."},
+    ):
+        assert not m.lookup("some-package", info).is_exposed, info
+
+
+def test_a_sanitiser_named_as_one_is_still_inferred():
+    """The keyword fallback is untouched: a package that says it sanitises
+    markup is still guessed, and still only as a guess."""
+    e = load_exposure_map().lookup("some-package", {
+        "summary": "Curated lists of tags and attributes for sanitizing html",
+    })
+    assert e.categories == ["html/xml parsing"]
+    assert e.confidence is Confidence.INFERRED
+
+
 def test_candidates_surfaced_by_suggest_map_are_decided():
     """research/suggest_map.py ranks unmapped packages by what the map's
     silence costs. These were its first eight, decided one way or the other.
@@ -267,3 +293,48 @@ def test_the_first_twenty_suggested_candidates_are_decided():
                  "uc-micro-py", "pytest-runner", "google-pasta"):
         assert not m.lookup(name).is_exposed, name
         assert m.is_reviewed(name), name
+
+
+def test_packages_whose_own_advisories_put_them_at_a_boundary_are_mapped():
+    """suggest_map.py's evidence-backed candidates from a 100-repository sample,
+    decided from the advisory text. fugue's RPC server unpickled request
+    bodies; nemo-toolkit's and torchgeo's loaders ran code from checkpoints and
+    weight names; lightrag-hku accepted alg none and shipped a hard-coded
+    signing secret; gdown's extractall wrote outside its destination."""
+    m = load_exposure_map()
+    exposed = {
+        "fugue": "code execution", "nemo-toolkit": "code execution",
+        "torchgeo": "code execution", "qiskit": "code execution",
+        "modelscope": "code execution", "llama-hub": "code execution",
+        "lightrag-hku": "account takeover", "sqladmin": "account takeover",
+        "jupyter-server-proxy": "account takeover", "gdown": "file write",
+        "homeassistant": "file write", "owslib": "script injection",
+    }
+    for name, consequence in exposed.items():
+        e = m.lookup(name)
+        assert e.is_exposed and e.confidence is Confidence.CURATED, name
+        assert e.consequence == consequence, (name, e.consequence)
+
+
+def test_candidates_whose_advisories_need_a_trusted_or_local_party_are_cleared():
+    """codecov, donfig, pydrive2 and pyxdg read their own configuration or
+    command line; django-debug-toolbar and locust are operator tools whose
+    flaws matter only when exposed; vyper's advisories are miscompiled
+    contracts, not input the compiler receives. pyngrok looked like a
+    boundary and is not: tunnel traffic never passes through Python."""
+    m = load_exposure_map()
+    for name in ("codecov", "cookiecutter", "django-debug-toolbar", "donfig", "locust",
+                 "pydash", "pydrive2", "pyngrok", "pyxdg", "readthedocs-sphinx-search",
+                 "vyper", "wlc"):
+        assert m.is_reviewed(name), name
+        assert not m.lookup(name).is_exposed, name
+        assert m.why(name), name
+
+
+def test_markup_parsers_the_classifier_used_to_guess_are_now_curated():
+    m = load_exposure_map()
+    for name in ("inscriptis", "mf2py", "sickle", "onvif-python", "feedgen"):
+        e = m.lookup(name)
+        assert e.confidence is Confidence.CURATED and "html/xml parsing" in e.categories, name
+    for name in ("markdown-include", "md-mermaid", "pybtex-docutils", "zensical"):
+        assert m.is_reviewed(name) and not m.lookup(name).is_exposed, name
