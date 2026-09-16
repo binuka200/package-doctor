@@ -73,6 +73,12 @@ exposure, but there is nothing to do about it today. In a service with many
 boundary packages that list is long, and it is information about the service
 rather than a queue of work. `--show-ok` lists it.
 
+![package-doctor scan of a ten-dependency project: pillow and litellm under FIX TODAY for CVEs on CISA's known-exploited list; bleach to replace, archived and marked Inactive; nltk to mitigate, with one advisory no release fixes; requests, pyjwt, flask and jinja2 to upgrade; python-dateutil quiet. Seven of ten fail the build.](https://raw.githubusercontent.com/binuka200/package-doctor/main/docs/images/scan.png)
+
+<sub>A demo project with deliberately old pins, scanned on 16 September 2026.
+Advisory and exploitation data change daily, so the same pins will not read
+the same later.</sub>
+
 ## Which advisory first
 
 "Affected by 35 advisories" is not a decision. A list that long gets skimmed and
@@ -85,22 +91,7 @@ findings are ranked by how likely the flaw is to actually be used:
 - **FIRST EPSS** — a daily-refreshed probability of exploitation in the next
   30 days, giving an ordering where an advisory count gives none.
 
-```
-EXPLOITED   known exploited, and your version is affected: fix today
-pillow  10.0.0  file/media parsing  CVE-2023-4863 on CISA's known-exploited list,
-                                    and your pinned version is affected
-```
-
-```
-Exploitability of your version
-  Known exploited (CISA)    CVE-2023-4863
-  CVE-2023-4863             >99% chance of exploitation in 30 days
-  CVE-2023-50447            1.7% chance of exploitation in 30 days
-  CVE-2024-28219            1.0% chance of exploitation in 30 days
-    (+12 more scored)
-  No EPSS score             1 of 18
-    Unscored means unknown, not low risk.
-```
+![package-doctor explain pillow: pillow 10.0.0 is FIX TODAY. Exposure is file/media parsing, curated, with code execution as the consequence; imported at app/main.py:5; the repository is active and fixed 75 of 79 advisories before disclosure; 18 advisories affect the pinned version. Under Exploitability, CVE-2023-4863 is on CISA's known-exploited list with a greater than 99% chance of exploitation in 30 days, the next highest is 1.7%, and one advisory has no EPSS score, which means unknown, not low risk.](https://raw.githubusercontent.com/binuka200/package-doctor/main/docs/images/explain-pillow.png)
 
 Across sixty real projects that turns **2,257 advisories affecting pinned
 versions into 27 worth reading first** — the ones on CISA's list or above a 10%

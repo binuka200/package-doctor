@@ -46,6 +46,10 @@ package-doctor = "package_doctor.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/package_doctor"]
 
+# README screenshots are served from GitHub; they have no business in the sdist.
+[tool.hatch.build.targets.sdist]
+exclude = ["/docs"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Without this, an `async def` test is an error rather than a silent skip on
