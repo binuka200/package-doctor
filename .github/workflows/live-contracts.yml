@@ -26,3 +26,7 @@ jobs:
       # -rs reports skips, so an outage is visible in the log rather than
       # looking like a clean pass.
       - run: pytest -m live -q -rs
+      # The map against the advisories it was curated from. New advisories land
+      # every week; one that argues with an entry and is not named in a `why`
+      # fails here, which is how a stale answer gets noticed instead of shipped.
+      - run: python research/audit_map.py --strict
