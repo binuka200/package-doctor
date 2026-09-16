@@ -40,9 +40,9 @@ extraction, deserialization, HTML parsing, query building, cryptography, URL
 parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](src/package_doctor/data/exposure.toml), not from a heuristic.
 
-It holds **997 packages across 15 categories**, curated against the 3,000
-most-downloaded packages on PyPI — every one of the top 100 and 998 of the top
-1,000 have been reviewed one way or the other, and Django, FastAPI/ML,
+It holds **1,028 packages across 15 categories**, with 456 more reviewed and
+cleared, curated against the 3,000 most-downloaded packages on PyPI — every one
+of the top 100 and 998 of the top 1,000 have been reviewed one way or the other, and Django, FastAPI/ML,
 document-processing and web-scraping stacks all scan with zero unclassified
 packages. Every entry records what convinced the curator, and `explain` shows
 it. Anything outside the map falls back to classifier inference, which is
@@ -93,9 +93,9 @@ findings are ranked by how likely the flaw is to actually be used:
 
 ![package-doctor explain pillow: pillow 10.0.0 is FIX TODAY. Exposure is file/media parsing, curated, with code execution as the consequence; imported at app/main.py:5; the repository is active and fixed 75 of 79 advisories before disclosure; 18 advisories affect the pinned version. Under Exploitability, CVE-2023-4863 is on CISA's known-exploited list with a greater than 99% chance of exploitation in 30 days, the next highest is 1.7%, and one advisory has no EPSS score, which means unknown, not low risk.](https://raw.githubusercontent.com/binuka200/package-doctor/main/docs/images/explain-pillow.png)
 
-Across sixty real projects that turns **2,257 advisories affecting pinned
-versions into 27 worth reading first** — the ones on CISA's list or above a 10%
-exploit probability.
+Across sixty real projects that turns **2,218 advisories affecting pinned
+versions into 33 worth reading first** — the ones on CISA's list or above a 10%
+exploit probability, in eight packages.
 
 Only advisories affecting your *pinned* version are scored — a CVE fixed five
 releases ago is not your problem, and including it would drown the signal.
@@ -804,22 +804,23 @@ tests are for. There is a test for that distinction itself.
 Measured, not asserted, on sixty open source repositories: web frameworks
 and the apps built on them, the pallets and pydantic families, LLM tooling,
 ML and data projects, infrastructure and CLI tools, from home-assistant at
-1,247 packages down to ansible at 5. The list is
+1,250 packages down to ansible at 5. The list is
 [`research/eval-repos.txt`](research/eval-repos.txt) and the harness is
 [`research/evaluate_repos.py`](research/evaluate_repos.py); everything below
-reproduces from those two files.
+reproduces from those two files. Last measured on 16 September 2026 with
+package-doctor 1.0.0, against fresh clones.
 
 | | |
 | --- | --- |
-| repositories | 60 (59 with a dependency file the tool reads) |
-| packages assessed | 13,042 |
-| distinct pinned (package, version) pairs | 6,879 |
-| import sites reported | 77,148 |
+| repositories | 60 (59 with a dependency file the tool reads; letta's repository now holds only documentation) |
+| packages assessed | 13,043 |
+| distinct pinned (package, version) pairs | 6,898 |
+| import sites reported | 78,642 |
 
 **Advisory matching, against OSV's own version-scoped query** — the
-authoritative answer to "is this pinned version affected?" — over all 6,879
+authoritative answer to "is this pinned version affected?" — over all 6,898
 pairs, after collapsing GHSA and PYSEC aliases to their CVE:
-**6,878 / 6,879 exact agreement.** The one disagreement is `langsmith 0.3.45`,
+**6,897 / 6,898 exact agreement.** The one disagreement is `langsmith 0.3.45`,
 whose record carries a range typed `SEMVER` alongside its `ECOSYSTEM` range;
 OSV ignores the first for PyPI, this tool reads it, and reports the version
 affected. Earlier runs found and fixed three failures, each now a test:
@@ -828,18 +829,25 @@ affected. Earlier runs found and fixed three failures, each now a test:
 event never reported, and `click==8.*` stored as a version rather than read
 as a range.
 
-**Against `pip-audit`** (`--no-deps -s osv`) on the same pins, compared at the
-vulnerability level with identifiers canonicalised to CVE:
+**Against `pip-audit`** (`--no-deps --disable-pip -s osv`) on the same pins,
+compared at the vulnerability level with identifiers canonicalised to CVE:
 
 | | |
 | --- | --- |
-| packages flagged, pip-audit / package-doctor | 331 / 331 |
-| vulnerabilities found by both | 1,661 |
+| packages flagged, pip-audit / package-doctor | 327 / 327 |
+| vulnerabilities found by both | 1,663 |
 | found only by pip-audit | **0** |
 | found only by package-doctor | 1 (the langsmith range above) |
 
-**Reachability:** of 77,148 import sites reported, 77,119 open to an import
-of that package on that line. The 29 remaining are `from _pytest...` and
+Both tools have to read OSV on the same day for this to mean anything. On the
+first pass the local cache was six days old, and OSV had attached CVE ids to
+three tornado advisories that morning: pip-audit reported them as CVEs, the
+cache knew them only by GHSA id, and 22 findings failed to pair up. With the
+cache refreshed they matched. A mismatch of this shape is an alias arriving,
+not a missed vulnerability.
+
+**Reachability:** of 78,642 import sites reported, 78,612 open to an import
+of that package on that line. The 30 remaining are `from _pytest...` and
 `import py` attributed to pytest, which is correct — both modules ship in the
 pytest distribution — and only the checker's static table did not know it.
 
@@ -848,24 +856,31 @@ that OSV is complete. And it measures the *data* layer.
 
 ### The verdicts, read
 
-The verdict layer is a judgement, so the check is reading them. This run
-predates the split of *act* into *exploited*, *replace* and *upgrade*. Of the 552
-*act* verdicts across the sixty projects, 420 rest on the pinned
-version being affected by a published advisory, which the OSV agreement above
-makes right by construction; they are mostly old lockfiles. The other 132, on
-42 distinct packages, rest on maintenance signals, and every one was read:
-libraries deprecated or archived by their owners (adal, msrest, msrestazure,
-oauth2client, google-generativeai, bleach, redis-py-cluster), advisories the
-maintainers consider by-design and will not fix (nltk, keras, diskcache), and
-packages quiet for three to eight years (pysocks, html5lib, chevron,
-rfc3339-validator, requests-aws-sign). The count rose from 97 on 28 packages
-in the previous run because the map grew by 249 entries, and the new entrants
-include the ones closest to the thresholds: requests-toolbelt, olefile and
-flask-session are a few months past the 18-month commit line, and
-dataclasses-json, jsonpatch, python-pptx, requests-kerberos and requests-ntlm
-are just over two years without a release. Those are threshold choices rather
-than misreadings, but there are more of them than there were, and the list is
-in `acts.json` after any run of the harness.
+The verdict layer is a judgement, so the check is reading them. Across the
+sixty projects 566 findings ask for work - 14 *exploited*, 111 *replace*, 441
+*upgrade*. 468 rest on the pinned version being affected by a published
+advisory, which the OSV agreement above makes right by construction; they are
+mostly old lockfiles.
+
+The other 98 are all *replace*, on 58 distinct packages, and each rests on a
+fact rather than a threshold: 91 on an archived repository, 7 on the
+maintainer's Inactive classifier. Every such claim in the run was checked at
+source. GitHub confirms 74 of the 75 repositories reported archived; the 75th,
+iometer's, is no longer public, so it can be neither confirmed nor refuted,
+and its verdict is *quiet* in any case. PyPI confirms all 11 Inactive
+classifiers. Seven of the 58 fail the build, because they sit at a reviewed
+boundary: adal, bleach, google-generativeai, msrest, msrestazure, oauth2client
+and redis-py-cluster, libraries their owners deprecated or archived. The rest
+are away from one, where *replace* informs rather than blocks.
+
+The previous run, before 0.9, counted 132 maintenance verdicts, and many sat
+just past an age threshold. Age alone now produces *quiet*: all thirteen
+packages that run named as threshold cases - requests-toolbelt, olefile,
+flask-session, dataclasses-json, jsonpatch, python-pptx, requests-kerberos,
+requests-ntlm, pysocks, html5lib, chevron, rfc3339-validator and
+requests-aws-sign - are *quiet* here and fail nothing. nltk and keras, whose
+unfixed advisories the maintainers consider by design, are *mitigate*. The
+full list is in `acts.json` after any run of the harness.
 
 That result is recent. An earlier version of this tool recognised only a
 `fixed` event as closing an advisory's range, and on an eight-project sample
@@ -877,18 +892,36 @@ to 15.
 ### The exposure map, measured
 
 The map is the judgement layer, and it is a different kind of claim. Tested
-against 3,000 packages, asking whether its call predicts anything real —
-whether a package it marks exposed is more likely to have security advisories:
+against the 3,000 most-downloaded packages (collected 16 September 2026 with
+[`research/bulk_scan.py`](research/bulk_scan.py)), asking whether its call
+predicts anything real — whether a package it marks exposed is more likely to
+have security advisories.
+
+That test has to exclude part of the map now. Since 0.9.1 many entries were
+decided *from* advisories: `suggest_map.py` ranks candidates by what their
+advisories cite, and `audit_map.py` checks entries against them. An entry whose
+`why` cites an advisory has the outcome built in, and counting it would
+measure how the map was built. The fair test is the entries decided from what
+the package does:
 
 | bucket | packages | have advisories |
 | --- | --- | --- |
-| curated, exposed | 635 | **31.3%** |
-| curated, not exposed | 124 | 12.1% |
-| no opinion | 2,236 | 6.8% |
+| exposed, decided from what it does | 709 | **18.9%** |
+| cleared, decided from what it does | 408 | 2.2% |
+| cleared as part of a family (typing stubs, generated clients) | 464 | 1.5% |
+| no opinion | 1,213 | 1.7% |
 
-Packages the map calls exposed carry advisories at ~2.6× the rate of packages
-it reviewed and cleared, and that holds when controlling for popularity (43.7%
-against 16.2% within the top 500). The curated map carries real signal.
+Packages the map calls exposed carry advisories at 8.6× the rate of packages it
+reviewed and cleared, and that holds when controlling for popularity: 27.9%
+against 3.8% within the top 500, 7.2×. The curated map carries real signal.
+
+The ratio is higher than the 2.6× an earlier run reported (635 exposed at 31.3%
+against 124 cleared at 12.1%), and not all of that is the map improving. The
+cleared set has grown from 124 packages to 408 decided on their own and 464 by
+family, and it now includes many small tooling libraries, which rarely draw
+advisories at all. *No opinion* sits lower than *cleared* because the packages
+with advisories were the first ones decided. The 204 entries left out cite
+advisories and carry them at 95%, as they must.
 
 **The inference fallback did not.** Packages it guessed as exposed had
 advisories at 11.3% — indistinguishable from the 12.1% of packages reviewed and
@@ -910,9 +943,9 @@ that parse outside markup now have curated entries.
 
 ### What is still unmeasured
 
-Coverage, on the 13,042 packages above: **75% get a curated call, 25% get no
+Coverage, on the 13,043 packages above: **75% get a curated call, 25% get no
 opinion** — 37% of packages are marked exposed and 38% reviewed and cleared,
-up from 45% curated in the previous run after 249 map entries were added. The larger the sample, the longer the tail of transitive
+unchanged from the previous run. The larger the sample, the longer the tail of transitive
 dependencies, and that tail is what "no opinion" is for. Those 25% are not
 assessed as safe — they surface as unknown, which is the honest answer, but it
 is a gap rather than a result.
