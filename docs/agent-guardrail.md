@@ -71,15 +71,22 @@ being a block and becomes a warning - a package missing from PyPI is what an
 internal package looks like, and refusing it is how a team learns to remove
 the hook.
 
-**After a resolve.** `uv sync`, `poetry lock` and `pip install -r` name no
-package, and what they pull in exists only in the lockfile afterwards. The
-same goes for `uv lock`, `poetry install` and `update`, `pdm install`, `lock`
-and `update`, `pipenv lock` and `sync`, `pip-compile`, `pip-sync` and
-`rye sync`. A
-`PostToolUse` hook diffs the lockfile against the last commit and checks what
-was added, transitive packages included. It cannot block - the resolve has
-happened - so the finding goes to the model as context, with a count of
-anything past the first twenty. And when the upstream
+**After an install or a resolve.** The install hook checks the names a command
+types. What those packages pull in - dependencies of dependencies, where most
+vulnerable code actually arrives - and everything `uv sync` or `poetry lock`
+installs without naming it, exists only in the lockfile afterwards. So after
+`uv add`, `poetry add` and `pipenv install`, and after resolves such as
+`uv sync`, `uv lock`, `poetry install`, `poetry lock`, `poetry update`,
+`pipenv lock` and `pipenv sync`, a `PostToolUse` hook diffs the lockfile
+against the last commit and checks what was added, leaving out the names the
+command typed because those were checked before it ran. It cannot block - the
+packages are installed - so the finding goes to the model as context, with a
+count of anything past the first twenty.
+
+It reads `uv.lock`, `poetry.lock` and `Pipfile.lock`. A project managed with
+plain pip, pip-tools, PDM or Rye has no lockfile it can diff, so nothing is
+checked after the install there; `package-doctor scan` in CI still sees the
+whole tree. And when the upstream
 services cannot answer, the package is *unchecked* and allowed — a guardrail
 that fails closed on somebody else's outage is the first thing a team removes.
 
@@ -116,6 +123,15 @@ or `python -m pip`), `uv add`, `uv pip install`, `poetry add`, `pipenv install`,
   you did not;
 - anything else is silent.
 
+A package the project has accepted in `package-doctor.toml` is allowed
+through, and the model is told once that it is an accepted risk, with the
+reason and the date it runs until. The rules are the same as in `scan`: an
+expired acceptance blocks again and says it expired, one tied to a version
+covers only that version, and none of it overrides the provenance checks -
+not on PyPI, brand new - which are facts about the name rather than a
+verdict. A malformed file is ignored by the hook rather than stopping the
+call, which can only block more, never less.
+
 If the lookup itself fails, the install is allowed and the model is told it
 went unchecked. `--warn-blocks` makes warnings block too. Responses are
 cached, so the second check of a package costs nothing.
@@ -124,7 +140,8 @@ cached, so the second check of a package costs nothing.
 
 An agent that writes a name into `pyproject.toml` and then runs `uv sync`
 never types the name into a shell command, so the install hook cannot see
-it. The same command also runs as a PostToolUse hook on edits:
+it. The same command also runs as a `PostToolUse` hook - after shell commands,
+for what an install or resolve just locked, and after edits:
 
 ```json
 {
@@ -134,7 +151,7 @@ it. The same command also runs as a PostToolUse hook on edits:
         "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
     ],
     "PostToolUse": [
-      { "matcher": "Edit|Write|MultiEdit",
+      { "matcher": "Bash|Edit|Write|MultiEdit",
         "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
     ]
   }

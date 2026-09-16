@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from . import __version__
-from .accept import CONFIG_NAME, ConfigError, apply_acceptances, load_acceptances
+from .accept import CONFIG_NAME, Acceptances, ConfigError, apply_acceptances, load_acceptances
 from .analysis import Analyzer
 from .cache import Cache, default_cache_path
 from .exposure import load_exposure_map
@@ -31,12 +31,12 @@ from .guard import (
     decide,
     index_uses,
     is_remote_install_target,
-    is_resolver_command,
     load_popular,
     parse_install_command,
     parse_requirement,
     resolved_additions,
     unresolvable_install_targets,
+    writes_lockfile,
 )
 from .models import Exposure, Finding, Package, Remediation, Verdict
 from .parsers import collect_dependencies
@@ -303,6 +303,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=NEW_DAYS,
         metavar="N",
         help=f"block a package first published within N days (default {NEW_DAYS})",
+    )
+    check.add_argument(
+        "--config",
+        type=Path,
+        metavar="PATH",
+        help=f"accepted-risk file (default: {CONFIG_NAME} in the current directory, "
+             f"or [tool.package-doctor] in pyproject.toml)",
     )
     common(check)
 
@@ -669,9 +676,14 @@ def _direct_reference_url(text: str) -> str | None:
 
 
 async def run_check(
-    requirements: list[str], *, args: argparse.Namespace
+    requirements: list[str], *, args: argparse.Namespace,
+    acceptances: Acceptances | None = None,
 ) -> tuple[list[CheckRow], dict[str, int]]:
-    """Look up each requirement and decide. Shared by `check` and the hook."""
+    """Look up each requirement and decide. Shared by `check` and the hook.
+
+    Accepted risks apply exactly as they do in `scan`, so an entry that keeps
+    a package from failing CI also lets the agent install it.
+    """
     now = _now()
     to_analyze: list[tuple[int, Package]] = []
     direct_refs: dict[int, tuple[Package, str]] = {}
@@ -698,6 +710,8 @@ async def run_check(
                 degraded = dict(client.degraded)
         finally:
             cache.close()
+        if acceptances is not None and acceptances.entries:
+            apply_acceptances(findings, acceptances, now)
         for (i, _), finding in zip(to_analyze, findings, strict=True):
             findings_by_index[i] = finding
 
@@ -750,6 +764,15 @@ def check_payload(rows: list[CheckRow], degraded: dict[str, int], now: dt.dateti
                 "reasons": d.reasons,
                 "exposure": f.exposure.categories,
                 "consequence": f.exposure.consequence,
+                "accepted": (
+                    {
+                        "reason": f.accepted.reason,
+                        "until": f.accepted.until.isoformat(),
+                        "source": f.accepted.source,
+                        "expired": f.acceptance_expired,
+                    }
+                    if f.accepted is not None else None
+                ),
                 "provenance": {
                     "found": d.provenance.found,
                     "first_release": (
@@ -781,7 +804,12 @@ async def _run_check(args: argparse.Namespace, console: Console) -> int:
         console.print(f"[red]Not a requirement:[/red] {escape(str(exc))}")
         return EXIT_USAGE
 
-    rows, degraded = await run_check(args.requirements, args=args)
+    try:
+        acceptances = load_acceptances(Path.cwd(), args.config)
+    except ConfigError as exc:
+        console.print(f"[red]Cannot read accepted risks:[/red] {escape(str(exc))}")
+        return EXIT_USAGE
+    rows, degraded = await run_check(args.requirements, args=args, acceptances=acceptances)
     now = _now()
     if args.as_json:
         print(json.dumps(check_payload(rows, degraded, now), indent=2))
@@ -858,6 +886,26 @@ def _session_id(event: dict) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _event_root(event: dict, fallback: Path | None = None) -> Path:
+    cwd = event.get("cwd")
+    if isinstance(cwd, str) and cwd:
+        return Path(cwd).expanduser()
+    return fallback if fallback is not None else Path.cwd()
+
+
+def _hook_acceptances(root: Path) -> Acceptances | None:
+    """The project's accepted risks, for a hook.
+
+    `scan` treats a malformed file as a usage error. A hook cannot stop to ask,
+    so it reads nothing instead: every finding is then unaccepted, which can
+    only block more than intended, never less.
+    """
+    try:
+        return load_acceptances(root)
+    except (ConfigError, OSError):
+        return None
+
+
 def _hook_lines(rows: list[CheckRow]) -> list[str]:
     out = []
     for package, _, decision in rows:
@@ -923,7 +971,9 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
     unchecked: str | None = None
     if requirements:
         try:
-            rows, _degraded = await run_check(requirements, args=args)
+            rows, _degraded = await run_check(
+                requirements, args=args, acceptances=_hook_acceptances(_event_root(event)),
+            )
         except Exception as exc:  # fail open, and say so where the user can see it
             if not remote:
                 print(json.dumps({
@@ -983,7 +1033,11 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
         return 2
 
     session = _session_id(event)
-    context_rows = [row for row in rows if row[2].level in (WARN, UNCHECKED)]
+    # Accepted risks are allowed, but said once: the agent should know it is
+    # adding something the project has chosen to carry, and until when.
+    context_rows = [
+        row for row in rows if row[2].level in (WARN, UNCHECKED) or row[1].suppressed
+    ]
     fresh = set(_unseen(session, [_row_key(row) for row in context_rows]))
     context_lines = _hook_lines([row for row in context_rows if _row_key(row) in fresh])
     context_lines += [
@@ -1003,27 +1057,46 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
 
 
 async def _run_resolve_hook(args: argparse.Namespace, event: dict, command: str) -> int:
-    """Claude Code PostToolUse hook for `uv sync`, `poetry lock` and friends.
+    """Claude Code PostToolUse hook for commands that write a lockfile.
 
-    These name no package, so the install hook has nothing to read, and what
-    they pull in - transitive dependencies included - only exists afterwards,
-    in the lockfile. This diffs the lockfile against the version git last
-    committed and checks what the resolve added. It cannot block, because the
-    resolve has already happened; the finding goes to the model as context,
-    which is what it needs to fix the file before anything runs the code.
+    `uv sync` and friends name no package, so the install hook has nothing to
+    read. `uv add requests` names one, and that name was checked before it ran
+    - but everything it pulled in with it, dependencies of dependencies, only
+    exists afterwards, in the lockfile. Both are handled the same way: the
+    lockfile is diffed against the version git last committed, and what was
+    added is checked, leaving out names the command typed because the install
+    hook already spoke about those. It cannot block, because the packages are
+    already installed; the finding goes to the model as context, which is what
+    it needs to change course before anything runs the code.
     """
-    if not is_resolver_command(command):
+    if not writes_lockfile(command):
         return EXIT_OK
-    cwd = event.get("cwd")
-    root = Path(cwd).expanduser() if isinstance(cwd, str) and cwd else Path.cwd()
+    root = _event_root(event)
     try:
         requirements, more = resolved_additions(root)
     except Exception:
         return EXIT_OK
+    typed = set()
+    for text in parse_install_command(command):
+        try:
+            typed.add(normalise(parse_requirement(text)[0]))
+        except InvalidRequirement:
+            continue
+    kept = []
+    for text in requirements:
+        try:
+            if normalise(parse_requirement(text)[0]) in typed:
+                continue
+        except InvalidRequirement:
+            pass
+        kept.append(text)
+    requirements = kept
     if not requirements:
         return EXIT_OK
     try:
-        rows, _degraded = await run_check(requirements, args=args)
+        rows, _degraded = await run_check(
+            requirements, args=args, acceptances=_hook_acceptances(root),
+        )
     except Exception:
         return EXIT_OK
     flagged = [row for row in rows if row[2].level in (BLOCK, WARN)]
@@ -1034,7 +1107,8 @@ async def _run_resolve_hook(args: argparse.Namespace, event: dict, command: str)
     lines = _hook_lines(flagged)
     if more:
         lines.append(f"(+{more} more newly locked packages, not checked)")
-    context = "package-doctor checked what the resolve just locked: " + " | ".join(lines)
+    context = "package-doctor checked what this command just added to the lockfile: " \
+              + " | ".join(lines)
     print(json.dumps({
         "systemMessage": context,
         "hookSpecificOutput": {
@@ -1069,7 +1143,9 @@ async def _run_edit_hook(args: argparse.Namespace, event: dict, tool_input: dict
     if not requirements:
         return EXIT_OK
     try:
-        rows, _degraded = await run_check(requirements, args=args)
+        rows, _degraded = await run_check(
+            requirements, args=args, acceptances=_hook_acceptances(root),
+        )
     except Exception as exc:
         print(json.dumps({
             "systemMessage": f"package-doctor could not check the dependencies just added "

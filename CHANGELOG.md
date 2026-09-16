@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The install hook checks what an install pulls in, not just what it
+  names.** `uv add`, `poetry add` and `pipenv install` now trigger the
+  lockfile check that previously ran only after resolves such as `uv sync`, so
+  a vulnerable or abandoned package two levels down the tree reaches the model
+  as context. Names the command typed are left out, since they were checked
+  before it ran.
+- **The documented hook configuration ran the lockfile check for nobody.** Its
+  `PostToolUse` matcher listed only `Edit|Write|MultiEdit`, so the check after
+  shell commands never fired. It is now `Bash|Edit|Write|MultiEdit`, in the
+  README and the agent guardrail page. The page also stopped claiming coverage
+  after pip, pip-tools, PDM and Rye commands, whose lockfiles are not read.
+- **`check` and the hook honour accepted risks.** Only `scan` read
+  `package-doctor.toml`, although the hook's own block message told the agent
+  to ask for an acceptance and rerun. The same rules apply as in `scan`: an
+  accepted package is allowed with its reason passed to the model, an expired
+  acceptance blocks again and says so, a version-tied one covers only that
+  version, and provenance checks are never overridden. `check` gains
+  `--config`, and its JSON an `accepted` field.
+
 ## [1.0.1] - 2026-09-16
 
 Documentation and metadata. Nothing covered by the 1.0 compatibility promise

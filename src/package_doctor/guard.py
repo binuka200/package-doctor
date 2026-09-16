@@ -526,6 +526,28 @@ def is_resolver_command(command: str) -> bool:
     return False
 
 
+#: Commands that install packages by name *and* rewrite a lockfile this tool
+#: reads. The names were checked before the command ran, but what they pulled in
+#: with them - dependencies of dependencies - only shows up in the lockfile.
+#: `pdm add` and `rye add` are left out: their lockfiles are not read, so a
+#: check after them would find nothing and look as if it had looked.
+_LOCKING_INSTALLERS: tuple[tuple[str, ...], ...] = (
+    ("uv", "add"), ("poetry", "add"), ("pipenv", "install"),
+)
+
+
+def writes_lockfile(command: str) -> bool:
+    """True when this command may have added packages a lockfile diff can find:
+    a resolve, or an install by name that locks what it pulled in with it."""
+    if is_resolver_command(command):
+        return True
+    for seg in _segments(command):
+        for verb in _LOCKING_INSTALLERS:
+            if any(tuple(seg[i : i + len(verb)]) == verb for i in range(len(seg))):
+                return True
+    return False
+
+
 def resolved_additions(root: Path, limit: int = MAX_RESOLVED) -> tuple[list[str], int]:
     """(requirement strings a resolve just added to a lockfile, how many more).
 
@@ -617,7 +639,18 @@ def decide(
     verdict = finding.verdict
     claims = [r.claim for r in finding.reasons]
     remedy: str | None = None
-    if finding.blocks:
+    accepted = finding.accepted
+    if finding.suppressed and accepted is not None:
+        # The project has recorded, with a reason and an end date, that it
+        # carries this risk. `scan` honours that, so the install hook does too:
+        # a guardrail that refuses what CI accepts turns the documented way out
+        # into a dead end. The provenance facts above - brand new, one edit from
+        # a popular name - are not a verdict, and acceptance does not reach them.
+        reasons.append(
+            f"accepted risk ({verdict.value}): {accepted.reason}, until "
+            f"{accepted.until.isoformat()}"
+        )
+    elif finding.blocks:
         # Exactly what fails a scan: exploited wherever it is found, or a
         # replacement or upgrade at a reviewed trust boundary. The hook and CI
         # never disagree about what is worth refusing.
@@ -655,4 +688,6 @@ def decide(
                 "reviewed as not at a trust boundary" if finding.exposure.note
                 else "no concerns found"
             )
+    if finding.acceptance_expired and accepted is not None:
+        reasons.append(f"its acceptance expired on {accepted.until.isoformat()}")
     return Decision(level, reasons, provenance, remedy)

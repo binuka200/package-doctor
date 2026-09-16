@@ -84,16 +84,19 @@ accept a known risk on the record, with a reason and an expiry date.
 {
   "hooks": {
     "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }
-        ]
-      }
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
     ]
   }
 }
 ```
+
+`PreToolUse` checks what an install names before it runs. `PostToolUse` checks
+what it pulled in with it, and names written straight into a dependency file.
 
 ## How accurate is it?
 

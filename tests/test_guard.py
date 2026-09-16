@@ -806,3 +806,143 @@ def test_the_resolve_hook_is_silent_when_the_lock_added_nothing(monkeypatch, cap
     monkeypatch.setattr(cli, "resolved_additions", lambda *a, **kw: ([], 0))
     assert run_hook(monkeypatch, _post_event("uv sync")) == 0
     assert capsys.readouterr().out == ""
+
+
+# --- what an install by name pulled in with it ------------------------------
+
+@pytest.mark.parametrize("command, expected", [
+    ("uv add easy-scraper", True), ("poetry add easy-scraper", True),
+    ("pipenv install easy-scraper", True), ("uv sync", True), ("pip install -r req.txt", True),
+    ("pip install easy-scraper", False), ("uv pip install easy-scraper", False),
+    ("pdm add easy-scraper", False), ("pytest -q", False),
+])
+def test_commands_that_write_a_lockfile_are_recognised(command, expected):
+    """uv add and poetry add name a package, but lock everything it depends on
+    too. pdm and rye are left out because their lockfiles are not read."""
+    from package_doctor.guard import writes_lockfile
+    assert writes_lockfile(command) is expected
+
+
+def test_an_add_is_followed_by_a_check_of_what_it_pulled_in(monkeypatch, capsys, tmp_path):
+    """The name typed was checked before the install. What came with it -
+    here a dependency two levels down - is only in the lockfile afterwards."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "resolved_additions",
+                        lambda root, *a, **kw: (["easy-scraper==1.0", "old-xml-parser==1.2"], 0))
+    stub(monkeypatch, [finding("old-xml-parser", Verdict.REPLACE, exposed=True,
+                               reasons=["repository is archived"])])
+    assert run_hook(monkeypatch, _post_event("uv add easy-scraper")) == 0
+    message = json.loads(capsys.readouterr().out)["systemMessage"]
+    assert "old-xml-parser" in message
+    assert "easy-scraper" not in message, "the typed name was already spoken about"
+
+
+def test_an_add_that_pulled_in_only_itself_says_nothing(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "resolved_additions", lambda root, *a, **kw: (["six==1.17.0"], 0))
+    called = []
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            called.append(1)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    assert run_hook(monkeypatch, _post_event("poetry add six")) == 0
+    assert not called and capsys.readouterr().out == ""
+
+
+# --- accepted risks reach the hook ------------------------------------------
+
+def _accept(tmp_path, *, until="2026-12-31", version=None):
+    lines = ['[[accept]]', 'package = "legacy-auth"',
+             'reason = "Migration lands in Q4, see PROJ-123"', f"until = {until}"]
+    if version:
+        lines.append(f'version = "{version}"')
+    (tmp_path / "package-doctor.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _event_in(tmp_path, command: str) -> str:
+    event = json.loads(hook_event(command))
+    event["cwd"] = str(tmp_path)
+    return json.dumps(event)
+
+
+def _legacy(version: str = "1.0") -> Finding:
+    f = finding("legacy-auth", Verdict.REPLACE, exposed=True, reasons=["repository is archived"])
+    f.package.version = version
+    return f
+
+
+def test_an_accepted_risk_is_allowed_through_the_hook_and_said(monkeypatch, capsys, tmp_path):
+    """The hook's own block message tells the agent to ask for an acceptance.
+    Until now the hook never read one, so that advice led nowhere."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    _accept(tmp_path)
+    stub(monkeypatch, [_legacy()])
+    code = run_hook(monkeypatch, _event_in(tmp_path, "pip install legacy-auth==1.0"))
+    out, err = capsys.readouterr()
+    assert code == 0, "accepted on the record: not blocked"
+    assert err == ""
+    message = json.loads(out)["systemMessage"]
+    assert "accepted risk" in message and "PROJ-123" in message and "2026-12-31" in message
+
+
+def test_an_expired_acceptance_blocks_again_and_says_why(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    _accept(tmp_path, until="2026-01-31")
+    stub(monkeypatch, [_legacy()])
+    assert run_hook(monkeypatch, _event_in(tmp_path, "pip install legacy-auth==1.0")) == 2
+    assert "expired on 2026-01-31" in capsys.readouterr().err
+
+
+def test_an_acceptance_for_another_version_does_not_apply(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    _accept(tmp_path, version="2.1.0")
+    stub(monkeypatch, [_legacy("1.9.0")])
+    assert run_hook(monkeypatch, _event_in(tmp_path, "pip install legacy-auth==1.9.0")) == 2
+
+
+def test_a_malformed_acceptance_file_never_lets_more_through(monkeypatch, capsys, tmp_path):
+    """A hook cannot stop to report a bad file. Reading nothing can only block
+    more than intended, never less."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    (tmp_path / "package-doctor.toml").write_text("[[accept]]\npackage = \n", encoding="utf-8")
+    stub(monkeypatch, [_legacy()])
+    assert run_hook(monkeypatch, _event_in(tmp_path, "pip install legacy-auth==1.0")) == 2
+
+
+def test_acceptance_does_not_reach_provenance(monkeypatch, capsys, tmp_path):
+    """Brand new is a fact about where the name came from, not a verdict."""
+    monkeypatch.setattr(cli, "default_cache_path", lambda: tmp_path / "cache.db")
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    _accept(tmp_path)
+    f = _legacy()
+    f.remediation.first_release = NOW - dt.timedelta(days=3)
+    stub(monkeypatch, [f])
+    assert run_hook(monkeypatch, _event_in(tmp_path, "pip install legacy-auth==1.0")) == 2
+    assert "first published 3 days ago" in capsys.readouterr().err
+
+
+def test_check_honours_acceptances_and_reports_them(monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    _accept(tmp_path)
+    stub(monkeypatch, [_legacy()])
+    assert cli.main(["check", "legacy-auth==1.0", "--json", "--no-cache"]) == cli.EXIT_OK
+    row = json.loads(capsys.readouterr().out)["checks"][0]
+    assert row["level"] == "ok"
+    assert row["accepted"] == {"reason": "Migration lands in Q4, see PROJ-123",
+                               "until": "2026-12-31", "source": "package-doctor.toml",
+                               "expired": False}
+
+
+def test_check_rejects_a_malformed_acceptance_file(monkeypatch, capsys, tmp_path):
+    """Run by a person, `check` can say what is wrong, as `scan` does."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "package-doctor.toml").write_text("[[accept]]\npackage = \n", encoding="utf-8")
+    stub(monkeypatch, [_legacy()])
+    assert cli.main(["check", "legacy-auth==1.0", "--no-cache"]) == cli.EXIT_USAGE
+    assert "Cannot read accepted risks" in capsys.readouterr().out
