@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-16
+
+### Upgrading
+
+If you copied the Claude Code hook configuration from an earlier README, add
+`Bash` to the `PostToolUse` matcher so the lockfile check runs after shell
+commands:
+
+```json
+"PostToolUse": [
+  { "matcher": "Bash|Edit|Write|MultiEdit",
+    "hooks": [{ "type": "command", "command": "package-doctor hook claude-code", "timeout": 60 }] }
+]
+```
+
+Without it, only edits to dependency files are checked after the fact.
+
 ### Fixed
 
 - **The install hook checks what an install pulls in, not just what it
@@ -719,7 +736,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/binuka200/package-doctor/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/binuka200/package-doctor/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/binuka200/package-doctor/compare/v0.9.1...v1.0.0
 [0.9.1]: https://github.com/binuka200/package-doctor/compare/v0.9.0...v0.9.1
