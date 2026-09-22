@@ -83,6 +83,46 @@ def test_last_release_on_an_empty_project():
     assert PyPISource.last_release({"releases": {}}) == (None, None)
 
 
+def test_last_upload_sees_a_trailing_wheel_that_last_release_misses():
+    """A new-Python wheel added to an old version post-dates the newest
+    version: last_release reports the version date, last_upload the activity."""
+    data = {"releases": {
+        # 1.0 got a fresh wheel in 2025, long after 2.0 was the last version.
+        "1.0": [
+            {"upload_time_iso_8601": "2020-01-01T00:00:00Z", "yanked": False},
+            {"latest_upload_time_iso_8601": "2025-06-01T00:00:00Z",
+             "upload_time_iso_8601": "2020-01-01T00:00:00Z", "yanked": False},
+        ],
+        "2.0": files("2024-01-01T00:00:00Z"),
+    }}
+    assert PyPISource.last_release(data)[0] == "2.0"
+    version, date = PyPISource.last_upload(data)
+    assert version == "1.0" and date.year == 2025
+
+
+def test_last_upload_falls_back_to_earliest_field_for_old_cache_entries():
+    """Pre-v3 cache entries have no latest field; the earliest one is used."""
+    data = {"releases": {
+        "1.0": files("2020-01-01T00:00:00Z"),
+        "2.0": files("2024-01-01T00:00:00Z"),
+    }}
+    version, date = PyPISource.last_upload(data)
+    assert version == "2.0" and date.year == 2024
+
+
+def test_last_upload_counts_a_yanked_release_as_activity():
+    """Unlike last_release, a yank is itself a maintainer touching the package."""
+    data = {"releases": {
+        "1.0": files("2020-01-01T00:00:00Z"),
+        "2.0": files("2024-01-01T00:00:00Z", yanked=True),
+    }}
+    assert PyPISource.last_upload(data)[0] == "2.0"
+
+
+def test_last_upload_on_an_empty_project():
+    assert PyPISource.last_upload({"releases": {}}) == (None, None)
+
+
 # --- classifiers ------------------------------------------------------------
 
 def test_inactive_classifier_detection():
@@ -173,6 +213,7 @@ def test_reduced_body_gives_identical_answers():
     full, slim = full_body(), reduce_pypi(full_body())
     assert PyPISource.release_dates(slim) == PyPISource.release_dates(full)
     assert PyPISource.last_release(slim) == PyPISource.last_release(full)
+    assert PyPISource.last_upload(slim) == PyPISource.last_upload(full)
     assert PyPISource.has_inactive_classifier(slim) == PyPISource.has_inactive_classifier(full)
     assert extract_github_repo(slim["info"]) == extract_github_repo(full["info"])
     assert PyPISource.last_release(slim)[0] == "2.0"
@@ -188,7 +229,11 @@ def test_reduced_body_is_small():
     for files in slim["releases"].values():
         assert len(files) <= 1
         for f in files:
-            assert set(f) == {"upload_time_iso_8601", "yanked"}
+            assert set(f) == {
+                "upload_time_iso_8601",
+                "latest_upload_time_iso_8601",
+                "yanked",
+            }
 
 
 def test_reduction_keeps_the_earliest_file_by_time_not_by_string():
@@ -197,6 +242,16 @@ def test_reduction_keeps_the_earliest_file_by_time_not_by_string():
         {"upload_time_iso_8601": "2023-12-31T23:00:00Z"},
     ]}})
     assert slim["releases"]["1.0"][0]["upload_time_iso_8601"] == "2023-12-31T23:00:00Z"
+
+
+def test_reduction_keeps_the_latest_file_by_time_not_by_string():
+    slim = reduce_pypi({"releases": {"1.0": [
+        {"upload_time_iso_8601": "2024-01-01T00:00:00+00:00"},
+        {"upload_time_iso_8601": "2024-02-01T09:00:00Z"},
+    ]}})
+    f = slim["releases"]["1.0"][0]
+    assert f["upload_time_iso_8601"] == "2024-01-01T00:00:00+00:00"
+    assert f["latest_upload_time_iso_8601"] == "2024-02-01T09:00:00Z"
 
 
 def test_reduction_marks_a_release_yanked_only_when_every_file_is():
@@ -216,7 +271,13 @@ def test_reduction_survives_malformed_shapes():
     assert slim["info"] == {}
     assert "1.0" not in slim["releases"]
     assert slim["releases"]["2.0"] == []
-    assert slim["releases"]["3.0"] == [{"upload_time_iso_8601": None, "yanked": False}]
+    assert slim["releases"]["3.0"] == [
+        {
+            "upload_time_iso_8601": None,
+            "latest_upload_time_iso_8601": None,
+            "yanked": False,
+        }
+    ]
 
 
 async def test_fetch_caches_the_reduced_body_not_the_response(cache):
@@ -231,7 +292,7 @@ async def test_fetch_caches_the_reduced_body_not_the_response(cache):
     ))
     data = await PyPISource(c).fetch("demo")
     assert data is not None and "description" not in data["info"]
-    stored = cache.get("pypi:v2:demo")
+    stored = cache.get("pypi:v3:demo")
     assert stored["body"] == data
     assert cache.get("pypi:demo") is None, "the old key is never written"
     await c.aclose()

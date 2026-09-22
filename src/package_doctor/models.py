@@ -203,6 +203,10 @@ class Remediation:
     repo_last_commit: dt.datetime | None = None
     inactive_classifier: bool = False
     last_release: dt.datetime | None = None
+    #: The most recent file upload across all releases. Diverges from
+    #: last_release when new-Python wheels are added to an old version: a
+    #: package can look years stale by version yet still be tended.
+    last_upload: dt.datetime | None = None
     #: The earliest upload on PyPI. A package that appeared last week under a
     #: name an agent just invented is the pattern the guardrail exists for.
     first_release: dt.datetime | None = None
@@ -217,6 +221,13 @@ class Remediation:
         if self.last_release is None:
             return None
         return (now - self.last_release).days
+
+    def days_since_upload(self, now: dt.datetime) -> int | None:
+        """Days since any file was last uploaded to PyPI. Recent activity here
+        with a stale release date means new wheels, not necessarily new code."""
+        if self.last_upload is None:
+            return None
+        return (now - self.last_upload).days
 
     def days_since_push(self, now: dt.datetime) -> int | None:
         """Days since the code last changed: the default branch's last commit

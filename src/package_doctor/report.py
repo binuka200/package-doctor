@@ -614,6 +614,15 @@ def render_explain(console: Console, finding: Finding, exposure_note: str = "") 
     row("Latest release", rem.latest_version or "unknown")
     if rem.last_release:
         row("Released", rem.last_release.date().isoformat())
+    # Only worth showing when a file landed after the version's own date -
+    # new-Python wheels on an old release - since that is the case where the
+    # version date alone reads as more abandoned than the package is.
+    if (
+        rem.last_upload
+        and rem.last_release
+        and rem.last_upload.date() > rem.last_release.date()
+    ):
+        row("Last file upload", rem.last_upload.date().isoformat())
     row(
         "Repository",
         "archived"
@@ -803,6 +812,7 @@ def to_dict(
             "remediation": {
                 "latest_version": rem.latest_version,
                 "last_release": rem.last_release.isoformat() if rem.last_release else None,
+                "last_upload": rem.last_upload.isoformat() if rem.last_upload else None,
                 "repository": rem.repo_url,
                 "repo_archived": rem.repo_archived,
                 "repo_last_push": rem.repo_last_push.isoformat() if rem.repo_last_push else None,

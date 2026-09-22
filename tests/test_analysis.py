@@ -25,6 +25,7 @@ def build(monkeypatch, pypi=None, vulns=(), repo=None):
         async def fetch(self, name): return pypi
         release_dates = staticmethod(lambda d: {})
         last_release = staticmethod(lambda d: (None, None))
+        last_upload = staticmethod(lambda d: (None, None))
         has_inactive_classifier = staticmethod(lambda d: False)
 
     class Osv:

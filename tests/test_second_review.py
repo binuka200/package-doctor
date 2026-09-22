@@ -193,6 +193,7 @@ def _analyzer(repo: RepoInfo, feed_calls: list, moved: str | None = None):
                     "releases": {"1.0": [{"upload_time_iso_8601": "2026-01-01T00:00:00Z"}]}}
         release_dates = staticmethod(lambda d: {"1.0": NOW - dt.timedelta(days=100)})
         last_release = staticmethod(lambda d: ("1.0", NOW - dt.timedelta(days=100)))
+        last_upload = staticmethod(lambda d: ("1.0", NOW - dt.timedelta(days=100)))
         has_inactive_classifier = staticmethod(lambda d: False)
 
     class Osv:

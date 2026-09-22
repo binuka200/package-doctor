@@ -124,6 +124,7 @@ def analyzer(pypi, assume=True):
             return pypi
         release_dates = staticmethod(lambda d: {})
         last_release = staticmethod(lambda d: ("5.0.0", NOW))
+        last_upload = staticmethod(lambda d: ("5.0.0", NOW))
         has_inactive_classifier = staticmethod(lambda d: False)
         newest_matching = staticmethod(PyPISource.newest_matching)
 

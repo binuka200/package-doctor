@@ -82,6 +82,8 @@ class Analyzer:
         latest_version, last_release = self.pypi.last_release(pypi_data)
         remediation.latest_version = latest_version
         remediation.last_release = last_release
+        _, last_upload = self.pypi.last_upload(pypi_data)
+        remediation.last_upload = last_upload
         remediation.first_release = min(releases.values()) if releases else None
         remediation.inactive_classifier = self.pypi.has_inactive_classifier(pypi_data)
         if last_release is None:

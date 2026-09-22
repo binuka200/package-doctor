@@ -123,14 +123,19 @@ def reduce_pypi(data: Any) -> Any:
             continue
         # Earliest upload, chosen by parsed time rather than string order, and
         # kept as the original string so the reader parses it the same way.
+        # The latest upload is kept too: a wheel added to an old release for a
+        # new Python is maintainer activity that the version date cannot see,
+        # and it is one more scalar rather than the whole file list.
         dated = [
             (ts, raw)
             for f in entries
             if isinstance(raw := f.get("upload_time_iso_8601"), str) and (ts := parse_ts(raw))
         ]
         earliest = min(dated)[1] if dated else None
+        latest = max(dated)[1] if dated else None
         slim_releases[str(version)] = [{
             "upload_time_iso_8601": earliest,
+            "latest_upload_time_iso_8601": latest,
             "yanked": all(f.get("yanked") for f in entries),
         }]
     return {"info": slim_info, "releases": slim_releases}
@@ -148,7 +153,7 @@ class PyPISource:
             # The key carries the shape version: entries written before the
             # response was reduced hold the full body, and must not be read
             # as if they were reduced or kept alive by being looked up.
-            cache_key=f"pypi:v2:{normalise(name)}",
+            cache_key=f"pypi:v3:{normalise(name)}",
             reduce=reduce_pypi,
             max_bytes=PYPI_MAX_RESPONSE_BYTES,
         )
@@ -193,6 +198,38 @@ class PyPISource:
             if not stamps:
                 continue
             date = min(stamps)
+            if best_date is None or date > best_date:
+                best_version, best_date = version, date
+        return best_version, best_date
+
+    @staticmethod
+    def last_upload(data: dict[str, Any]) -> tuple[str | None, dt.datetime | None]:
+        """Most recent moment *any* file was uploaded to the project.
+
+        A wheel added to an old release for a new Python still counts as
+        maintainer activity, which ``last_release`` (the version's date) does
+        not see. Yanked releases are kept, since a yank is itself activity.
+        Falls back to the earliest-upload field for cache entries written
+        before the reduced shape carried the latest one.
+        """
+        best_version, best_date = None, None
+        for version, files in (data.get("releases") or {}).items():
+            if not isinstance(files, list) or not files:
+                continue
+            stamps = [
+                ts
+                for f in files
+                if isinstance(f, dict)
+                and (
+                    ts := parse_ts(
+                        f.get("latest_upload_time_iso_8601")
+                        or f.get("upload_time_iso_8601")
+                    )
+                )
+            ]
+            if not stamps:
+                continue
+            date = max(stamps)
             if best_date is None or date > best_date:
                 best_version, best_date = version, date
         return best_version, best_date
