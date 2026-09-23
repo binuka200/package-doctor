@@ -150,6 +150,18 @@ repository that has been renamed is followed to its new address; one whose
 metadata cannot be read shows *missing signal* in the report rather than
 looking complete.
 
+The release date has the same blind spot from the other side. It is the date
+of the newest *version*, so a maintainer who adds wheels for a new Python to
+an older release — keeping the package installable without changing its code —
+leaves it looking as stale as one nobody has touched. The most recent file
+upload across all releases is recorded alongside it, and yanking a release
+counts, since that is a maintainer acting too. `explain` shows it as
+*Last file upload* only when it is later than the release date, the one case
+where the release date alone misleads; the JSON always carries it as
+`last_upload`. It is shown, not scored: new wheels say the package is
+tended, not that its code is maintained, so the weak release-age signal still
+reads the version date.
+
 ### On "time to fix"
 
 The obvious metric — days from advisory to patch — is wrong, and the data says

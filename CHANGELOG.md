@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`explain` shows when files were last uploaded, not just when the version
+  was released.** Wheels for a new Python added to an old release are
+  maintainer activity the release date cannot see, and left a tended package
+  reading as abandoned. A *Last file upload* row appears when it is later than
+  the release date, and the JSON carries `last_upload` for every package.
+  Scoring is unchanged. PyPI responses are cached under a new key, so the first
+  run after upgrading fetches them again.
+
 ### Fixed
 
 - **`explain` accepts `name==version`.** `package-doctor explain bleach==6.4.0`
