@@ -60,3 +60,46 @@ oobabooga/text-generation-webui
 ultralytics/ultralytics
 wagtail/wagtail
 OpenBB-finance/OpenBB:openbb_platform
+# Added 23 September 2026, taking the run to 100: forty more, weighted to
+# applications with pinned requirements and lockfiles, security tooling,
+# and data and ML libraries.
+django/django
+zulip/zulip
+saleor/saleor
+netbox-community/netbox
+paperless-ngx/paperless-ngx
+mealie-recipes/mealie
+healthchecks/healthchecks
+getmoto/moto
+scrapy/scrapy
+celery/celery
+sqlalchemy/sqlalchemy
+pandas-dev/pandas
+scikit-learn/scikit-learn
+huggingface/transformers
+matplotlib/matplotlib
+plotly/dash
+fastapi/full-stack-fastapi-template:backend
+aws/aws-cli
+python/mypy
+pylint-dev/pylint
+pytest-dev/pytest
+ansible/awx
+odoo/odoo
+pretix/pretix
+CTFd/CTFd
+httpie/cli
+yt-dlp/yt-dlp
+certbot/certbot
+zauberzeug/nicegui
+langchain-ai/langchain:libs/langchain
+run-llama/llama_index
+deepset-ai/haystack
+HumanSignal/label-studio
+mlflow/mlflow
+dagster-io/dagster
+pypi/warehouse
+readthedocs/readthedocs.org
+freqtrade/freqtrade
+DefectDojo/django-DefectDojo
+MobSF/Mobile-Security-Framework-MobSF

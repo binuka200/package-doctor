@@ -61,8 +61,8 @@ findings are ranked by how likely the flaw is to actually be used:
 
 ![package-doctor explain pillow: pillow 10.0.0 is FIX TODAY. Exposure is file/media parsing, curated, with code execution as the consequence; imported at app/main.py:5; the repository is active and fixed 75 of 79 advisories before disclosure; 18 advisories affect the pinned version. Under Exploitability, CVE-2023-4863 is on CISA's known-exploited list with a greater than 99% chance of exploitation in 30 days, the next highest is 1.7%, and one advisory has no EPSS score, which means unknown, not low risk.](https://raw.githubusercontent.com/binuka200/package-doctor/main/docs/images/explain-pillow.png)
 
-Across sixty real projects that turns **2,218 advisories affecting pinned
-versions into 33 worth reading first** — the ones on CISA's list or above a 10%
+Across a hundred real projects that turns **2,550 advisories affecting pinned
+versions into 34 worth reading first** — the ones on CISA's list or above a 10%
 exploit probability, in eight packages.
 
 Only advisories affecting your *pinned* version are scored — a CVE fixed five

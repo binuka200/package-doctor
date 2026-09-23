@@ -100,16 +100,20 @@ what it pulled in with it, and names written straight into a dependency file.
 
 ## How accurate is it?
 
-Measured on 60 open source repositories and 13,043 packages, on 16 September
+Measured on 100 open source repositories and 18,138 packages, on 23 September
 2026:
 
-- **6,897 of 6,898** pinned versions match OSV's own answer about which
+- **8,260 of 8,261** pinned versions match OSV's own answer about which
   advisories affect them.
 - **0 vulnerabilities** that pip-audit found and package-doctor missed, over
-  1,663 found by both.
-- **78,642 reported import sites** checked against the source line: 78,612
-  match outright, and the other 30 are `_pytest` imports, which pytest ships.
-- **2,218 advisories** affecting pinned versions, of which **33** are on CISA's
+  1,663 found by both (on the first 60 repositories).
+- **116,317 reported import sites** checked against the source line: 116,283
+  match outright, and the other 34 are modules their distribution ships under
+  another name, such as `_pytest`.
+- **Every verdict's claim checked at its source**: all 14 *exploited* CVEs are
+  on CISA's list and no affected pin escaped; all 554 upgrade targets clear
+  their advisories; 87 of 88 archived claims confirmed by GitHub.
+- **2,550 advisories** affecting pinned versions, of which **34** are on CISA's
   list or above a 10% exploit probability.
 
 The exposure map carries real signal too: among entries decided from what a

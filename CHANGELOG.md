@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `unread`, beside `not_analysed`. A `setup.py` whose `install_requires` is
   computed in Python yields no dependencies, and an empty `findings` from it
   is not a clean project.
+- **`research/evaluate_verdicts.py`** checks each verdict's claim at its
+  source over an `evaluate_repos.py` run - exploited CVEs against CISA KEV in
+  both directions, upgrade targets against OSV, archived repositories against
+  GitHub - and measures what fails the build and why. The evaluation list
+  grows from 60 repositories to 100.
 
 ### Changed
 

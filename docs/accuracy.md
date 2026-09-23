@@ -2,26 +2,31 @@
 
 Back to the [README](../README.md).
 
-Measured, not asserted, on sixty open source repositories: web frameworks
+Measured, not asserted, on a hundred open source repositories: web frameworks
 and the apps built on them, the pallets and pydantic families, LLM tooling,
-ML and data projects, infrastructure and CLI tools, from home-assistant at
-1,250 packages down to ansible at 5. The list is
-[`research/eval-repos.txt`](../research/eval-repos.txt) and the harness is
-[`research/evaluate_repos.py`](../research/evaluate_repos.py); everything below
-reproduces from those two files. Last measured on 16 September 2026 with
-package-doctor 1.0.0, against fresh clones.
+ML and data libraries, security tools, infrastructure and CLI tools, and
+applications that ship pinned lockfiles - odoo, awx, warehouse, netbox,
+saleor, DefectDojo - from home-assistant at 1,250 packages down to ansible
+at 5. The list is [`research/eval-repos.txt`](../research/eval-repos.txt).
+[`research/evaluate_repos.py`](../research/evaluate_repos.py) checks the data
+layer and [`research/evaluate_verdicts.py`](../research/evaluate_verdicts.py)
+checks each verdict against its source; everything below reproduces from those
+three files. Last measured on 23 September 2026 with the development version
+after 1.0.2 - the fixes the run itself turned up, listed at the end of this
+section - against fresh clones.
 
 | | |
 | --- | --- |
-| repositories | 60 (59 with a dependency file the tool reads; letta's repository now holds only documentation) |
-| packages assessed | 13,043 |
-| distinct pinned (package, version) pairs | 6,898 |
-| import sites reported | 78,642 |
+| repositories | 100 (98 with dependencies the tool can read; letta's repository now holds only documentation, and transformers computes its `install_requires` in `setup.py`, which is parsed, never run) |
+| packages assessed | 18,138 |
+| distinct pinned (package, version) pairs | 8,261 |
+| import sites reported | 116,317 |
+| scan time per repository, cold cache | median 22 s, longest 8.5 min (home-assistant) |
 
 **Advisory matching, against OSV's own version-scoped query** — the
-authoritative answer to "is this pinned version affected?" — over all 6,898
+authoritative answer to "is this pinned version affected?" — over all 8,261
 pairs, after collapsing GHSA and PYSEC aliases to their CVE:
-**6,897 / 6,898 exact agreement.** The one disagreement is `langsmith 0.3.45`,
+**8,260 / 8,261 exact agreement.** The one disagreement is `langsmith 0.3.45`,
 whose record carries a range typed `SEMVER` alongside its `ECOSYSTEM` range;
 OSV ignores the first for PyPI, this tool reads it, and reports the version
 affected. Earlier runs found and fixed three failures, each now a test:
@@ -31,7 +36,9 @@ event never reported, and `click==8.*` stored as a version rather than read
 as a range.
 
 **Against `pip-audit`** (`--no-deps --disable-pip -s osv`) on the same pins,
-compared at the vulnerability level with identifiers canonicalised to CVE:
+compared at the vulnerability level with identifiers canonicalised to CVE.
+This comparison was last run on the sixty-repository list, on 16 September
+2026:
 
 | | |
 | --- | --- |
@@ -47,41 +54,68 @@ cache knew them only by GHSA id, and 22 findings failed to pair up. With the
 cache refreshed they matched. A mismatch of this shape is an alias arriving,
 not a missed vulnerability.
 
-**Reachability:** of 78,642 import sites reported, 78,612 open to an import
-of that package on that line. The 30 remaining are `from _pytest...` and
-`import py` attributed to pytest, which is correct — both modules ship in the
-pytest distribution — and only the checker's static table did not know it.
+**Reachability:** of 116,317 import sites reported, 116,283 open to an import
+of that package on that line. The 34 remaining are correct and only the
+checker's static table did not know it: 33 are `from _pytest...` and
+`import py`, which ship in the pytest distribution, and one is
+`from packageurl import PackageURL`, which is packageurl-python.
 
 The honest limit: both tools read OSV, so this shows we read it correctly, not
 that OSV is complete. And it measures the *data* layer.
 
-## The verdicts, read
+**What this run found and fixed**, each now a test:
 
-The verdict layer is a judgement, so the check is reading them. Across the
-sixty projects 566 findings ask for work - 14 *exploited*, 111 *replace*, 441
-*upgrade*. 468 rest on the pinned version being affected by a published
-advisory, which the OSV agreement above makes right by construction; they are
-mostly old lockfiles.
+- *A pre-release named as the fix.* The latest release included alphas,
+  betas and nightlies: 13 upgrade verdicts named tornado `6.6a1`, pydantic
+  `2.14.0b2` or a yt-dlp dev build as the release to install, and 786
+  findings showed a pre-release as the latest. Each stable release also
+  cleared the advisories, so no verdict changed - only the advice.
+- *Git dependencies looked up on PyPI by name.* A package that `uv.lock` or
+  `[tool.uv.sources]` installs from git, and that `pyproject.toml` also lists,
+  went to PyPI anyway. zulip's `talon-core` and `zulint` came back "not
+  found"; zulip's own `zulip` and `zulip-bots` were judged as the unrelated
+  packages of the same name on PyPI.
+- *A range naming a pre-release.* celery's `kombu>=5.7.0a1` was reported as
+  satisfied by no release, where pip installs `5.7.0a1`.
+- *No report when there is nothing to report.* `scan -o` on transformers
+  exited 0 without writing the file, failing whatever read it next. The empty
+  report now lists the files it could only read in part.
 
-The other 98 are all *replace*, on 58 distinct packages, and each rests on a
-fact rather than a threshold: 91 on an archived repository, 7 on the
-maintainer's Inactive classifier. Every such claim in the run was checked at
-source. GitHub confirms 74 of the 75 repositories reported archived; the 75th,
-iometer's, is no longer public, so it can be neither confirmed nor refuted,
-and its verdict is *quiet* in any case. PyPI confirms all 11 Inactive
-classifiers. Seven of the 58 fail the build, because they sit at a reviewed
-boundary: adal, bleach, google-generativeai, msrest, msrestazure, oauth2client
-and redis-py-cluster, libraries their owners deprecated or archived. The rest
-are away from one, where *replace* informs rather than blocks.
+## The verdicts, checked at source
 
-The previous run, before 0.9, counted 132 maintenance verdicts, and many sat
-just past an age threshold. Age alone now produces *quiet*: all thirteen
-packages that run named as threshold cases - requests-toolbelt, olefile,
-flask-session, dataclasses-json, jsonpatch, python-pptx, requests-kerberos,
-requests-ntlm, pysocks, html5lib, chevron, rfc3339-validator and
-requests-aws-sign - are *quiet* here and fail nothing. nltk and keras, whose
-unfixed advisories the maintainers consider by design, are *mitigate*. The
-full list is in `acts.json` after any run of the harness.
+The verdict layer is a judgement, and most of it can still be checked against
+the fact it rests on. Across the hundred projects 743 findings ask for work -
+14 *exploited*, 175 *replace*, 554 *upgrade*. 584 rest on the pinned version
+being affected by a published advisory, which the OSV agreement above makes
+right by construction; they are mostly old lockfiles.
+
+**Exploited.** All 14 cite CVEs on CISA's known-exploited list on the day of
+the run: starlette in nine projects, litellm in four, pillow in one. The
+check was also run the other way, over every pinned version OSV says a KEV
+CVE affects, and none escaped the verdict. Nine of the fourteen are imported
+by the project's own code.
+
+**Upgrade.** For all 554, OSV confirms the release named as the fix is clear
+of every advisory against the pinned version, and none is a pre-release.
+
+**Replace.** The other 159 action verdicts are all *replace*, on 75 distinct
+packages, and each rests on a fact rather than a threshold: 143 on an
+archived repository, 16 on the maintainer's Inactive classifier. GitHub
+confirms 87 of the 88 repositories reported archived; the 88th, iometer's, is
+no longer public, so it can be neither confirmed nor refuted. PyPI confirms
+all 15 Inactive classifiers. Seven fail the build, because they sit at a
+reviewed boundary - adal, bleach, google-generativeai, msrest, msrestazure,
+oauth2client and redis-py-cluster, the same seven as the sixty-repository
+run. The rest are away from one, where *replace* informs rather than blocks.
+
+The run before 0.9 counted 132 maintenance verdicts, and many sat just past
+an age threshold. Age alone now produces *quiet*: all thirteen packages that
+run named as threshold cases - requests-toolbelt, olefile, flask-session,
+dataclasses-json, jsonpatch, python-pptx, requests-kerberos, requests-ntlm,
+pysocks, html5lib, chevron, rfc3339-validator and requests-aws-sign - are
+*quiet* in all 108 places they appear here and fail nothing. nltk and keras,
+whose unfixed advisories the maintainers consider by design, are
+*mitigate*. The full list is in `acts.json` after any run of the harness.
 
 That result is recent. An earlier version of this tool recognised only a
 `fixed` event as closing an advisory's range, and on an eight-project sample
@@ -89,6 +123,45 @@ That result is recent. An earlier version of this tool recognised only a
 `last_affected`, Django 6 among them for a 2011 CSRF bug. Reading ranges as
 OSV does took the sixty-project run from 207 "never fixed" advisory records
 to 15.
+
+## What a user is asked to do
+
+Right verdicts are not the same as useful ones, so the run also measures what
+a project would experience with the default settings.
+
+| | |
+| --- | --- |
+| packages with an advisory against the pinned version | 617, carrying 2,550 advisories, in 65 repositories |
+| findings that fail the build | 507, in 63 repositories: 447 *upgrade*, 46 *replace*, 14 *exploited* |
+| per repository that fails | median 3, most 58 (autogen) |
+| of those, imported by the project's own code | 170; 12 more only in tests, 325 not imported directly |
+| vulnerable but not failing the build | 141: 108 away from a boundary, 33 *mitigate* |
+
+Three readings of that table, the third a limit rather than a result:
+
+- **It is not a noise filter.** 63 of the 65 repositories with a vulnerable
+  pin fail at the default level, so as a gate it is nearly as strict as
+  pip-audit. The reduction is from 2,550 advisories to a median of three
+  findings per project, one per package with the action on it, and exploited
+  first.
+- **What it adds is the order and the second axis.** Fourteen findings are
+  under active exploitation, and 46 findings on 13 packages at a boundary ask
+  for a replacement rather than an upgrade: 33 because the project is
+  archived, and 13 because an advisory has no fix anywhere and the project
+  has gone quiet - diskcache, pdfkit, pypdf2, sqlitedict and sanic-cors. An
+  advisory scanner cannot know a project is archived, and reports an unfixable
+  advisory with no fix to move to and no reason to look elsewhere.
+- **The upgrade it names is the newest release, not the nearest fix.** 161 of
+  the build-failing upgrades cross a major version. For 116 a new major is
+  what fixes it; for 30 the pinned series already had a fix - paperless-ngx is
+  told to move Django 5.2.16 to 6.1.1 when 5.2.17 fixes it - and for 15 OSV
+  records no fixed version to compare. Naming the smallest fix is not done
+  yet.
+
+Most of what fails the build is not imported by the project directly, and
+most of that is transitive. That is deliberate - a transitive parser still
+parses the attacker's bytes - but it is the first thing a reviewer will ask
+about, and the report says it on every row.
 
 ## The exposure map, measured
 
@@ -144,12 +217,15 @@ that parse outside markup now have curated entries.
 
 ## What is still unmeasured
 
-Coverage, on the 13,043 packages above: **75% get a curated call, 25% get no
-opinion** — 37% of packages are marked exposed and 38% reviewed and cleared,
-unchanged from the previous run. The larger the sample, the longer the tail of transitive
-dependencies, and that tail is what "no opinion" is for. Those 25% are not
-assessed as safe — they surface as unknown, which is the honest answer, but it
-is a gap rather than a result.
+Coverage, on the 18,138 packages above: **77% get a curated call, 23% get no
+opinion** — 39% of packages are marked exposed and 39% reviewed and cleared,
+against 75% and 25% on the sixty-repository run. The larger the sample, the
+longer the tail of transitive dependencies, and that tail is what "no opinion"
+is for. Those 23% are not assessed as safe — they surface as unknown, which is
+the honest answer, but it is a gap rather than a result. It has a cost: before
+eight entries were added from this run, ten vulnerable packages -
+`sqlitedict`, which pickles by default, among them - were not failing any
+build only because the map had no opinion of them.
 
 And there is no external review. Every batch of repositories scanned so far has
 turned up at least one miscategorisation, the rate is falling, and it is not
