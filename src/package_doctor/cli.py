@@ -250,7 +250,9 @@ def build_parser() -> argparse.ArgumentParser:
     common(scan)
 
     explain = sub.add_parser("explain", help="show the evidence behind one package")
-    explain.add_argument("name", help="package name")
+    explain.add_argument(
+        "name", help="a name, or a pinned requirement like pillow==10.0.0 (same as --pin)"
+    )
     explain.add_argument(
         "--pin",
         metavar="VERSION",
@@ -575,10 +577,25 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
 
 
 async def _run_explain(args: argparse.Namespace, console: Console) -> int:
+    # `explain bleach==6.4.0` is how pip spells it, so take it. Queried as-is,
+    # the whole string went to PyPI as a name and came back "not found".
+    try:
+        name, pinned, specifier = parse_requirement(args.name)
+    except InvalidRequirement as exc:
+        console.print(f"[red]Not a package name or requirement:[/red] {escape(str(exc))}")
+        return EXIT_USAGE
+    if pinned and args.pin and pinned != args.pin:
+        console.print(
+            f"[red]Two versions given:[/red] {escape(args.name)} and --pin "
+            f"{escape(args.pin)}. Pass one."
+        )
+        return EXIT_USAGE
+    pin = args.pin or pinned
+
     now = _now()
     cache = Cache(ttl=args.cache_ttl, enabled=not args.no_cache)
     exposure_map = load_exposure_map()
-    package = Package(name=args.name, version=args.pin, direct=True)
+    package = Package(name=name, version=pin, specifier=None if pin else specifier, direct=True)
 
     # Reachability is most useful exactly here, so check it when `explain` is
     # run inside a project rather than making the user go back to `scan`.
@@ -589,13 +606,13 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
         try:
             manifests, _ = discover_project(root, depth=args.depth)
             deps = collect_dependencies(manifests, root=root)
-            version_from_lock = deps.versions.get(normalise(args.name))
+            version_from_lock = deps.versions.get(normalise(name))
             known = set(deps.versions)
-            if args.pin is None and not version_from_lock:
-                package.specifier = deps.specifiers.get(normalise(args.name))
+            if pin is None and not version_from_lock and not specifier:
+                package.specifier = deps.specifiers.get(normalise(name))
         except Exception:
             known = set()
-        if args.pin is None and version_from_lock:
+        if pin is None and version_from_lock:
             package.version = version_from_lock
         try:
             acceptances = load_acceptances(root, None)
@@ -617,7 +634,7 @@ async def _run_explain(args: argparse.Namespace, console: Console) -> int:
             try:
                 parts.append(
                     build_index(src_root, known_packages=known, display_root=root)
-                    .for_package(args.name)
+                    .for_package(name)
                 )
             except Exception:
                 continue

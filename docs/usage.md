@@ -38,7 +38,8 @@ package-doctor explain legacy-auth
 
 Run inside the project, it reads the pinned version from the lockfile so the
 advisories are matched against what you actually install. Anywhere else, pass
-it: `package-doctor explain pillow --pin 10.0.0`. `explain` takes the same
+it: `package-doctor explain pillow --pin 10.0.0`, or pip's spelling,
+`package-doctor explain pillow==10.0.0`. `explain` takes the same
 `--src PATH` as `scan`, so both report the same import sites.
 
 ## No lockfile?

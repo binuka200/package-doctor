@@ -262,6 +262,70 @@ def test_explain_takes_the_pinned_version_with_pin(tmp_path, monkeypatch):
         cli.main(["explain", "pillow", "--version", "10.0.0"])
 
 
+def _capture_explained(monkeypatch):
+    seen = {}
+
+    class Stub:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def analyze(self, package, now):
+            seen["package"] = package
+            return finding(package.name, Verdict.MITIGATE)
+
+    monkeypatch.setattr(cli, "Analyzer", Stub)
+    return seen
+
+
+def test_explain_reads_a_pip_style_pin_from_the_name(tmp_path, monkeypatch):
+    """`explain bleach==6.4.0` went to PyPI as the name "bleach==6.4.0" and
+    came back not found."""
+    seen = _capture_explained(monkeypatch)
+    cli.main(["explain", "bleach==6.4.0", "--path", str(tmp_path), "--no-cache"])
+    assert seen["package"].name == "bleach"
+    assert seen["package"].version == "6.4.0"
+
+
+def test_explain_takes_a_range_in_the_name_as_the_specifier(tmp_path, monkeypatch):
+    seen = _capture_explained(monkeypatch)
+    cli.main(["explain", "bleach>=6,<7", "--path", str(tmp_path), "--no-cache"])
+    assert seen["package"].name == "bleach"
+    assert seen["package"].version is None
+    assert seen["package"].specifier == "<7,>=6"
+
+
+def test_explain_the_pin_in_the_name_beats_the_lockfile(tmp_path, monkeypatch):
+    (tmp_path / "requirements.txt").write_text("bleach==6.0.0\n", encoding="utf-8")
+    seen = _capture_explained(monkeypatch)
+    cli.main(["explain", "bleach==6.4.0", "--path", str(tmp_path), "--no-cache"])
+    assert seen["package"].version == "6.4.0"
+
+
+def test_explain_refuses_two_different_pins(tmp_path, monkeypatch, capsys):
+    seen = _capture_explained(monkeypatch)
+    code = cli.main(
+        ["explain", "bleach==6.4.0", "--pin", "6.3.0", "--path", str(tmp_path), "--no-cache"]
+    )
+    assert code == cli.EXIT_USAGE
+    assert "Two versions given" in capsys.readouterr().out
+    assert not seen
+
+
+def test_explain_accepts_the_same_pin_twice(tmp_path, monkeypatch):
+    seen = _capture_explained(monkeypatch)
+    cli.main(
+        ["explain", "bleach==6.4.0", "--pin", "6.4.0", "--path", str(tmp_path), "--no-cache"]
+    )
+    assert seen["package"].version == "6.4.0"
+
+
+def test_explain_rejects_a_name_that_is_not_a_requirement(tmp_path, monkeypatch, capsys):
+    seen = _capture_explained(monkeypatch)
+    code = cli.main(["explain", "not a name", "--path", str(tmp_path), "--no-cache"])
+    assert code == cli.EXIT_USAGE
+    assert not seen
+
+
 def test_scan_reports_sources_relative_to_the_project(tmp_path, monkeypatch, capsys):
     (tmp_path / "requirements").mkdir()
     (tmp_path / "requirements.txt").write_text("-r requirements/base.txt\n", encoding="utf-8")

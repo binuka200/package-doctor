@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`explain` accepts `name==version`.** `package-doctor explain bleach==6.4.0`
+  looked up "bleach==6.4.0" as a package name and reported it not found on
+  PyPI. The version is now read as the pin, the same as `--pin 6.4.0`; a range
+  such as `bleach>=6` is taken as the declared specifier, and a `--pin` that
+  disagrees with the name is refused rather than silently picked between.
+
 ## [1.0.2] - 2026-09-16
 
 ### Upgrading
