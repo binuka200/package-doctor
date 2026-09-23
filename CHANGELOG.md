@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   computed in Python yields no dependencies, and an empty `findings` from it
   is not a clean project.
 
+### Changed
+
+- **Eight packages added to the exposure map**, each one found vulnerable
+  and non-blocking in the 100-repository run only because the map had no
+  entry: `sqlitedict` (pickles by default), `kerberos`, `sanic-cors`,
+  `tensorflow-cpu`, `h2o`, `ragas`, `lmcache` and `couchbase`.
+
 ### Fixed
 
 - **`explain` accepts `name==version`.** `package-doctor explain bleach==6.4.0`

@@ -14,7 +14,7 @@ extraction, deserialization, HTML parsing, query building, cryptography, URL
 parsing, and model loading. This comes from a curated map in
 [`exposure.toml`](../src/package_doctor/data/exposure.toml), not from a heuristic.
 
-It holds **1,028 packages across 15 categories**, with 456 more reviewed and
+It holds **1,036 packages across 15 categories**, with 456 more reviewed and
 cleared, curated against the 3,000 most-downloaded packages on PyPI — every one
 of the top 100 and 998 of the top 1,000 have been reviewed one way or the other, and Django, FastAPI/ML,
 document-processing and web-scraping stacks all scan with zero unclassified
