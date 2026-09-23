@@ -777,6 +777,7 @@ def to_dict(
     now: dt.datetime,
     degraded: dict[str, int] | None = None,
     not_analysed: dict[str, str] | None = None,
+    unread: Iterable[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     def serialise(finding: Finding) -> dict[str, Any]:
         rem = finding.remediation
@@ -879,5 +880,8 @@ def to_dict(
         "not_analysed": [
             {"name": name, "source": kind} for name, kind in sorted((not_analysed or {}).items())
         ],
+        # Dependency files read only in part - a setup.py whose install_requires
+        # is computed in Python - so an empty "findings" is not read as clean.
+        "unread": [{"file": file, "reason": reason} for file, reason in unread],
         "findings": [serialise(f) for f in findings],
     }

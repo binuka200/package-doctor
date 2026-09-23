@@ -124,6 +124,57 @@ version = "3.3.2"
     assert "charset-normalizer" not in deps.direct
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_git_package_in_the_lock_is_not_looked_up_by_name(tmp_path, reverse):
+    # zulip lists talon-core in pyproject.toml and uv.lock pins it to git; the
+    # plain requirement went to PyPI by name and came back "not found".
+    write(tmp_path, "pyproject.toml",
+          '[project]\nname="z"\ndependencies=["talon-core", "requests"]\n')
+    write(tmp_path, "uv.lock", """
+[[package]]
+name = "talon-core"
+version = "1.6.0"
+source = { git = "https://github.com/zulip/talon.git?subdirectory=talon-core" }
+
+[[package]]
+name = "requests"
+version = "2.32.3"
+""")
+    paths = discover_manifests(tmp_path)
+    deps = collect_dependencies(paths[::-1] if reverse else paths, root=tmp_path)
+    assert "talon-core" not in deps.versions
+    assert deps.not_analysed["talon-core"] == "git"
+    assert deps.versions["requests"] == "2.32.3"
+
+
+def test_a_git_line_in_one_requirements_file_does_not_hide_another(tmp_path):
+    # celery: requirements/default.txt takes kombu from PyPI, and dev.txt
+    # points it at git for development. The PyPI kombu is still what ships.
+    write(tmp_path, "requirements.txt", "kombu>=5.7.0a1\n")
+    write(tmp_path, "requirements-dev.txt", "kombu@git+https://github.com/celery/kombu.git\n")
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert "kombu" in deps.versions
+
+
+def test_uv_sources_in_pyproject_are_honoured_without_a_lock(tmp_path):
+    # pydantic's pydantic-docs is a git source, marimo's marimo_docs a local
+    # path; neither is on PyPI under that name.
+    write(tmp_path, "pyproject.toml", """
+[project]
+name = "p"
+dependencies = ["pydantic-docs", "marimo-docs", "httpx"]
+
+[tool.uv.sources]
+pydantic-docs = { git = "https://github.com/pydantic/pydantic-docs" }
+marimo_docs = { path = "./docs", editable = true }
+httpx = { index = "internal" }
+""")
+    deps = collect_dependencies(discover_manifests(tmp_path))
+    assert deps.not_analysed == {"pydantic-docs": "git"}
+    assert "marimo-docs" in deps.local
+    assert set(deps.versions) == {"httpx"}, "an index source is still an index"
+
+
 def test_a_lockfile_forked_by_python_version_scans_the_newest(tmp_path):
     # GitGuardian/ggshield: uv lists the Python 3.9 fork first, and the first
     # entry used to win - four act verdicts that a 3.10+ install does not have.

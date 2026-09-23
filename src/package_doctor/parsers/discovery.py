@@ -126,22 +126,40 @@ class DependencySet:
     #: resolved paths already read, so a file reached both by discovery and by
     #: an include is parsed once
     _seen: set[Path] = field(default_factory=set, repr=False)
+    #: names a lockfile or [tool.uv.sources] installs from git or a URL, so a
+    #: plain requirement for them elsewhere is not looked up on PyPI
+    _installed_elsewhere: set[str] = field(default_factory=set, repr=False)
 
-    def mark_not_analysed(self, name: str, source: str) -> None:
+    def mark_not_analysed(self, name: str, source: str, installs_from: bool = False) -> None:
+        """``installs_from`` is for a lockfile or ``[tool.uv.sources]``, which
+        say where the package really comes from. The same name is usually also
+        a plain requirement elsewhere - zulip lists talon-core in pyproject.toml
+        and uv.lock pins it to git - and left in, it went to PyPI by name: "not
+        found", or worse, zulip's own ``zulip`` judged as PyPI's. A git line in
+        one requirements file is one environment's choice, and must not hide
+        the index requirement in another: celery's dev.txt points kombu at git.
+        """
         key = normalise(name) if _VALID_NAME.match(normalise(name)) else name
         if not key or key in self.local:
             return
         self.not_analysed.setdefault(key, source)
+        if installs_from:
+            self._installed_elsewhere.add(key)
+            self._forget(key)
 
     def mark_local(self, name: str) -> None:
         key = normalise(name)
         if key:
             self.local.add(key)
-            self.versions.pop(key, None)
-            self.other_versions.pop(key, None)
-            self._from_lock.discard(key)
-            self.direct.discard(key)
-            self.origins.pop(key, None)
+            self._forget(key)
+
+    def _forget(self, key: str) -> None:
+        self.versions.pop(key, None)
+        self.other_versions.pop(key, None)
+        self.specifiers.pop(key, None)
+        self._from_lock.discard(key)
+        self.direct.discard(key)
+        self.origins.pop(key, None)
 
     def add(
         self,
@@ -152,7 +170,7 @@ class DependencySet:
         specifier: str | None = None,
     ) -> None:
         key = normalise(name)
-        if key in self.local:
+        if key in self.local or key in self._installed_elsewhere:
             return
         if not key or key in _IGNORED or not _VALID_NAME.match(key):
             # Lockfiles are just TOML and JSON: nothing in them is validated the
@@ -586,6 +604,22 @@ def parse_pyproject(path: Path, deps: DependencySet, text: str) -> None:
     own = project.get("name") or ((data.get("tool") or {}).get("poetry") or {}).get("name")
     if isinstance(own, str):
         deps.mark_local(own)
+    # Where uv fetches a requirement from, when not from an index. Read first
+    # so the requirements below, which name the same packages, are skipped.
+    uv_sources = ((data.get("tool") or {}).get("uv") or {}).get("sources") or {}
+    for name, spec in uv_sources.items() if isinstance(uv_sources, dict) else ():
+        for source in spec if isinstance(spec, list) else [spec]:
+            if not isinstance(source, dict):
+                continue
+            if any(k in source for k in _UV_LOCAL_SOURCES):
+                deps.mark_local(str(name))
+            elif "git" in source or "url" in source:
+                deps.mark_not_analysed(
+                    str(name), "git" if "git" in source else "url", installs_from=True
+                )
+            else:
+                continue
+            break
     for item in project.get("dependencies") or []:
         parsed = _parse_requirement_line(str(item))
         if parsed:
@@ -814,7 +848,9 @@ def parse_uv_lock(path: Path, deps: DependencySet, text: str) -> None:
             deps.mark_local(str(name))
             continue
         if isinstance(source, dict) and ("git" in source or "url" in source):
-            deps.mark_not_analysed(str(name), "git" if "git" in source else "url")
+            deps.mark_not_analysed(
+                str(name), "git" if "git" in source else "url", installs_from=True
+            )
             continue
         deps.add(str(name), pkg.get("version"), origin, direct=False)
 
@@ -833,7 +869,7 @@ def parse_poetry_lock(path: Path, deps: DependencySet, text: str) -> None:
             deps.mark_local(str(name))
             continue
         if isinstance(source, dict) and source.get("type") in ("git", "url"):
-            deps.mark_not_analysed(str(name), str(source["type"]))
+            deps.mark_not_analysed(str(name), str(source["type"]), installs_from=True)
             continue
         deps.add(str(name), pkg.get("version"), origin, direct=False)
 
@@ -856,7 +892,7 @@ def parse_pipfile_lock(path: Path, deps: DependencySet, text: str) -> None:
             if isinstance(spec, dict):
                 if "git" in spec or "file" in spec or "path" in spec:
                     kind = "git" if "git" in spec else ("path" if "path" in spec else "url")
-                    deps.mark_not_analysed(str(name), kind)
+                    deps.mark_not_analysed(str(name), kind, installs_from=True)
                     continue
                 raw = spec.get("version")
                 if isinstance(raw, str):

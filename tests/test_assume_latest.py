@@ -60,6 +60,21 @@ def test_a_declared_range_is_honoured():
     assert PyPISource.newest_matching(data, ">=3,<4") == "3.2.0"
 
 
+def test_a_range_that_names_a_pre_release_admits_pre_releases():
+    """celery pins kombu>=5.7.0a1; pip installs 5.7.0a1, where this used to
+    report that no release satisfied the range."""
+    data = releases("5.6.2", "5.7.0a1")
+    assert PyPISource.newest_matching(data, ">=5.7.0a1") == "5.7.0a1"
+    # Naming one does not let a later pre-release outrank a final release.
+    assert PyPISource.newest_matching(releases("5.7.0a1", "5.7.0", "5.8.0b1"),
+                                      ">=5.7.0a1") == "5.8.0b1"
+
+
+def test_pre_releases_are_taken_when_nothing_else_satisfies_the_range():
+    # 2.0b1 sorts below 2.0 under PEP 440, so it has to be a range it meets.
+    assert PyPISource.newest_matching(releases("1.0", "2.0b1"), ">1.0") == "2.0b1"
+
+
 def test_a_range_nothing_satisfies_returns_none_rather_than_guessing():
     assert PyPISource.newest_matching(releases("1.0", "2.0"), ">=9") is None
 

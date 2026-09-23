@@ -432,12 +432,16 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         )
     if not deps:
         notes.print("[yellow]No dependencies found.[/yellow]")
-        return EXIT_OK
+        # A pipeline that asked for a report still gets one, empty, with the
+        # files it could not read: huggingface/transformers exited 0 and wrote
+        # no file, so the step reading the JSON failed on a missing path.
+        if not (args.as_json or args.output or args.sarif or args.markdown):
+            return EXIT_OK
 
     # Reachability: which of these the project's own code actually imports.
     # Positive evidence only - see sourcescan for why absence proves nothing.
     index = None
-    if not args.no_reachability:
+    if not args.no_reachability and deps:
         requested = [Path(p).expanduser().resolve() for p in (args.src or [])]
         for missing in requested:
             if not (missing.is_dir() or missing.is_file()):
@@ -537,7 +541,8 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
 
     source_names = [_display(p, root) for p in deps.sources]
     payload = to_dict(
-        findings, source_names, now, degraded=degraded, not_analysed=deps.not_analysed
+        findings, source_names, now, degraded=degraded, not_analysed=deps.not_analysed,
+        unread=[(_display(p, root), reason) for p, reason in deps.unread],
     )
 
     # The side outputs are written first, whatever the exit code turns out to

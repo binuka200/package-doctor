@@ -326,6 +326,27 @@ def test_explain_rejects_a_name_that_is_not_a_requirement(tmp_path, monkeypatch,
     assert not seen
 
 
+def test_scan_writes_an_empty_report_when_no_dependencies_are_found(tmp_path, monkeypatch):
+    """huggingface/transformers computes install_requires, so nothing could be
+    read; the scan exited 0 without writing -o, and the step that read the
+    JSON failed on a missing file. The report now exists and says why."""
+    (tmp_path / "setup.py").write_text(
+        "from setuptools import setup\nfrom deps import REQS\nsetup(install_requires=REQS)\n",
+        encoding="utf-8",
+    )
+    stub_analyzer(monkeypatch, [])
+    out, sarif = tmp_path / "report.json", tmp_path / "report.sarif"
+    code = cli.main(["scan", str(tmp_path), "-o", str(out), "--sarif", str(sarif),
+                     "--no-cache"])
+    assert code == cli.EXIT_OK
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["findings"] == []
+    assert payload["unread"] == [
+        {"file": "setup.py", "reason": "install_requires is computed in Python"}
+    ]
+    assert sarif.exists()
+
+
 def test_scan_reports_sources_relative_to_the_project(tmp_path, monkeypatch, capsys):
     (tmp_path / "requirements").mkdir()
     (tmp_path / "requirements.txt").write_text("-r requirements/base.txt\n", encoding="utf-8")

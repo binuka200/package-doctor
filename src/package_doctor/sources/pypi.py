@@ -183,8 +183,14 @@ class PyPISource:
 
     @staticmethod
     def last_release(data: dict[str, Any]) -> tuple[str | None, dt.datetime | None]:
-        """Most recent *non-yanked* release, which is what a user would actually get."""
-        best_version, best_date = None, None
+        """Most recent *non-yanked* release, which is what a user would actually get.
+
+        Pre-releases and dev builds are skipped, as pip skips them: tornado's
+        6.6a1 was otherwise named "the latest release" and offered as the fix,
+        down to ``check`` suggesting ``tornado==6.6a1``. A project that has
+        only ever shipped pre-releases falls back to them, as pip does.
+        """
+        best: dict[bool, tuple[str, dt.datetime]] = {}
         for version, files in (data.get("releases") or {}).items():
             if not isinstance(files, list) or not files:
                 continue
@@ -197,10 +203,16 @@ class PyPISource:
             ]
             if not stamps:
                 continue
+            try:
+                parsed = Version(str(version))
+                pre = parsed.is_prerelease or parsed.is_devrelease
+            except InvalidVersion:
+                pre = False
             date = min(stamps)
-            if best_date is None or date > best_date:
-                best_version, best_date = version, date
-        return best_version, best_date
+            if pre not in best or date > best[pre][1]:
+                best[pre] = (version, date)
+        chosen = best.get(False) or best.get(True)
+        return chosen if chosen else (None, None)
 
     @staticmethod
     def last_upload(data: dict[str, Any]) -> tuple[str | None, dt.datetime | None]:
@@ -240,31 +252,28 @@ class PyPISource:
 
         Highest version, not most recent upload: a backport to an old series
         can be uploaded after the newest major and pip still ignores it.
-        Yanked releases and pre-releases are skipped, as pip skips them, and
-        a declared range is honoured - ``django<5`` gets the newest 4.x. A
-        range nothing satisfies returns None rather than guessing.
+        Yanked releases are skipped, and a declared range is honoured -
+        ``django<5`` gets the newest 4.x. Pre-releases follow pip, which
+        delegates to ``SpecifierSet.filter``: skipped, unless the range names
+        one (celery's ``kombu>=5.7.0a1``) or nothing else satisfies it. A range
+        nothing satisfies returns None rather than guessing.
         """
         try:
-            wanted = SpecifierSet(specifier) if specifier else None
+            wanted = SpecifierSet(specifier or "")
         except InvalidSpecifier:
-            wanted = None
-        best: tuple[Version, str] | None = None
+            wanted = SpecifierSet()
+        candidates: dict[Version, str] = {}
         for raw, files in (data.get("releases") or {}).items():
             if not isinstance(files, list) or not files:
                 continue
             if all(isinstance(f, dict) and f.get("yanked") for f in files):
                 continue
             try:
-                version = Version(str(raw))
+                candidates[Version(str(raw))] = str(raw)
             except InvalidVersion:
                 continue
-            if version.is_prerelease or version.is_devrelease:
-                continue
-            if wanted is not None and not wanted.contains(version, prereleases=False):
-                continue
-            if best is None or version > best[0]:
-                best = (version, str(raw))
-        return best[1] if best else None
+        matching = list(wanted.filter(candidates))
+        return candidates[max(matching)] if matching else None
 
     @staticmethod
     def has_inactive_classifier(data: dict[str, Any]) -> bool:

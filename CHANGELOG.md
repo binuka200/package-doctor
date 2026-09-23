@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the release date, and the JSON carries `last_upload` for every package.
   Scoring is unchanged. PyPI responses are cached under a new key, so the first
   run after upgrading fetches them again.
+- **The JSON report lists dependency files it could only read in part**, as
+  `unread`, beside `not_analysed`. A `setup.py` whose `install_requires` is
+  computed in Python yields no dependencies, and an empty `findings` from it
+  is not a clean project.
 
 ### Fixed
 
@@ -24,6 +28,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PyPI. The version is now read as the pin, the same as `--pin 6.4.0`; a range
   such as `bleach>=6` is taken as the declared specifier, and a `--pin` that
   disagrees with the name is refused rather than silently picked between.
+- **A pre-release is no longer "the latest release".** tornado `6.6a1`,
+  pydantic `2.14.0b2` and a yt-dlp nightly were named as the upgrade that
+  fixes an advisory, and `check` and the agent hook suggested installing them,
+  in 13 findings across 100 repositories; 786 findings showed a pre-release as
+  the latest. The latest release now skips pre-releases and dev builds as pip
+  does, unless a project has shipped nothing else.
+- **A range that names a pre-release admits one.** celery's `kombu>=5.7.0a1`
+  was reported as satisfied by no release; pip installs `5.7.0a1`, and the
+  assumed version now follows pip's rules exactly.
+- **A package a lockfile or `[tool.uv.sources]` installs from git is not
+  looked up on PyPI by name.** When `pyproject.toml` also listed it as a plain
+  requirement, it went to PyPI anyway: zulip's `talon-core` and `zulint` came
+  back "not found", and zulip's own `zulip` and `zulip-bots`, installed from
+  git, were judged as the unrelated packages of the same name on PyPI.
+  `[tool.uv.sources]` is now read without a lockfile too, and a `path` or
+  `workspace` source is the project's own. A `git+` line in one requirements
+  file still does not hide the index requirement in another.
+- **`scan --json`, `-o`, `--sarif` and `--markdown` write their report when no
+  dependencies are found**, instead of exiting 0 with no file, which failed
+  the next CI step on a missing path.
 
 ## [1.0.2] - 2026-09-16
 

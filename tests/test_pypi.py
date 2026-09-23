@@ -83,6 +83,27 @@ def test_last_release_on_an_empty_project():
     assert PyPISource.last_release({"releases": {}}) == (None, None)
 
 
+def test_last_release_skips_pre_releases_and_dev_builds():
+    """tornado 6.6a1 was reported as the latest release and offered as the
+    upgrade target in six of a hundred projects; pip would install 6.5.10."""
+    data = {"releases": {
+        "6.5.10": files("2026-08-01T00:00:00Z"),
+        "6.6a1": files("2026-09-01T00:00:00Z"),
+        "6.6.dev0": files("2026-09-10T00:00:00Z"),
+    }}
+    version, date = PyPISource.last_release(data)
+    assert version == "6.5.10" and date.month == 8
+
+
+def test_last_release_falls_back_to_pre_releases_when_there_is_nothing_else():
+    """Some SDKs have only ever shipped betas; those are what pip installs."""
+    data = {"releases": {
+        "1.0.0b8": files("2026-01-01T00:00:00Z"),
+        "1.0.0b9": files("2026-06-01T00:00:00Z"),
+    }}
+    assert PyPISource.last_release(data)[0] == "1.0.0b9"
+
+
 def test_last_upload_sees_a_trailing_wheel_that_last_release_misses():
     """A new-Python wheel added to an old version post-dates the newest
     version: last_release reports the version date, last_upload the activity."""
