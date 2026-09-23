@@ -137,7 +137,9 @@ async def test_the_advisory_timeline_still_computes(live_client):
         pytest.skip("upstream returned nothing")
 
     history = build_history(STABLE_PACKAGE, vulns, pypi.release_dates(data), None)
-    assert history.total == len(vulns)
+    # One advisory is one advisory: a CVE's GHSA and PYSEC records are merged
+    # before counting, so Django's 321 records are about 160 advisories.
+    assert 0 < history.total <= len(vulns)
     assert history.timely + history.late > 0, "no advisory could be placed on a timeline"
     # A major, well-run project should overwhelmingly fix at or before disclosure.
     # If this inverts, our reading of the dates is wrong, not Django's practice.

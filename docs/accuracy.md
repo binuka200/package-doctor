@@ -11,9 +11,9 @@ at 5. The list is [`research/eval-repos.txt`](../research/eval-repos.txt).
 [`research/evaluate_repos.py`](../research/evaluate_repos.py) checks the data
 layer and [`research/evaluate_verdicts.py`](../research/evaluate_verdicts.py)
 checks each verdict against its source; everything below reproduces from those
-three files. Last measured on 23 September 2026 with the development version
-after 1.0.2 - the fixes the run itself turned up, listed at the end of this
-section - against fresh clones.
+three files. Last measured on 23 September 2026 with package-doctor 1.0.3,
+which carries the fixes the run itself turned up, listed at the end of this
+section, against fresh clones.
 
 | | |
 | --- | --- |

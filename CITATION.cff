@@ -11,8 +11,8 @@ type: software
 authors:
   - family-names: Jayaweera
     given-names: Binuka
-version: 1.0.2
-date-released: "2026-09-16"
+version: 1.0.3
+date-released: "2026-09-23"
 license: MIT
 repository-code: "https://github.com/binuka200/package-doctor"
 url: "https://pypi.org/project/package-doctor/"
