@@ -15,8 +15,7 @@
 name: package-doctor
 description: >-
   Tells you which Python dependencies to fix first: the ones being exploited,
-  and the ones nobody is left to patch. Fails the job on findings, writes a
-  step summary, and can upload SARIF for code scanning.
+  and the ones nobody is left to patch.
 author: Binuka Jayaweera
 branding:
   icon: activity

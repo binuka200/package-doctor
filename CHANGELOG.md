@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-09-24
+
+### Changed
+
+- The GitHub Action's description is shorter, to fit GitHub Marketplace's
+  125-character limit. Nothing the action does has changed.
+
 ## [1.0.4] - 2026-09-24
 
 ### Added
@@ -813,7 +820,8 @@ On sixty open source repositories (`research/eval-repos.txt`, harness in
   marks exposed carry advisories at ~2.6x the rate of packages it reviewed and
   cleared.
 
-[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/binuka200/package-doctor/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/binuka200/package-doctor/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/binuka200/package-doctor/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/binuka200/package-doctor/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/binuka200/package-doctor/compare/v1.0.1...v1.0.2
