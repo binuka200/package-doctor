@@ -177,9 +177,10 @@ file stays a list of live decisions. The same table can live under
 `[tool.package-doctor]` in `pyproject.toml`; `--config PATH` points anywhere
 else.
 
-`package-doctor check` and the Claude Code hook read the same file, so a risk
+`package-doctor check` and the agent hooks read the same file, so a risk
 accepted for CI is also allowed when an agent installs it - with the reason
-passed to the model - and blocks again once it expires. `check` reports the
+passed to the model (in Gemini CLI, shown to you instead) - and blocks again
+once it expires. `check` reports the
 acceptance in its JSON as `accepted`.
 
 ## Options

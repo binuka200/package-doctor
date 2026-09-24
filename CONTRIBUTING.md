@@ -157,6 +157,11 @@ These are load-bearing, and there are tests asserting each of them:
   to *watch*; only a curated one can reach *act on this*.
 - **There is no aggregate health score, and there should not be.** A single
   number is the thing users can't act on and maintainers can't argue with.
+- **An agent hook translates; it never decides.** What to block lives in
+  `cli.py` and is the same for every agent. Supporting a new agent is a class
+  in `hooks.py` that parses its tool call and renders the answer, and it must
+  never send an `allow`: a hook can refuse, but it cannot grant a permission
+  the user did not.
 
 ### Research scripts
 

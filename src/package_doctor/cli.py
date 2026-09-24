@@ -38,6 +38,7 @@ from .guard import (
     unresolvable_install_targets,
     writes_lockfile,
 )
+from .hooks import PROTOCOLS, SILENT, HookEvent, HookResult
 from .models import Exposure, Finding, Package, Remediation, Verdict
 from .parsers import collect_dependencies
 from .parsers.discovery import (
@@ -319,7 +320,7 @@ def build_parser() -> argparse.ArgumentParser:
         "hook",
         help="run as a coding-agent hook: read the tool call from stdin, check what it installs",
     )
-    hook.add_argument("agent", choices=["claude-code"], help="which agent's hook protocol")
+    hook.add_argument("agent", choices=sorted(PROTOCOLS), help="which agent's hook protocol")
     hook.add_argument(
         "--new-days", type=int, default=NEW_DAYS, metavar="N",
         help=f"block a package first published within N days (default {NEW_DAYS})",
@@ -903,18 +904,6 @@ def _row_key(row: CheckRow) -> str:
     return f"{decision.level}:{package.name}:{package.version or ''}"
 
 
-def _session_id(event: dict) -> str:
-    value = event.get("session_id")
-    return value if isinstance(value, str) else ""
-
-
-def _event_root(event: dict, fallback: Path | None = None) -> Path:
-    cwd = event.get("cwd")
-    if isinstance(cwd, str) and cwd:
-        return Path(cwd).expanduser()
-    return fallback if fallback is not None else Path.cwd()
-
-
 def _hook_acceptances(root: Path) -> Acceptances | None:
     """The project's accepted risks, for a hook.
 
@@ -940,41 +929,49 @@ def _hook_lines(rows: list[CheckRow]) -> list[str]:
 
 
 async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
-    """Claude Code PreToolUse hook.
+    """Run as a coding agent's hook.
 
-    Reads the tool call from stdin. Exit 2 with the reasons on stderr blocks
-    the call and puts the reasons in front of the model, which is what makes
-    an agent pick a different package rather than retry the same one. Exit 0
-    leaves the normal permission flow untouched: a warning is attached as
-    context, never as an automatic "allow", so the hook can never widen what
-    the agent was already permitted to run.
+    Reads the tool call from stdin in the agent's own format, decides, and
+    answers in the same format; `hooks` holds the translation for each agent.
+    A block stops the call and puts the reasons in front of the model, which
+    is what makes an agent pick a different package rather than retry the
+    same one. Anything short of a block leaves the agent's normal permission
+    flow untouched: a warning is attached as context, never as an automatic
+    "allow", so the hook can never widen what the agent was already
+    permitted to run.
 
     Everything that is not a decision about a package - malformed input, a
-    tool that is not Bash, a command that installs nothing, an exception in
-    the lookup - exits 0 silently. A guardrail that stops work when it
-    cannot answer is the first thing a team removes.
+    tool that runs nothing, a command that installs nothing, an exception in
+    the lookup - is silent. A guardrail that stops work when it cannot
+    answer is the first thing a team removes.
     """
+    protocol = PROTOCOLS[args.agent]
     try:
-        event = json.loads(stdin) if stdin.strip() else {}
+        payload = json.loads(stdin) if stdin.strip() else {}
     except json.JSONDecodeError:
         return EXIT_OK
-    if not isinstance(event, dict):
+    if not isinstance(payload, dict):
         return EXIT_OK
-    tool = event.get("tool_name")
-    tool_input = event.get("tool_input") or {}
-    if not isinstance(tool_input, dict):
+    event = protocol.parse(payload)
+    if event is None:
         return EXIT_OK
-    if tool in ("Edit", "Write", "MultiEdit"):
-        return await _run_edit_hook(args, event, tool_input)
-    if tool != "Bash":
-        return EXIT_OK
-    command = tool_input.get("command")
-    if not isinstance(command, str):
-        return EXIT_OK
-    if event.get("hook_event_name") == "PostToolUse":
-        # The command has already run. `uv sync` and friends type no package
-        # name, so the only place what they added shows up is the lockfile.
-        return await _run_resolve_hook(args, event, command)
+    if event.kind == "edit":
+        result = await _hook_edit(args, event)
+    elif event.kind == "resolve":
+        result = await _hook_resolve(args, event)
+    else:
+        result = await _hook_install(args, event)
+    reply = protocol.render(event, result)
+    if reply.stdout:
+        sys.stdout.write(reply.stdout)
+    if reply.stderr:
+        sys.stderr.write(reply.stderr)
+    return reply.code
+
+
+async def _hook_install(args: argparse.Namespace, event: HookEvent) -> HookResult:
+    """Before a shell command runs: check what it would install."""
+    command = event.command
     requirements = parse_install_command(command)
     # Anything the shell parser recognised as an install target but could
     # not turn into a checkable name - a URL or a VCS reference, the
@@ -987,22 +984,22 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
         if is_remote_install_target(target)
     ]
     if not requirements and not remote:
-        return EXIT_OK
+        return SILENT
 
     rows: list[CheckRow] = []
     unchecked: str | None = None
     if requirements:
         try:
             rows, _degraded = await run_check(
-                requirements, args=args, acceptances=_hook_acceptances(_event_root(event)),
+                requirements, args=args,
+                acceptances=_hook_acceptances(event.cwd or Path.cwd()),
             )
         except Exception as exc:  # fail open, and say so where the user can see it
             if not remote:
-                print(json.dumps({
-                    "systemMessage": f"package-doctor could not check this install ({exc}); "
-                                     f"it was allowed unchecked.",
-                }))
-                return EXIT_OK
+                return HookResult(
+                    notice=f"package-doctor could not check this install ({exc}); "
+                           f"it was allowed unchecked.",
+                )
             # Failing open is for outages: the registry could not answer about
             # a *name*, so the name is allowed rather than stopping work on
             # somebody else's downtime. A URL or VCS target in the same command
@@ -1047,39 +1044,30 @@ async def _run_hook(args: argparse.Namespace, stdin: str) -> int:
         # has only a refusal, and the next thing it does is try again.
         remedies = [d.remedy for _, _, d in rows if d.remedy]
         retry = "".join(f"\n  -> retry with {r}" for r in remedies)
-        sys.stderr.write(
+        return HookResult(block=(
             "package-doctor blocked this install:\n  " + "\n  ".join(lines) + retry
             + "\nPick a maintained alternative, pin a fixed version, or ask the user "
               "to add an acceptance to package-doctor.toml and rerun.\n"
-        )
-        return 2
+        ))
 
-    session = _session_id(event)
     # Accepted risks are allowed, but said once: the agent should know it is
     # adding something the project has chosen to carry, and until when.
     context_rows = [
         row for row in rows if row[2].level in (WARN, UNCHECKED) or row[1].suppressed
     ]
-    fresh = set(_unseen(session, [_row_key(row) for row in context_rows]))
+    fresh = set(_unseen(event.session, [_row_key(row) for row in context_rows]))
     context_lines = _hook_lines([row for row in context_rows if _row_key(row) in fresh])
     context_lines += [
         f"NOTE {use.reason}" for use in indexes
-        if _unseen(session, [f"index:{use.url}"])
+        if _unseen(event.session, [f"index:{use.url}"])
     ]
-    if context_lines:
-        context = "package-doctor: " + " | ".join(context_lines)
-        print(json.dumps({
-            "systemMessage": context,
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": context,
-            },
-        }))
-    return EXIT_OK
+    if not context_lines:
+        return SILENT
+    return HookResult(context="package-doctor: " + " | ".join(context_lines))
 
 
-async def _run_resolve_hook(args: argparse.Namespace, event: dict, command: str) -> int:
-    """Claude Code PostToolUse hook for commands that write a lockfile.
+async def _hook_resolve(args: argparse.Namespace, event: HookEvent) -> HookResult:
+    """After a shell command runs: check what it added to the lockfile.
 
     `uv sync` and friends name no package, so the install hook has nothing to
     read. `uv add requests` names one, and that name was checked before it ran
@@ -1091,13 +1079,14 @@ async def _run_resolve_hook(args: argparse.Namespace, event: dict, command: str)
     already installed; the finding goes to the model as context, which is what
     it needs to change course before anything runs the code.
     """
+    command = event.command
     if not writes_lockfile(command):
-        return EXIT_OK
-    root = _event_root(event)
+        return SILENT
+    root = event.cwd or Path.cwd()
     try:
         requirements, more = resolved_additions(root)
     except Exception:
-        return EXIT_OK
+        return SILENT
     typed = set()
     for text in parse_install_command(command):
         try:
@@ -1114,35 +1103,29 @@ async def _run_resolve_hook(args: argparse.Namespace, event: dict, command: str)
         kept.append(text)
     requirements = kept
     if not requirements:
-        return EXIT_OK
+        return SILENT
     try:
         rows, _degraded = await run_check(
             requirements, args=args, acceptances=_hook_acceptances(root),
         )
     except Exception:
-        return EXIT_OK
+        return SILENT
     flagged = [row for row in rows if row[2].level in (BLOCK, WARN)]
-    fresh = set(_unseen(_session_id(event), [_row_key(row) for row in flagged]))
+    fresh = set(_unseen(event.session, [_row_key(row) for row in flagged]))
     flagged = [row for row in flagged if _row_key(row) in fresh]
     if not flagged:
-        return EXIT_OK
+        return SILENT
     lines = _hook_lines(flagged)
     if more:
         lines.append(f"(+{more} more newly locked packages, not checked)")
-    context = "package-doctor checked what this command just added to the lockfile: " \
-              + " | ".join(lines)
-    print(json.dumps({
-        "systemMessage": context,
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": context,
-        },
-    }))
-    return EXIT_OK
+    return HookResult(
+        context="package-doctor checked what this command just added to the lockfile: "
+                + " | ".join(lines),
+    )
 
 
-async def _run_edit_hook(args: argparse.Namespace, event: dict, tool_input: dict) -> int:
-    """Claude Code PostToolUse hook for edits to dependency files.
+async def _hook_edit(args: argparse.Namespace, event: HookEvent) -> HookResult:
+    """After a file is written: check what the edit added to a dependency file.
 
     An agent that writes a name into pyproject.toml and then runs `uv sync`
     never types the name into a shell command, so the install hook cannot
@@ -1151,32 +1134,39 @@ async def _run_edit_hook(args: argparse.Namespace, event: dict, tool_input: dict
     happened, so nothing here can block: the finding goes to the model as
     context, which is enough for it to fix the file before anything
     resolves it. Silent on every edit that is not to a dependency file.
+
+    One tool call can write several files - a Codex patch often touches
+    pyproject.toml and a requirements file together - and they are checked
+    as one list, so a name added to both is reported once.
     """
-    raw = tool_input.get("file_path")
-    if not isinstance(raw, str) or not raw:
-        return EXIT_OK
-    path = Path(raw).expanduser()
-    cwd = event.get("cwd")
-    root = Path(cwd).expanduser() if isinstance(cwd, str) and cwd else path.parent
-    try:
-        requirements = added_requirements(path, root)
-    except Exception:
-        return EXIT_OK
+    if not event.paths:
+        return SILENT
+    root = event.cwd or event.paths[0].parent
+    requirements: list[str] = []
+    changed: list[str] = []
+    for path in event.paths:
+        try:
+            added = added_requirements(path, root)
+        except Exception:
+            continue
+        if added:
+            changed.append(path.name)
+            requirements += [text for text in added if text not in requirements]
     if not requirements:
-        return EXIT_OK
+        return SILENT
+    files = ", ".join(changed)
     try:
         rows, _degraded = await run_check(
             requirements, args=args, acceptances=_hook_acceptances(root),
         )
     except Exception as exc:
-        print(json.dumps({
-            "systemMessage": f"package-doctor could not check the dependencies just added "
-                             f"to {path.name} ({exc}).",
-        }))
-        return EXIT_OK
+        return HookResult(
+            notice=f"package-doctor could not check the dependencies just added "
+                   f"to {files} ({exc}).",
+        )
     flagged = [(p, f, d) for p, f, d in rows if d.level in (BLOCK, WARN, UNCHECKED)]
     if not flagged:
-        return EXIT_OK
+        return SILENT
     lines = _hook_lines(flagged)
     blocked = any(d.level == BLOCK for _, _, d in flagged)
     advice = (
@@ -1185,16 +1175,10 @@ async def _run_edit_hook(args: argparse.Namespace, event: dict, tool_input: dict
         "package-doctor.toml."
         if blocked else "Worth a look before syncing."
     )
-    context = f"package-doctor checked what was just added to {path.name}: " \
-              + " | ".join(lines) + f" {advice}"
-    print(json.dumps({
-        "systemMessage": context,
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": context,
-        },
-    }))
-    return EXIT_OK
+    return HookResult(
+        context=f"package-doctor checked what was just added to {files}: "
+                + " | ".join(lines) + f" {advice}",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

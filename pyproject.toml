@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Binuka Jayaweera" }]
-keywords = ["dependencies", "security", "supply-chain", "maintenance", "vulnerability", "osv", "cisa-kev", "epss", "sarif", "pip-audit", "claude-code"]
+keywords = ["dependencies", "security", "supply-chain", "maintenance", "vulnerability", "osv", "cisa-kev", "epss", "sarif", "pip-audit", "claude-code", "codex", "gemini-cli"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",

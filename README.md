@@ -34,10 +34,11 @@ question worth asking about a dependency is not *"is it healthy?"* It is:
   the handful worth reading today.
 - **Reachability.** Each finding says whether, and where, your own code imports
   the package.
-- **A guardrail for coding agents.** As a Claude Code hook it checks every
-  install an agent proposes, and blocks invented names, packages published in
-  the last 30 days, and vulnerable or abandoned libraries at a trust boundary -
-  with the reason, so the agent picks something else.
+- **A guardrail for coding agents.** As a Claude Code, Codex or Gemini CLI
+  hook it checks every install an agent proposes, and blocks invented names,
+  packages published in the last 30 days, and vulnerable or abandoned
+  libraries at a trust boundary - with the reason, so the agent picks
+  something else.
 
 Findings are grouped by what to do about them:
 
@@ -97,6 +98,9 @@ accept a known risk on the record, with a reason and an expiry date.
 
 `PreToolUse` checks what an install names before it runs. `PostToolUse` checks
 what it pulled in with it, and names written straight into a dependency file.
+For Gemini CLI and Codex, use `package-doctor hook gemini` or
+`package-doctor hook codex`; the settings are in
+[the guardrail docs](docs/agent-guardrail.md#gemini-cli-hook).
 
 ## How accurate is it?
 
@@ -137,7 +141,7 @@ quarterly maintenance review rather than a per-commit gate.
 - [Using package-doctor](https://github.com/binuka200/package-doctor/blob/main/docs/usage.md) -
   commands, CI, the GitHub Action, SARIF, pre-commit, accepted risks, every option
 - [A guardrail for coding agents](https://github.com/binuka200/package-doctor/blob/main/docs/agent-guardrail.md) -
-  what `check` and the Claude Code hook block, warn on and allow, and why
+  what `check` and the agent hooks block, warn on and allow, and why
 - [How package-doctor decides](https://github.com/binuka200/package-doctor/blob/main/docs/how-it-works.md) -
   the two-axis model, exploit ranking, reachability, data sources
 - [The exposure map](https://github.com/binuka200/package-doctor/blob/main/docs/exposure-map.md) -

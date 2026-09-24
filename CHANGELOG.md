@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`package-doctor hook gemini`**, the agent guardrail for Gemini CLI. The
+  same install, lockfile and edit checks as the Claude Code hook, in Gemini's
+  hook format; see [the guardrail docs](docs/agent-guardrail.md#gemini-cli-hook).
+  Before an install, Gemini can pass the model a refusal but not a warning,
+  so warnings there reach only the user.
+- **`package-doctor hook codex`**, the same guardrail for Codex CLI, with
+  warnings reaching the model as they do in Claude Code. After an
+  `apply_patch`, every dependency file the patch wrote is checked; see
+  [the guardrail docs](docs/agent-guardrail.md#codex-hook).
+
+### Changed
+
+- The hook's decisions are now separate from each agent's hook format
+  (`package_doctor.hooks`), so another agent is a parser and a renderer.
+  The Claude Code hook's behaviour and output are unchanged, except that an
+  edit hook given several files reports them together.
+
 ## [1.0.3] - 2026-09-23
 
 ### Added

@@ -77,7 +77,7 @@ vulnerable code actually arrives - and everything `uv sync` or `poetry lock`
 installs without naming it, exists only in the lockfile afterwards. So after
 `uv add`, `poetry add` and `pipenv install`, and after resolves such as
 `uv sync`, `uv lock`, `poetry install`, `poetry lock`, `poetry update`,
-`pipenv lock` and `pipenv sync`, a `PostToolUse` hook diffs the lockfile
+`pipenv lock` and `pipenv sync`, a hook that runs after the command diffs the lockfile
 against the last commit and checks what was added, leaving out the names the
 command typed because those were checked before it ran. It cannot block - the
 packages are installed - so the finding goes to the model as context, with a
@@ -132,8 +132,8 @@ not on PyPI, brand new - which are facts about the name rather than a
 verdict. A malformed file is ignored by the hook rather than stopping the
 call, which can only block more, never less.
 
-If the lookup itself fails, the install is allowed and the model is told it
-went unchecked. `--warn-blocks` makes warnings block too. Responses are
+If the lookup itself fails, the install is allowed and you are told it went
+unchecked. `--warn-blocks` makes warnings block too. Responses are
 cached, so the second check of a package costs nothing.
 
 ### Edits to dependency files
@@ -166,3 +166,64 @@ already happened, so this cannot block; the finding goes to the model as
 context, with the instruction to remove the package from the file before
 anything installs it — which is enough for an agent to fix its own mistake
 before a resolver runs.
+
+## Gemini CLI hook
+
+The same checks run as a Gemini CLI hook. Add to `.gemini/settings.json` in
+the project, or `~/.gemini/settings.json` for every project:
+
+```json
+{
+  "hooks": {
+    "BeforeTool": [
+      { "matcher": "run_shell_command",
+        "hooks": [{ "type": "command", "command": "package-doctor hook gemini", "timeout": 60000 }] }
+    ],
+    "AfterTool": [
+      { "matcher": "run_shell_command|write_file|replace",
+        "hooks": [{ "type": "command", "command": "package-doctor hook gemini", "timeout": 60000 }] }
+    ]
+  }
+}
+```
+
+Gemini counts `timeout` in milliseconds, not seconds. Blocks, lockfile checks
+and edit checks behave as they do in Claude Code: a block is a `deny` whose
+reason the model reads as the tool's error, and what an install, resolve or
+edit just added reaches the model as context. One thing differs. Gemini has
+no way to give the model context *before* a tool runs without refusing it,
+so a warning on an install — and the note that a package is an accepted risk
+— is shown to you in the terminal but not to the model. `--warn-blocks`
+turns those warnings into blocks, which the model does read.
+
+## Codex hook
+
+The same checks run as a Codex CLI hook. Add to `.codex/hooks.json` in the
+repository, or `~/.codex/hooks.json` for every project:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "package-doctor hook codex", "timeout": 60 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Bash|apply_patch",
+        "hooks": [{ "type": "command", "command": "package-doctor hook codex", "timeout": 60 }] }
+    ]
+  }
+}
+```
+
+Codex asks you to review and trust a hook before it runs it the first time,
+and again whenever its definition changes. Everything then works as in
+Claude Code, warnings included: a block is a `deny` that the model reads as
+the command's error, and warnings and what an install, resolve or edit just
+added reach the model as context. Codex edits files with patches, so after an
+`apply_patch` the hook checks every dependency file the patch wrote, as one
+list.
+
+Codex tells a hook the session's directory but not the directory a command
+ran in, so a resolve run somewhere else - `cd api && uv sync` - is checked
+against the lockfile in the session's directory, not the one it wrote.
