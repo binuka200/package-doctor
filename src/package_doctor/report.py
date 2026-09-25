@@ -778,6 +778,7 @@ def to_dict(
     degraded: dict[str, int] | None = None,
     not_analysed: dict[str, str] | None = None,
     unread: Iterable[tuple[str, str]] = (),
+    approximated: Iterable[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     def serialise(finding: Finding) -> dict[str, Any]:
         rem = finding.remediation
@@ -883,5 +884,9 @@ def to_dict(
         # Dependency files read only in part - a setup.py whose install_requires
         # is computed in Python - so an empty "findings" is not read as clean.
         "unread": [{"file": file, "reason": reason} for file, reason in unread],
+        # Dependency files read by approximation - a setup.py whose
+        # install_requires is built from a literal list, read from that list -
+        # so findings here may name more or fewer packages than an install gets.
+        "approximated": [{"file": file, "how": how} for file, how in approximated],
         "findings": [serialise(f) for f in findings],
     }

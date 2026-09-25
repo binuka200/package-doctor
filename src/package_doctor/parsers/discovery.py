@@ -112,6 +112,10 @@ class DependencySet:
     #: is computed in Python. An empty result from a file a parser could not
     #: see into must not look like a clean one, so it is reported.
     unread: list[tuple[Path, str]] = field(default_factory=list)
+    #: files read by approximation, with how - a setup.py whose install_requires
+    #: is computed from a literal list, read from that list instead. What an
+    #: install gets may differ, so the scan says which list it used.
+    approximated: list[tuple[Path, str]] = field(default_factory=list)
     #: normalised names of packages that come from the project itself rather
     #: than from an index: the project's own distribution, workspace members,
     #: and anything a lockfile records with a local source. They have no PyPI
@@ -708,6 +712,13 @@ def parse_setup_py(path: Path, deps: DependencySet, text: str) -> None:
     file, picked by a condition, appended to) is invisible to a parser, and a
     partial answer that looks complete is the failure this tool exists to
     avoid: it goes in ``deps.unread`` and the scan says so.
+
+    One computed shape is common enough to approximate: huggingface/
+    transformers keeps every requirement in a literal ``_deps`` list and
+    builds install_requires and each extra from it with a helper. The literal
+    lists a computed value is built from are read instead, and the file goes
+    in ``deps.approximated`` naming them, because they can hold more or fewer
+    than an install gets.
     """
     try:
         with warnings.catch_warnings():
@@ -726,6 +737,25 @@ def parse_setup_py(path: Path, deps: DependencySet, text: str) -> None:
         deps.unread.append((path, "it has no setup() call to read"))
         return
     names = _names_bound_once(tree)
+    bindings = _bindings(tree)
+    used: set[str] = set()
+
+    def computed(keyword: str, node: ast.expr, lines: list[str]) -> None:
+        sources = _literal_sources(node, bindings)
+        if not sources:
+            deps.unread.append((path, f"{keyword} is computed in Python"))
+            return
+        listed = " and ".join(sorted(sources))
+        deps.approximated.append((
+            path,
+            f"{keyword} is computed in Python, so the scan reads the literal "
+            f"list{'s' if len(sources) > 1 else ''} {listed} it is built from",
+        ))
+        for name, found in sorted(sources.items()):
+            if name not in used:
+                used.add(name)
+                lines.extend(found)
+
     for call in calls:
         keywords = {kw.arg: kw.value for kw in call.keywords}
         if None in keywords and "install_requires" not in keywords:
@@ -737,7 +767,7 @@ def parse_setup_py(path: Path, deps: DependencySet, text: str) -> None:
         if "install_requires" in keywords:
             found = _requirement_strings(_static_value(keywords["install_requires"], names))
             if found is None:
-                deps.unread.append((path, "install_requires is computed in Python"))
+                computed("install_requires", keywords["install_requires"], lines)
             else:
                 lines.extend(found)
         if "extras_require" in keywords:
@@ -747,7 +777,7 @@ def parse_setup_py(path: Path, deps: DependencySet, text: str) -> None:
                 if isinstance(extras, dict) else [None]
             )
             if any(g is None for g in groups):
-                deps.unread.append((path, "extras_require is computed in Python"))
+                computed("extras_require", keywords["extras_require"], lines)
             else:
                 lines.extend(line for g in groups for line in g)
         _record_lines(deps, lines, path.name)
@@ -792,6 +822,87 @@ def _names_bound_once(tree: ast.Module) -> dict[str, ast.expr]:
             if stores.get(name) == 1 and name not in changed:
                 bound[name] = stmt.value
     return bound
+
+
+def _bindings(tree: ast.Module) -> dict[str, list[ast.AST]]:
+    """Every node that gives a name a value: assignments to it or into it,
+    methods called on it, and a def of that name.
+
+    Unlike _names_bound_once this keeps everything, because it is used only
+    to follow where a computed value comes from. ``REQS.append('x')`` binds
+    REQS to a one-item list, so what it adds is read like any literal; only a
+    call on the bare name counts, so ``sys.path.insert(0, 'src')`` adds no
+    requirement called "src".
+    """
+    def root(target: ast.expr) -> str | None:
+        while isinstance(target, (ast.Attribute, ast.Subscript, ast.Starred)):
+            target = target.value
+        return target.id if isinstance(target, ast.Name) else None
+
+    bound: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bound.setdefault(node.name, []).append(node)
+            continue
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            receiver, method = node.func.value, node.func.attr
+            if isinstance(receiver, ast.Name) and method in ("append", "insert") and node.args:
+                added: ast.AST = ast.List(elts=[node.args[-1]], ctx=ast.Load())
+            elif isinstance(receiver, ast.Name) and method == "extend" and node.args:
+                added = node.args[0]
+            else:
+                added = node
+            name = root(receiver)
+            if name:
+                bound.setdefault(name, []).append(added)
+            continue
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        for target in targets:
+            elements = target.elts if isinstance(target, (ast.Tuple, ast.List)) else [target]
+            for element in elements:
+                name = root(element)
+                if name:
+                    bound.setdefault(name, []).append(value)
+    return bound
+
+
+def _literal_sources(node: ast.expr, bindings: dict[str, list[ast.AST]]) -> dict[str, list[str]]:
+    """The literal requirement lists a computed value is built from, by name.
+
+    Follows the names ``node`` loads, then the names their values load, and
+    stops at any value that is a list or tuple of strings that all read as
+    requirements. A lone string is never taken: ``VERSION = "1.0"`` parses as
+    a requirement too. Only what setup() is actually given is followed, so
+    ``packages=[...]`` or ``keywords=[...]`` - strings that also parse as
+    requirement names - are never mistaken for dependencies.
+    """
+    found: dict[str, list[str]] = {}
+    seen: set[str] = set()
+    queue = [n.id for n in ast.walk(node) if isinstance(n, ast.Name)]
+    while queue:
+        name = queue.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        for value in bindings.get(name, ()):
+            static = _static_value(value, {}) if isinstance(value, ast.expr) else _COMPUTED
+            lines = _requirement_strings(static) if isinstance(static, (list, tuple)) else None
+            if lines and all(
+                _parse_requirement_line(line) or _unresolvable_line(line.strip())
+                for line in lines if line.strip()
+            ):
+                found.setdefault(name, []).extend(lines)
+                continue
+            queue.extend(
+                n.id for n in ast.walk(value)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+            )
+    return found
 
 
 def _static_value(node: ast.expr | None, names: dict[str, ast.expr]) -> object:

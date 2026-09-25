@@ -261,9 +261,10 @@ def test_setup_py_is_parsed_never_run(tmp_path):
     "import sys\nREQS = ['typing'] if sys.version_info < (3, 5) else []\n"
     "setup(install_requires=REQS)\n",
     "setup(install_requires=open('requirements.txt').read().splitlines())\n",
-    "REQS = ['flask']\nREQS.append('gunicorn')\nsetup(install_requires=REQS)\n",
-    "REQS = ['flask']\nREQS += ['gunicorn']\nsetup(install_requires=REQS)\n",
     "from reqs import REQS\nsetup(install_requires=REQS)\n",
+    # A name setup() is never given is not a source, however it parses.
+    "PACKAGES = ['mypkg', 'mypkg.sub']\n"
+    "setup(packages=PACKAGES, install_requires=open('r.txt').read().split())\n",
 ])
 def test_a_computed_install_requires_is_reported_not_read_as_empty(tmp_path, body):
     write(tmp_path, "setup.py", "from setuptools import setup\n" + body)
@@ -278,7 +279,60 @@ def test_a_computed_extras_require_does_not_hide_a_literal_install_requires(tmp_
           "setup(install_requires=BASE, extras_require={'all': BASE + ['gunicorn']})\n")
     deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
     assert deps.versions == {"flask": None}
-    assert [reason for _, reason in deps.unread] == ["extras_require is computed in Python"]
+    assert deps.unread == []
+    assert [how for _, how in deps.approximated] == [
+        "extras_require is computed in Python, so the scan reads the literal list "
+        "BASE it is built from"
+    ]
+
+
+@pytest.mark.parametrize("body", [
+    "REQS = ['flask']\nREQS.append('gunicorn')\nsetup(install_requires=REQS)\n",
+    "REQS = ['flask']\nREQS.insert(0, 'gunicorn')\nsetup(install_requires=REQS)\n",
+    "REQS = ['flask']\nREQS.extend(['gunicorn'])\nsetup(install_requires=REQS)\n",
+    "REQS = ['flask']\nREQS += ['gunicorn']\nsetup(install_requires=REQS)\n",
+])
+def test_a_list_added_to_is_read_by_approximation(tmp_path, body):
+    write(tmp_path, "setup.py", "from setuptools import setup\n" + body)
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"flask": None, "gunicorn": None}
+    assert deps.unread == []
+    assert [how for _, how in deps.approximated] == [
+        "install_requires is computed in Python, so the scan reads the literal list "
+        "REQS it is built from"
+    ]
+
+
+def test_the_transformers_shape_is_read_from_its_literal_list(tmp_path):
+    """huggingface/transformers: every requirement in a literal _deps, then a
+    dict built by a comprehension, and install_requires and the extras picked
+    out of it. Nothing was read, and the scan reported no dependencies."""
+    write(tmp_path, "setup.py", (
+        "import re, sys\n"
+        "from setuptools import setup\n"
+        "sys.path.insert(0, 'src')\n"
+        "VERSION = '5.0'\n"
+        "_deps = ['numpy>=1.17', 'nltk<=3.8.1', 'GitPython<3.1.19', 'rjieba']\n"
+        "deps = {b: a for a, b in (re.findall(r'^(([^!=<>~ ]+)(?:[!=<>~ ].*)?$)', x)[0]"
+        " for x in _deps)}\n"
+        "def deps_list(*pkgs):\n    return [deps[pkg] for pkg in pkgs]\n"
+        "extras = {}\n"
+        "extras['testing'] = deps_list('nltk', 'rjieba')\n"
+        "extras['quality'] = deps_list('GitPython')\n"
+        "install_requires = [deps['numpy']]\n"
+        "setup(name='transformers', version=VERSION, packages=['transformers'],\n"
+        "      install_requires=list(install_requires), extras_require=extras)\n"
+    ))
+    deps = collect_dependencies(discover_manifests(tmp_path), root=tmp_path)
+    assert deps.versions == {"numpy": None, "nltk": None, "gitpython": None, "rjieba": None}
+    assert deps.specifiers["nltk"] == "<=3.8.1"
+    assert deps.unread == []
+    assert [how for _, how in deps.approximated] == [
+        "install_requires is computed in Python, so the scan reads the literal list "
+        "_deps it is built from",
+        "extras_require is computed in Python, so the scan reads the literal list "
+        "_deps it is built from",
+    ]
 
 
 def test_a_setup_py_shim_with_nothing_to_read_is_complete(tmp_path):

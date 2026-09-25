@@ -21,6 +21,9 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
+
 from .models import Confidence, Evidence, Exposure, Finding, Package, Remediation, Verdict
 from .sources.exploitability import describe as describe_exploit
 
@@ -49,6 +52,16 @@ def _ago(days: int) -> str:
         months = round(days / 30.44)
         return f"{months} month{'s' if months != 1 else ''} ago"
     return f"{_years(days)} ago"
+
+
+def _excludes(specifier: str | None, version: str | None) -> bool:
+    """True when a declared range rules out a release, so a reinstall cannot reach it."""
+    if not specifier or not version:
+        return False
+    try:
+        return not SpecifierSet(specifier).contains(Version(version), prereleases=True)
+    except (InvalidSpecifier, InvalidVersion):
+        return False
 
 
 def assess(
@@ -186,12 +199,19 @@ def assess(
             f" and {adv.affecting_current - 2} more" if adv.affecting_current > 2 else ""
         )
         # An assumed version is a guess about what a fresh install would get,
-        # and a claim built on a guess has to say so in the same breath.
-        subject = (
-            f"newest release {package.version} (assumed: nothing pins this package)"
-            if package.version_assumed
-            else f"pinned version {package.version}"
-        )
+        # and a claim built on a guess has to say so in the same breath. A
+        # range is named when there is one: `nltk<=3.8.1` pins nltk as surely
+        # as `==` does, and "nothing pins this package" beside a latest
+        # release of 3.10.3 read as a contradiction on huggingface/transformers.
+        if not package.version_assumed:
+            subject = f"pinned version {package.version}"
+        elif package.specifier:
+            subject = (
+                f"{package.version}, the newest release {package.specifier} allows "
+                f"(assumed: no exact pin),"
+            )
+        else:
+            subject = f"newest release {package.version} (assumed: nothing pins this package)"
         current.append(
             Evidence(
                 f"{subject} is affected by "
@@ -201,8 +221,15 @@ def assess(
             )
         )
         if fixable:
+            # When the project's own range is what holds the fix back, the
+            # upgrade is an edit to that range, not a reinstall.
+            outside = (
+                f" outside {package.specifier}"
+                if _excludes(package.specifier, remediation.latest_version)
+                else ""
+            )
             target = (
-                f"the latest release, {remediation.latest_version},"
+                f"the latest release, {remediation.latest_version}{outside},"
                 if remediation.latest_version
                 else "a newer release"
             )

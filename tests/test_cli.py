@@ -329,7 +329,8 @@ def test_explain_rejects_a_name_that_is_not_a_requirement(tmp_path, monkeypatch,
 def test_scan_writes_an_empty_report_when_no_dependencies_are_found(tmp_path, monkeypatch):
     """huggingface/transformers computes install_requires, so nothing could be
     read; the scan exited 0 without writing -o, and the step that read the
-    JSON failed on a missing file. The report now exists and says why."""
+    JSON failed on a missing file. The report now exists and says why, and
+    the scan fails: nothing found because nothing could be read is not clean."""
     (tmp_path / "setup.py").write_text(
         "from setuptools import setup\nfrom deps import REQS\nsetup(install_requires=REQS)\n",
         encoding="utf-8",
@@ -338,13 +339,48 @@ def test_scan_writes_an_empty_report_when_no_dependencies_are_found(tmp_path, mo
     out, sarif = tmp_path / "report.json", tmp_path / "report.sarif"
     code = cli.main(["scan", str(tmp_path), "-o", str(out), "--sarif", str(sarif),
                      "--no-cache"])
-    assert code == cli.EXIT_OK
+    assert code == cli.EXIT_FINDINGS
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["findings"] == []
     assert payload["unread"] == [
         {"file": "setup.py", "reason": "install_requires is computed in Python"}
     ]
     assert sarif.exists()
+
+
+def test_fail_on_never_passes_a_scan_with_nothing_readable(tmp_path, monkeypatch):
+    (tmp_path / "setup.py").write_text(
+        "from setuptools import setup\nfrom deps import REQS\nsetup(install_requires=REQS)\n",
+        encoding="utf-8",
+    )
+    stub_analyzer(monkeypatch, [])
+    assert cli.main(["scan", str(tmp_path), "--no-cache"]) == cli.EXIT_FINDINGS
+    assert cli.main(["scan", str(tmp_path), "--no-cache", "--fail-on", "never"]) == cli.EXIT_OK
+
+
+def test_a_project_that_declares_nothing_still_passes(tmp_path, monkeypatch):
+    (tmp_path / "setup.py").write_text("from setuptools import setup\nsetup()\n",
+                                       encoding="utf-8")
+    stub_analyzer(monkeypatch, [])
+    assert cli.main(["scan", str(tmp_path), "--no-cache"]) == cli.EXIT_OK
+
+
+def test_an_approximated_setup_py_is_named_in_the_report(tmp_path, monkeypatch):
+    (tmp_path / "setup.py").write_text(
+        "from setuptools import setup\n_deps = ['flask']\n"
+        "setup(install_requires=[d for d in _deps])\n",
+        encoding="utf-8",
+    )
+    stub_analyzer(monkeypatch, [])
+    out = tmp_path / "report.json"
+    cli.main(["scan", str(tmp_path), "-o", str(out), "--no-cache", "--no-reachability"])
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["unread"] == []
+    assert payload["approximated"] == [{
+        "file": "setup.py",
+        "how": "install_requires is computed in Python, so the scan reads the literal "
+               "list _deps it is built from",
+    }]
 
 
 def test_scan_reports_sources_relative_to_the_project(tmp_path, monkeypatch, capsys):

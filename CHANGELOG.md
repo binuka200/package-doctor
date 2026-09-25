@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A `setup.py` that builds its dependencies from literal lists is read.**
+  huggingface/transformers keeps every requirement in a `_deps` list and
+  builds `install_requires` and its extras from it with a helper, so the scan
+  found nothing. The literal lists a computed value is built from are now
+  read, and the scan says it *read approximately* and names them; the JSON
+  report lists these under a new `approximated` key. Scanning transformers now
+  finds 86 dependencies and 3 that fail the build.
+- **A scan that could read nothing fails.** No dependencies found because the
+  files declaring them could not be read now exits `1` instead of `0`, with a
+  line saying why. `--fail-on never` still passes, and a project that
+  genuinely declares nothing still exits `0`.
+- **An assumed version names its range.** `nltk<=3.8.1` used to read "newest
+  release 3.8.1 (assumed: nothing pins this package)" beside a latest release
+  of 3.10.3. It now reads "3.8.1, the newest release <=3.8.1 allows", and the
+  fix line says when the latest release is outside the declared range, so the
+  fix is an edit to that range rather than a reinstall.
+
 ## [1.0.5] - 2026-09-24
 
 ### Changed

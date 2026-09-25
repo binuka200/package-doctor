@@ -218,6 +218,33 @@ def test_the_evidence_says_the_version_was_assumed():
     assert not any("pinned version" in c for c in claims)
 
 
+def test_a_declared_range_is_named_rather_than_denied():
+    """transformers declares nltk<=3.8.1. "Nothing pins this package" beside
+    a latest release of 3.10.3 read as a contradiction; the range is the pin,
+    and it is what keeps the fix out."""
+    pkg = Package(name="nltk", version="3.8.1", version_assumed=True, specifier="<=3.8.1")
+    adv = AdvisoryHistory(total=2, affecting_current=2,
+                          ids_affecting_current=["GHSA-1", "GHSA-2"])
+    f = assess(pkg, Exposure(categories=["crypto"], confidence=Confidence.CURATED),
+               Remediation(last_release=NOW, repo_archived=False, advisories=adv,
+                           latest_version="3.10.3"), now=NOW)
+    claims = [r.claim for r in f.reasons]
+    assert any(c.startswith("3.8.1, the newest release <=3.8.1 allows (assumed: no exact "
+                            "pin), is affected by 2 advisories") for c in claims)
+    assert not any("nothing pins" in c for c in claims)
+    assert "the latest release, 3.10.3 outside <=3.8.1, fixes all of them" in claims
+
+
+def test_a_range_that_admits_the_fix_is_not_said_to_exclude_it():
+    pkg = Package(name="demo", version="2.0", version_assumed=True, specifier=">=1")
+    adv = AdvisoryHistory(total=1, affecting_current=1,
+                          ids_affecting_current=["GHSA-1"])
+    f = assess(pkg, Exposure(categories=["crypto"], confidence=Confidence.CURATED),
+               Remediation(last_release=NOW, repo_archived=False, advisories=adv,
+                           latest_version="3.0"), now=NOW)
+    assert "the latest release, 3.0, fixes it" in [r.claim for r in f.reasons]
+
+
 def test_the_table_marks_it_and_the_header_explains(capsys):
     render(Console(width=100, force_terminal=False),
            [assumed(affecting=1), assumed("pinned", affecting=1)],

@@ -134,6 +134,11 @@ def test_the_message_carries_the_reasons_and_marks_an_assumed_version(tmp_path):
     text = to_sarif([make(package=pkg)], tmp_path, NOW)["runs"][0]["results"][0]["message"]["text"]
     assert text.startswith("httpx 0.28.1 (assumed: nothing pins this package) - crypto.")
     assert "repository is archived" in text
+    ranged = Package(name="httpx", version="0.28.1", version_assumed=True, specifier="<0.29")
+    ranged_text = to_sarif([make(package=ranged)], tmp_path, NOW)["runs"][0]["results"][0]
+    assert ranged_text["message"]["text"].startswith(
+        "httpx 0.28.1 (assumed: the newest release <0.29 allows) - crypto."
+    )
 
 
 def test_an_inferred_exposure_is_marked_as_a_guess(tmp_path):

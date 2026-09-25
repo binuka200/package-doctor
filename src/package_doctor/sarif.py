@@ -139,7 +139,9 @@ def _location(uri: str, line: int | None) -> dict[str, Any]:
 def _message(finding: Finding) -> str:
     pkg = finding.package
     version = pkg.version or "unpinned"
-    if pkg.version_assumed:
+    if pkg.version_assumed and pkg.specifier:
+        version = f"{pkg.version} (assumed: the newest release {pkg.specifier} allows)"
+    elif pkg.version_assumed:
         version = f"{pkg.version} (assumed: nothing pins this package)"
     head = f"{pkg.name} {version}"
     exposure = finding.exposure.label

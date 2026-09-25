@@ -79,7 +79,9 @@ replacement or an upgrade - and on active exploitation wherever it is found.
 `--fail-on vulnerable` ignores the boundary and fails on every advisory
 against a version in use, `--fail-on all` adds *quiet*, `--fail-on exploited`
 fails only on what is being exploited, and `--fail-on never` reports only. The
-older `act` and `watch` still work.
+older `act` and `watch` still work. A scan that finds no dependencies because
+the files that declare them could not be read also exits `1`, unless
+`--fail-on never`: nothing checked is not the same as nothing wrong.
 
 ```bash
 package-doctor scan --json -o report.json
@@ -224,9 +226,13 @@ directories down, never entering tests, docs, examples, fixtures, vendored
 code or hidden directories, and says which files it used. `setup.py` is
 parsed, never run: `install_requires` and `extras_require` written as
 literals are read, including a list bound to a name first. One computed in
-Python — read from a file, chosen by a condition, appended to — is invisible
-to a parser, and a partial answer that looks complete is the failure this tool
-exists to avoid, so the scan reports the file as *not fully read*.
+Python from literal lists — huggingface/transformers keeps every requirement
+in a `_deps` list and picks `install_requires` and each extra out of it — is
+read from those lists, and the scan says it *read approximately* and names
+them, because they can hold more or fewer than an install gets. One computed
+from nothing literal — read from a file, imported from another module — is
+invisible to a parser, and a partial answer that looks complete is the failure
+this tool exists to avoid, so the scan reports the file as *not fully read*.
 
 Dependencies that come from git, a URL or a local path — a `git+ssh://` line,
 an `-e` editable, a `name @ url` reference, a git source in a lockfile — are

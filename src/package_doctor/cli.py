@@ -416,6 +416,12 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
             f"{escape(reason)}, so its dependencies are not in this scan. setup.py is "
             f"parsed, never run."
         )
+    for approximated, how in deps.approximated:
+        notes.print(
+            f"[yellow]Read approximately:[/yellow] {escape(_display(approximated, root))} - "
+            f"{escape(how)}, which may name more or fewer packages than an install "
+            f"gets. setup.py is parsed, never run."
+        )
     if deps.other_versions:
         # One version is scanned; the others still install somewhere, or are
         # pinned somewhere, so they are named here instead of disappearing.
@@ -431,13 +437,24 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
             f"for some Python versions or extras, or pinned in another file. Check "
             f"one with explain --pin."
         )
-    if not deps:
+    # Nothing found because nothing could be read is not a clean result: a
+    # setup.py that computes install_requires from an import used to pass CI
+    # with exit 0. A project that genuinely declares nothing still does, and
+    # --fail-on never still means never.
+    unreadable = not deps and bool(deps.unread) and args.fail_on != "never"
+    if not deps and unreadable:
+        notes.print(
+            "[yellow]No dependencies found, but only because the files above could not "
+            "be read, so this fails rather than passing unchecked.[/yellow] Pin them in "
+            "a lockfile or requirements file, or pass --fail-on never."
+        )
+    elif not deps:
         notes.print("[yellow]No dependencies found.[/yellow]")
         # A pipeline that asked for a report still gets one, empty, with the
         # files it could not read: huggingface/transformers exited 0 and wrote
         # no file, so the step reading the JSON failed on a missing path.
         if not (args.as_json or args.output or args.sarif or args.markdown):
-            return EXIT_OK
+            return EXIT_FINDINGS if unreadable else EXIT_OK
 
     # Reachability: which of these the project's own code actually imports.
     # Positive evidence only - see sourcescan for why absence proves nothing.
@@ -544,6 +561,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
     payload = to_dict(
         findings, source_names, now, degraded=degraded, not_analysed=deps.not_analysed,
         unread=[(_display(p, root), reason) for p, reason in deps.unread],
+        approximated=[(_display(p, root), how) for p, how in deps.approximated],
     )
 
     # The side outputs are written first, whatever the exit code turns out to
@@ -577,7 +595,7 @@ async def _run_scan(args: argparse.Namespace, console: Console) -> int:
         )
 
     fails = _FAIL_LEVELS[_FAIL_ALIASES.get(args.fail_on, args.fail_on)]
-    if any(fails(f) and not f.suppressed for f in findings):
+    if unreadable or any(fails(f) and not f.suppressed for f in findings):
         return EXIT_FINDINGS
     return EXIT_OK
 
